@@ -86,23 +86,23 @@ signature ever published.
 
 ### Added
 
-- **Consensus revived** as in-kernel orchestration (an earlier decision): answers are
+- **Consensus revived** as in-kernel orchestration: answers are
   delivered to the originating agent's chat plus a dedicated Consensus tab,
   engine-reuse quorum fallback (`CONSENSUS_ENGINE_REUSE`), per-agent engine
   access enforcement, and long-term memory storage of verdicts.
   (#230–#232, #237, #242, #266)
-- **Safe shutdown** (an earlier decision): tray quit and the new sidebar power button
+- **Safe shutdown**: tray quit and the new sidebar power button
   share one drain-then-exit sequence with a shutdown overlay; MCP subprocess
   trees are reaped on restart and app exit, with a forced group-kill sweep
   when the drain window expires (bug-426). (#248, #264, #265)
-- **Per-agent recall configuration** (an earlier decision): recall timing policy,
+- **Per-agent recall configuration**: recall timing policy,
   session scope with the per-channel episode axis (default flipped after
   A/B), and read-edit-save precision control in the dashboard. (#190–#203)
-- **Per-server MCP log streaming** in the dashboard Log tab (an earlier decision). (#244)
+- **Per-server MCP log streaming** in the dashboard Log tab. (#244)
 - **LLM provider metadata** seeded from the marketplace catalog; the agent
-  console lists only real engines and warns on uninstall (an earlier decision).
+  console lists only real engines and warns on uninstall.
   (#249–#251)
-- **Release pipeline** (an earlier decision): Release Lifecycle Standard adoption
+- **Release pipeline**: Release Lifecycle Standard adoption
   (`SUPPORT.md` / `SECURITY.md`), signed updater feed with per-tier channel
   views, certification recorded in `.release/lifecycle.json`. (#269–#271)
 
@@ -190,7 +190,7 @@ verification source of truth for every entry.
   server-side half (mgp-discord exiting on stdin EOF) is clotohub-servers
   bug-009.
 
-**Consensus (revival hardening, an earlier decision):**
+**Consensus (revival hardening):**
 
 - **bug-417** (HIGH): the terminal consensus response was never delivered to
   the originating chat — a silent hang from the requester's perspective.
@@ -233,7 +233,7 @@ verification source of truth for every entry.
 ### Changed
 
 - Engine/server ids de-prefixed: the `mind.` engine prefix and category id
-  prefixes are retired; classification is tool-surface based (an earlier decision). (#247, #252)
+  prefixes are retired; classification is tool-surface based. (#247, #252)
 - axum 0.8 migration and dependency refresh (tauri 2.11, tower-http,
   quinn-proto RUSTSEC advisory). (#224 et al.)
 - Cross-platform release gate: Windows tests + headless `--smoke` in CI. (#185)
@@ -242,7 +242,7 @@ verification source of truth for every entry.
 
 ## [0.6.8-beta.1] — 2026-06-13
 
-**Feature freeze for the 0.6.8 line.** This beta completes the P1/P2 design-violation remediation tracked under an earlier decision: every remaining `ARCHITECTURE.md` §1 (Design Principles) violation in the kernel is resolved, alongside the Setup Wizard / marketplace robustness, MCP transport-timeout, and lifecycle hardening backlog. `scripts/verify-issues.sh` reports zero open HIGH/MEDIUM entries for the an earlier decision set. Published on the alpha channel (the Tauri Updater resolves `latest.json` via `/releases/latest/download/` and skips prerelease entries, so production `v0.6.7` stable installs receive no in-app upgrade prompt). No installer / upgrade-hook behaviour changes.
+**Feature freeze for the 0.6.8 line.** This beta completes the P1/P2 design-violation remediation programme: every remaining `ARCHITECTURE.md` §1 (Design Principles) violation in the kernel is resolved, alongside the Setup Wizard / marketplace robustness, MCP transport-timeout, and lifecycle hardening backlog. `scripts/verify-issues.sh` reports zero open HIGH/MEDIUM entries for that set. Published on the alpha channel (the Tauri Updater resolves `latest.json` via `/releases/latest/download/` and skips prerelease entries, so production `v0.6.7` stable installs receive no in-app upgrade prompt). No installer / upgrade-hook behaviour changes.
 
 ### Fixed
 
@@ -258,14 +258,14 @@ verification source of truth for every entry.
 
 ### Verified
 
-- `scripts/verify-issues.sh`: bug-293 / 342 `[FIXED]` (pattern absent), bug-305 / 313 `[VERIFIED]` (fix-marker present), with the full an earlier decision set (bug-282/285/304/355–358/365–369) confirmed across PRs #178–#181; 0 stale / 0 errors.
+- `scripts/verify-issues.sh`: bug-293 / 342 `[FIXED]` (pattern absent), bug-305 / 313 `[VERIFIED]` (fix-marker present), with the full remediation set (bug-282/285/304/355–358/365–369) confirmed across PRs #178–#181; 0 stale / 0 errors.
 - CI green on every PR: clippy (workspace allow-list, `--exclude app`) + fmt + workspace tests (371 passed, incl. 6 new `routing_default` tests) + `cargo check -p app`.
 
 ---
 
 ## [0.6.8-alpha.4] — 2026-06-13
 
-Marketplace install-chain remediation + catalog seal verification. Fourth prerelease in the 0.6.8 line, published on the alpha channel (the Tauri Updater resolves `latest.json` via `/releases/latest/download/` and skips `prerelease` entries, so production `v0.6.7` stable installs receive no in-app upgrade prompt). This release lands the full ClotoCore-side fix set discovered during the 2026-06-10 live marketplace install debug (an earlier decision, bug-388–392) plus the hub-mediated catalog seal verification chain (an earlier decision, bug-394) and the supporting `raw_url` distribution fixes. No installer / upgrade-hook behaviour changes — only kernel marketplace, DB migration, and dashboard paths.
+Marketplace install-chain remediation + catalog seal verification. Fourth prerelease in the 0.6.8 line, published on the alpha channel (the Tauri Updater resolves `latest.json` via `/releases/latest/download/` and skips `prerelease` entries, so production `v0.6.7` stable installs receive no in-app upgrade prompt). This release lands the full ClotoCore-side fix set discovered during the 2026-06-10 live marketplace install debug (bug-388–392) plus the hub-mediated catalog seal verification chain ( bug-394) and the supporting `raw_url` distribution fixes. No installer / upgrade-hook behaviour changes — only kernel marketplace, DB migration, and dashboard paths.
 
 ### Fixed
 
@@ -296,23 +296,23 @@ Verify-automation hardening. Third prerelease in the 0.6.8 line, published on th
 
 ### Verified
 
-- End-to-end Sandbox verify for `v0.6.7 → v0.6.8-alpha.2` upgrade path on Proxmox VM 104:
+- End-to-end Sandbox verify for `v0.6.7 → v0.6.8-alpha.2` upgrade path on the Proxmox Windows guest:
   - **8/8 assertions PASS** (NO-OP hook path — Tauri default upgrade flow, no legacy migration needed).
   - **Data preservation confirmed**: dummy `cloto_memories.db` SHA-256 unchanged across upgrade.
-  - **Wall clock: ~6 min 20 s** (rollback → guest SSH → download FROM → seed DB → silent install FROM → PRE fingerprint → download TO → silent install TO → POST fingerprint → assertion), well under the an earlier decision α→β promotion criterion of 20 min.
-- Together with an earlier decision (Pattern-C, landed in `0.6.8-alpha.2`) and an earlier decision verify automation (`0.6.8-alpha.1`), this satisfies all three α→β promotion criteria. The 0.6.8 line is eligible for beta.1 promotion.
+  - **Wall clock: ~6 min 20 s** (rollback → guest SSH → download FROM → seed DB → silent install FROM → PRE fingerprint → download TO → silent install TO → POST fingerprint → assertion), well under the α→β promotion criterion of 20 min.
+- Together with Pattern-C (landed in `0.6.8-alpha.2`) and the verify automation (`0.6.8-alpha.1`), this satisfies all three α→β promotion criteria. The 0.6.8 line is eligible for beta.1 promotion.
 
 ---
 
 ## [0.6.8-alpha.2] — 2026-05-28
 
-Pattern-C capability tool name registry. Second prerelease in the 0.6.8 line; like alpha.1, deliberately published on the alpha channel so existing stable installs do not receive an in-app upgrade prompt. This release lands the structural refactor planned as PR #1 in an earlier decision — the kernel no longer hard-codes MCP tool names as string literals in `handlers/system.rs`. It is the α→β promotion-criterion piece for the 0.6.8 line (per an earlier decision).
+Pattern-C capability tool name registry. Second prerelease in the 0.6.8 line; like alpha.1, deliberately published on the alpha channel so existing stable installs do not receive an in-app upgrade prompt. This release lands the structural refactor planned as PR #1 of that programme — the kernel no longer hard-codes MCP tool names as string literals in `handlers/system.rs`. It is the α→β promotion-criterion piece for the 0.6.8 line.
 
 ### Added
 
 - **`ToolKind` enum** (`crates/core/src/managers/capability_dispatcher.rs`) — 11 well-known tool variants (`Store`, `Recall`, `ListMemories`, `ListEpisodes`, `ArchiveEpisode`, `UpdateProfile`, `Think`, `ThinkWithTools`, `AnalyzeImage`, `Transcribe`, `Speak`) plus `Custom(String)` escape hatch for non-well-known tools.
 - **`CapabilityType::Display` / `FromStr`** — single source of truth for the JSON keys (`"Memory" | "Reasoning" | "Vision" | "Stt" | "Speech"`) used both by the new `build_from_capabilities` ingest path and by server-side `tools_for_capability` declarations.
-- **`MgpServerCapabilities.tools_for_capability`** vendor extension (`Option<HashMap<String, Vec<String>>>`) — MCP servers can now explicitly declare which tools they expose under each capability, overriding the kernel's heuristic `classify_tool` fallback. Targeted for spec formalization in MGP 0.7.0 (Layered Manifest Layer 1/2, see mgp-spec an earlier decision).
+- **`MgpServerCapabilities.tools_for_capability`** vendor extension (`Option<HashMap<String, Vec<String>>>`) — MCP servers can now explicitly declare which tools they expose under each capability, overriding the kernel's heuristic `classify_tool` fallback. Targeted for spec formalization in MGP 0.7.0 (Layered Manifest Layer 1/2, see the mgp-spec design).
 - **`McpClientManager` ToolKind shims** (`call_kind`, `call_kind_at`, `call_kind_streaming`, `call_kind_streaming_at`, `has_kind`, `has_kind_at`) — typed entry points that keep handlers/ free of tool name string literals.
 - **Tests** — 7 new unit tests in `capability_dispatcher.rs` (round-trip, capability mapping consistency, cross-capability rejection, Custom fallback, Display round-trip) and 3 serde tests in `mcp_mgp.rs` for the new field.
 
@@ -329,7 +329,7 @@ Pattern-C capability tool name registry. Second prerelease in the 0.6.8 line; li
 ### Known limitations
 
 - `classify_tool` private fallback list remains in `capability_dispatcher.rs` for servers that have not declared `tools_for_capability`. Removal is scheduled for 0.6.9+ once every shipped server has adopted the manifest path. Server-prefix heuristics (`memory.*`, `mind.*`, `vision.*`, `stt.*`, `output.*`) are also still present and tracked separately under §1.2 audit.
-- bug-282 / bug-285 / bug-293 / bug-296 (other §1.2 violations from the an earlier decision 5-PR plan) are unaffected by this release and remain open.
+- bug-282 / bug-285 / bug-293 / bug-296 (other §1.2 violations from the 5-PR remediation plan) are unaffected by this release and remain open.
 
 ---
 
@@ -341,13 +341,13 @@ Verify automation MVP release. First prerelease in the 0.6.8 line, deliberately 
 
 - **NSIS hook structural gate** (`scripts/check-nsis-hook.sh` + new `nsis-hook-gate` CI job). Source-level grep assertion that the bug-386 `NSIS_HOOK_PREINSTALL` macro in `dashboard/src-tauri/installer.nsh` remains intact (macro entry point, legacy `Uninstall\cloto-system` registry probe, legacy silent-uninstall `ExecWait '"$0" /S'` invocation, and the `bug-386:` audit log line). Fails CI in <1 sec with a GitHub Actions `::error::` annotation if any required pattern is missing — silent removal of the hook now becomes impossible without an explicit gate update.
 
-- **Proxmox Win11 verify driver** (`scripts/proxmox-windows-verify.sh`, ~250 LOC). Mac-side shell driver that rollbacks VM 104 to its pristine snapshot, downloads the FROM-version installer from GitHub Releases, seeds a dummy database to detect data preservation, runs silent install, captures a 9-field Windows fingerprint (install paths, both `HKLM` + `HKCU` uninstall keys, current `DisplayVersion`, db file SHA-256), then transports the TO-version installer (local file via `scp` or downloaded via `gh release`), runs silent install, captures the POST fingerprint, and diffs against an assertion matrix selected by the FROM version: hook-PRIMARY path for `0.6.5` (legacy productName migration) and hook-NO-OP path for `0.6.6+` (Tauri default in-place upgrade). Single iteration: ~6 min, vs ~30-45 min for Windows Sandbox manual verify.
+- **Proxmox Win11 verify driver** (`scripts/proxmox-windows-verify.sh`, ~250 LOC). Mac-side shell driver that rolls the Windows guest back to its pristine snapshot, downloads the FROM-version installer from GitHub Releases, seeds a dummy database to detect data preservation, runs silent install, captures a 9-field Windows fingerprint (install paths, both `HKLM` + `HKCU` uninstall keys, current `DisplayVersion`, db file SHA-256), then transports the TO-version installer (local file via `scp` or downloaded via `gh release`), runs silent install, captures the POST fingerprint, and diffs against an assertion matrix selected by the FROM version: hook-PRIMARY path for `0.6.5` (legacy productName migration) and hook-NO-OP path for `0.6.6+` (Tauri default in-place upgrade). Single iteration: ~6 min, vs ~30-45 min for Windows Sandbox manual verify.
 
 - **NSIS-touching PR detector** (`.github/workflows/nsis-touching-detect.yml`). Triggered on `pull_request` open/synchronize/reopen, scans the diff for changes to `installer.nsh` (always flagged), `tauri.conf.json` (only when `bundle` / `productName` / `identifier` / `windows` keys touched), or any `Cargo.toml` `[[bin]]` block / `name = ` field. When a match is found and the PR title does not contain `[no-sandbox]`, applies the `nsis-touching` label (auto-creates on first use) and posts a comment instructing reviewers to run either `scripts/proxmox-windows-verify.sh` or a manual Sandbox verify pre-merge. Opt-out is recorded in the PR title for audit transparency.
 
 ### Note (alpha channel)
 
-The 0.6.8 line operates under an α/β promotion pattern: `0.6.8-alpha.N` for feature / refactor iteration, `0.6.8-beta.N` for soak after feature-freeze, `0.6.8` stable for the cumulative release. The Tauri Updater's stable-only resolution (memory `clotocore-0.6.5-bug-385-release-land-30c6bd9-20260524` Known limitation) keeps every alpha and beta tag off the auto-update channel. This automation MVP lands first so subsequent alphas (an earlier decision P1/P2 patches, the `config.rs:37 data_dir` literal migration, and other backlog work) can rely on it.
+The 0.6.8 line operates under an α/β promotion pattern: `0.6.8-alpha.N` for feature / refactor iteration, `0.6.8-beta.N` for soak after feature-freeze, `0.6.8` stable for the cumulative release. The Tauri Updater's stable-only resolution (memory `clotocore-0.6.5-bug-385-release-land-30c6bd9-20260524` Known limitation) keeps every alpha and beta tag off the auto-update channel. This automation MVP lands first so subsequent alphas (the P1/P2 patches, the `config.rs:37 data_dir` literal migration, and other backlog work) can rely on it.
 
 ---
 
@@ -382,7 +382,7 @@ CRITICAL hotfix release. Restores the auto-update path for v0.6.5 users (broken 
 
 ## [0.6.6] — 2026-05-24
 
-Kernel structural cleanup release. Two long-pending architectural threads ship together in a single release with bisect-friendly per-PR isolation: (1) the surface product is renamed `cloto-system` → `ClotoCore` to align with the three-layer doctrine (`ClotoCore + ClotoCloud + Cloto アプリ + ClotoHub`), and (2) the kernel is decoupled from hardcoded knowledge of any specific memory plugin id. Cumulative since v0.6.5.
+Kernel structural cleanup release. Two long-pending architectural threads ship together in a single release with bisect-friendly per-PR isolation: (1) the surface product is renamed `cloto-system` → `ClotoCore` to align with the three-layer doctrine (`ClotoCore + ClotoCloud + Cloto app + ClotoHub`), and (2) the kernel is decoupled from hardcoded knowledge of any specific memory plugin id. Cumulative since v0.6.5.
 
 ### Changed
 
@@ -534,7 +534,7 @@ First stable release of the 0.6.3 line. Promotes `0.6.3-beta.14` after coordinat
 - **CVE-2026-33672** — picomatch 2.3.1→2.3.2, 4.0.3→4.0.4 (glob matching method injection)
 
 ### Added
-- [MCP/MGP Server Quickstart](docs/QUICKSTART_MCP_SERVER.md) — two-path guide for new server developers
+- [MCP/MGP Server Quickstart](QUICKSTART_MCP_SERVER.md) — two-path guide for new server developers
 - `CLOTO_YOLO_EXCEPTIONS` documented in README configuration table
 - Tauri dev note in Quick Start section
 

@@ -5,7 +5,7 @@
 agent, and the `CLOTO_RECALL_PERUSER_CHANNEL_AXIS` gate flag has been removed.
 This document is kept as the design record; the "deferred / gated" framing below
 describes the path taken. Follows knob 2 v1 (per-agent `session_scope`, ClotoCore
-PR #193) under an earlier decision.
+PR #193).
 
 ## 1. Background — what knob 2 v1 landed (PR #193)
 
@@ -33,7 +33,7 @@ This is a **default behavior change** — every existing agent's long-term recal
 
 ## 4. Hypothesis
 
-Per-channel episode separation reduces cross-channel topic-drift **contamination** (the an earlier decision root line) without recall loss — the channel-axis analogue of how per-user `source_id` separation already works. Expected: fewer off-topic recalls sourced from unrelated channels, same on-topic hit-rate.
+Per-channel episode separation reduces cross-channel topic-drift **contamination** (the root line) without recall loss — the channel-axis analogue of how per-user `source_id` separation already works. Expected: fewer off-topic recalls sourced from unrelated channels, same on-topic hit-rate.
 
 ## 5. A/B plan
 
@@ -95,7 +95,7 @@ channel. The invariant is locked by `derive_channel_matches_recall_channel_for_e
 
 **Run arms on the same build** by toggling the env var per deployment: arm A = flag unset, arm B = `CLOTO_RECALL_PERUSER_CHANNEL_AXIS=true`. (The harness's `--arm` only labels output; behavior is whichever build/env is running — see `scripts/recall_ab/README.md`.) **Because the store channel is now flag-dependent, the corpus must be re-seeded inside each arm** (reset the test agent with `delete_agent_data` between arms), not seeded once — see the README "Ready-made v2 fixtures".
 
-**Still pending (the actual gate, the maintainer-environment):** author a multi-channel corpus (§5) where the same user/agent is active across ≥2 concrete channels, run arm A vs arm B, and flip the hardcoded default in `from_metadata`'s `PerUser` branch only if cross-channel contamination drops with no recall-quality regression. The corpus is best authored against real responses during the run rather than blind.
+**Still pending (the actual gate, and it needs a real multi-channel deployment):** author a multi-channel corpus (§5) where the same user/agent is active across ≥2 concrete channels, run arm A vs arm B, and flip the hardcoded default in `from_metadata`'s `PerUser` branch only if cross-channel contamination drops with no recall-quality regression. The corpus is best authored against real responses during the run rather than blind.
 
 ## 7. Relationship to other deferred slices (independent of v2)
 
@@ -110,4 +110,4 @@ The line is **complete**:
 - **A/B (2026-06-28):** arm A (flag off) severe 22.2% → arm B (flag on) 11.1%, cross-channel electronics-vocab leak in the `X*` magnet probes eliminated, on-topic recall non-regressed, timeouts 0/0. Gate (contamination drop, no recall-quality regression) **passed**.
 - **Flip:** the `PerUser` default now files the episode channel axis under `external_channel_id` (bridge-type fallback) for every agent; the `CLOTO_RECALL_PERUSER_CHANNEL_AXIS` flag, `Config.recall_per_user_channel_axis`, and the `derive_recall_scope` / `derive_channel` flag parameter are removed.
 - **Companion CPersona changes (v2.4.31):** `''`=global recall (a stored channel of `''` matches every channel-scoped recall, so old/global memories are not orphaned), per-channel episode archival (kernel `maybe_archive_episode`), `migrate_channel_axis` tool, and `list_memories` returning `channel`.
-- **Context:** an earlier decision; CPersona memory `goal120-knob2-v1-pr193-20260627`; this doc.
+- **Context:** the per-agent recall knobs; this doc.

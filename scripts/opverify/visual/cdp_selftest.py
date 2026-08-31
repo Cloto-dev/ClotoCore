@@ -1,4 +1,4 @@
-"""Self-test of the CSS -> screen conversion (an earlier decision), no VM needed.
+"""Self-test of the CSS -> screen conversion, no VM needed.
 Run: ``python -m scripts.opverify.visual.cdp_selftest`` (exit 0 = all passed).
 
 The bug this guards was live for four days and never failed a run, because
@@ -6,9 +6,9 @@ every run happened on a display at 100 % scale, where the wrong formula and the
 right one are the same arithmetic. A test that inherits the machine's scale
 would have been just as blind, so each scenario below *states* a scale.
 
-The numbers are not invented: they are the frames measured on VM 104 on
-2026-08-09, and the assertions are the pointer positions the page reported for
-those aims.
+The numbers are not invented: they are the frames measured on the Windows verify
+guest on 2026-08-09, and the assertions are the pointer positions the page
+reported for those aims.
 """
 
 from __future__ import annotations
@@ -36,9 +36,9 @@ def scenario_at_125_percent_the_origin_scales_too() -> None:
     """dpr 1.25 with the window off the origin -- the case that separates the
     candidate formulas.
 
-    Measured frame: the app at screenX=307, screenY=81 on VM 104. Aiming at the
-    CSS point (156, 118) has to put the physical pointer at (579, 249); the page
-    then reported clientX/clientY of exactly (156, 118).
+    Measured frame: the app at screenX=307, screenY=81 on the Windows guest.
+    Aiming at the CSS point (156, 118) has to put the physical pointer at
+    (579, 249); the page then reported clientX/clientY of exactly (156, 118).
 
     The formula this replaced (``screenX + cx*dpr``) yields (502, 228) for the
     same input, which the page reported as CSS (195, 147) -- 39 CSS pixels off,
@@ -62,9 +62,9 @@ def scenario_at_125_percent_the_origin_scales_too() -> None:
 def scenario_a_scale_the_vm_cannot_reach_is_still_covered() -> None:
     """dpr 1.5.
 
-    VM 104's 1280x800 display does not offer 150 % -- Windows caps the list so
-    the logical resolution stays at least 800x600, and 150 % would make it
-    853x533 (measured 2026-08-09: index 2, 3 and 4 all clamp to 125 %). The
+    The verify guest's 1280x800 display does not offer 150 % -- Windows caps the
+    list so the logical resolution stays at least 800x600, and 150 % would make
+    it 853x533 (measured 2026-08-09: index 2, 3 and 4 all clamp to 125 %). The
     arithmetic still has to be right there, and a machine that cannot be put
     into that state is exactly why this assertion is a unit test.
     """

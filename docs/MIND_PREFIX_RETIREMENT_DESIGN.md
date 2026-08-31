@@ -1,10 +1,9 @@
 # `mind.` Prefix Retirement — Design
 
 **Status:** Proposed
-**Scope:** an earlier decision · an earlier decision
 **Author:** kernel team · 2026-07-01
 **Non-goal / sequel:** full category-prefix retirement (`tool.` / `vision.` /
-`voice.` / `io.`) is tracked separately as an earlier decision and is out of scope here.
+`voice.` / `io.`) is tracked separately and is out of scope here.
 
 Retire the `mind.` engine-id prefix so every reasoning engine is identified by a
 single canonical **bare** id (`deepseek`, `local`, `ollama`, …). This removes the
@@ -118,7 +117,7 @@ until the catalog re-adds them.
 
 ---
 
-## 5. Backend changes (an earlier decision)
+## 5. Backend changes
 
 > **Revised after implementation (2026-07-01).** A full audit of the `mind.`
 > surface (43 sites) showed the task is *not* "delete a handful of no-op strip
@@ -190,7 +189,7 @@ structurally by the producer edit, as with the other relay paths.
 
 ---
 
-## 6. DB migration (an earlier decision)
+## 6. DB migration
 
 A one-shot, idempotent rename modelled on the bug-388 repair
 (`crates/core/src/db/mod.rs:281-366`, `repair_cpersona_rename_collision`).
@@ -236,7 +235,7 @@ Tests: apply-on-legacy, collision-merge, fresh-DB no-op — mirroring
 
 ---
 
-## 7. Frontend changes (an earlier decision)
+## 7. Frontend changes
 
 - `dashboard/src/components/SetupWizard.tsx:40` `ENGINE_IDS` — catalog engines to
   bare (`cerebras`, `groq`, `deepseek`, `claude`), built-ins to bare (`local`,
@@ -266,7 +265,7 @@ pre-migration build is not supported (standard for schema migrations).
 
 ---
 
-## 9. Multi-repo Phase 2 (an earlier decision)
+## 9. Multi-repo Phase 2
 
 The built-in `local` / `ollama` engine servers live in `clotohub-servers` and
 must advertise bare ids there too (the catalog is already bare for `deepseek`).
@@ -288,16 +287,4 @@ Tier A; push/PR only on explicit instruction.
 5. Shim removal is behaviour-preserving *given* unified ids — each removal is
    pinned by a bare-id passthrough test.
 6. Full category-prefix retirement (`tool.`/`vision.`/`voice.`/`io.`) is **not**
-   in scope — an earlier decision.
-
----
-
-## 11. Task mapping (an earlier decision)
-
-| Task | This doc |
-| --- | --- |
-| #126 [design] | this document |
-| #127 [backend] | §5 |
-| #128 [DB migration] | §6 |
-| #129 [frontend] | §7 |
-| #130 [Phase 2 / clotohub-servers] | §9 |
+   in scope.

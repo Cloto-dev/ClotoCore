@@ -121,7 +121,7 @@ placeholder for.
 
 Second journey (`run_vm.py danger-zone`), and the first apex run recorded in
 `qa/opverify/history.jsonl`. It repays the apex debt owed for Defender Phase 3c
-(an earlier decision) under the "when an apex run is owed" rule in `CLAUDE.md`.
+under the "when an apex run is owed" rule in `CLAUDE.md`.
 
 * **Build under test:** `0.6.8-beta.2` from a `draft_only` release dispatch
   (run 30209921724), SHA-256 verified on the VM, silent NSIS install. Note it
@@ -147,7 +147,7 @@ Second journey (`run_vm.py danger-zone`), and the first apex run recorded in
 2. **Tier 1 lists the executable, not the installation.** On Windows the
    enumeration is exactly one entry — `C:\Program Files\ClotoCore\app.exe`. The
    install directory, `uninstall.exe` and the shortcuts are not in the receipt,
-   so a plan-bound purge structurally cannot remove them (an earlier decision, now
+   so a plan-bound purge structurally cannot remove them (now
    measured on a real install rather than reasoned about). The tier-1 hint text
    promises "install prefix" — the plan below it does not deliver one.
 3. **SQLite sidecars are not enumerated.** Tier 2 lists `cloto_memories.db` but

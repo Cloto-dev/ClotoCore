@@ -1045,7 +1045,7 @@ agents can modulate their response certainty without hardcoded behavioral rules.
 **Design philosophy:** CPersona provides **raw numerical data only**. It does NOT
 prescribe behavioral labels (e.g., "assertive", "uncertain"). The consuming agent's
 persona layer interprets the numbers and decides how to express confidence — a formal
-agent might say "records indicate…" while a casual agent might say "たぶんね".
+agent might say "records indicate…" while a casual agent might say "pretty sure, yeah".
 
 ```
 CPersona (memory layer)     → confidence: { cosine: 0.55, age_hours: 120, score: 0.59 }
@@ -1510,13 +1510,13 @@ CREATE TABLE entity_mentions (
 
 **Entity resolution challenge:** The `UNIQUE(agent_id, name, entity_type)` constraint
 handles "Tokyo (place)" vs "Tokyo (company)" via different `entity_type`, but cannot
-distinguish same-name, same-type entities (e.g., two different people named "田中").
+distinguish same-name, same-type entities (e.g., two different people named "Tanaka").
 This ambiguity resolution is delegated to the LLM extraction pipeline, which must use
-conversational context to disambiguate (e.g., "田中 from work" vs "田中 from school").
+conversational context to disambiguate (e.g., "Tanaka from work" vs "Tanaka from school").
 Strategies under consideration:
 
-- **Contextual suffix**: LLM appends disambiguator to name (`"田中 (colleague)"`,
-  `"田中 (school friend)"`) — simple, human-readable, but fragile
+- **Contextual suffix**: LLM appends disambiguator to name (`"Tanaka (colleague)"`,
+  `"Tanaka (school friend)"`) — simple, human-readable, but fragile
 - **Canonical ID**: LLM assigns a stable identifier; `name` becomes display label,
   `attributes.canonical_id` becomes the unique key — robust, but requires LLM consistency
 - **Merge-on-conflict**: Allow duplicate names, use embedding similarity to detect
@@ -1615,8 +1615,8 @@ Cancelled because: (1) `tool.embedding` LRU cache already eliminates the main bo
 
 Even with the v2.4.12 quality-gate fix restoring correct RRF recall, agents
 occasionally treat recalled memories as active discussion threads and drift
-into unrelated topics (e.g., a "パン" question triggering an elaborated
-"ラズベリーパイ" response). Root cause is how the **mind server** packs
+into unrelated topics (e.g., a "パン" (bread) question triggering an elaborated
+"ラズベリーパイ" (raspberry pie) response). Root cause is how the **mind server** packs
 recalled memories into the LLM prompt as `role=user`/`role=assistant` turns
 in `common/llm_provider.py::build_chat_messages` — chat-history shape invites
 the LLM to continue those threads.

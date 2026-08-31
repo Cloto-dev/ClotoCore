@@ -1,4 +1,4 @@
-//! Integration tests for the in-kernel consensus orchestration (an earlier decision).
+//! Integration tests for the in-kernel consensus orchestration.
 //!
 //! The happy path (real engines produce proposals → synthesis → unified
 //! answer) depends on live MCP engines and is verified against the running app

@@ -7,6 +7,15 @@ use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Notify, RwLock};
 
 pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::AppState> {
+    create_test_app_state_in(std::path::PathBuf::from("data"), admin_api_key).await
+}
+
+/// Like [`create_test_app_state`] but with an explicit `data_dir`, for tests
+/// that write under it (marketplace installs, seal keys, tmp downloads).
+pub async fn create_test_app_state_in(
+    data_dir: std::path::PathBuf,
+    admin_api_key: Option<String>,
+) -> Arc<crate::AppState> {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
     crate::db::init_db(&pool, "sqlite::memory:", None)
         .await
@@ -53,7 +62,7 @@ pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::
         mcp_manager,
         dynamic_router,
         config,
-        data_dir: std::path::PathBuf::from("data"),
+        data_dir,
         event_history,
         metrics,
         rate_limiter,

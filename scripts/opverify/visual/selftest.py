@@ -647,11 +647,12 @@ def _kernel_state(
     plan_entries=11,
     providers=None,
     messages=0,
+    agent_engine=None,
 ):
     """A fake `fetch_json` returning the shapes the kernel really serializes —
-    measured on VM 104 (2026-08-06), envelope included. A fixture check that
-    passes against a hand-drawn shape and fails against the product's is worth
-    less than no check at all."""
+    measured on the Windows guest (2026-08-06), envelope included. A fixture
+    check that passes against a hand-drawn shape and fails against the product's
+    is worth less than no check at all."""
 
     def fetch(path: str) -> dict:
         if path == "/api/system/health":
@@ -669,6 +670,24 @@ def _kernel_state(
             }
         if path == "/api/llm/providers":
             return {"data": {"providers": providers if providers is not None else []}}
+        if path == "/api/agents":
+            from . import fixtures as _FX
+
+            engine = agent_engine if agent_engine is not None else _FX.CHAT_PROVIDER
+            # Measured on the guest (2026-08-31): this endpoint puts the list
+            # straight in the envelope, unlike /api/llm/providers which nests it
+            # under a key. The first draft of this stub nested it, the check
+            # passed here and raised against the product, and the run that
+            # caught it was a VM run — which is what this stub exists to avoid.
+            return {
+                "data": [
+                    {
+                        "id": _FX.DEFAULT_AGENT,
+                        "agent_type": "agent",
+                        "default_engine_id": engine,
+                    }
+                ]
+            }
         if path.endswith("/messages"):
             return {
                 "data": {
@@ -703,8 +722,17 @@ def scenario_fixture_refuses_the_vacuous_states() -> None:
     assert not carousel.ok
     assert "setup-complete" in [n for n, ok, _ in carousel.failures()]
 
+    # Name the provider the fixture names, not a literal: which engine the
+    # guest runs is environment, and a stub that pins one fails the moment the
+    # guest is moved to another (2026-08-31, after a provider started
+    # answering 402).
     configured = [
-        {"id": "cerebras", "has_key": True, "configured": True, "engine_status": "connected"}
+        {
+            "id": FX.CHAT_PROVIDER,
+            "has_key": True,
+            "configured": True,
+            "engine_status": "connected",
+        }
     ]
     # Read the threshold off the fixture rather than pinning it here: raising
     # the required depth is a normal edit, and a test that hardcodes the old
@@ -726,6 +754,22 @@ def scenario_fixture_refuses_the_vacuous_states() -> None:
     )
     assert ok.ok, ok.as_dict()
 
+    # A ready provider the agent does not use. This is the state the guest was
+    # actually in on 2026-08-31: the old engine stayed installed, connected and
+    # keyed after the agent had been moved off it, so every check about the
+    # provider passed while the turns went somewhere else. Only the check that
+    # asks what the agent points at can name this.
+    elsewhere = FX.verify(
+        "configured-chat",
+        _kernel_state(
+            providers=configured, messages=depth, agent_engine="some-other-engine"
+        ),
+    )
+    assert not elsewhere.ok
+    assert [n for n, ok_, _ in elsewhere.failures()] == [
+        f"agent-uses:{FX.CHAT_PROVIDER}"
+    ], elsewhere.as_dict()
+
 
 def scenario_fixture_reports_every_failure() -> None:
     """One trip to the VM, not one per failure: checks keep running after the
@@ -736,10 +780,9 @@ def scenario_fixture_reports_every_failure() -> None:
         "configured-chat", _kernel_state(providers=[], messages=0)
     )
     names = [n for n, ok, _ in both.failures()]
-    assert names == ["provider-ready:cerebras", "thread-depth"], both.as_dict()
-    assert "not present" in dict((n, d) for n, _, d in both.results)[
-        "provider-ready:cerebras"
-    ]
+    want = f"provider-ready:{FX.CHAT_PROVIDER}"
+    assert names == [want, "thread-depth"], both.as_dict()
+    assert "not present" in dict((n, d) for n, _, d in both.results)[want]
 
     dead = FX.verify("onboarded", _kernel_state(healthy=False))
     assert not dead.ok
@@ -817,6 +860,122 @@ def scenario_fixture_restore_is_never_implicit() -> None:
     assert FX.FIXTURES["onboarded"].snapshot in text
 
 
+def scenario_typing_goes_around_the_keyboard_layout() -> None:
+    """Text is inserted through CDP, not synthesised as keystrokes.
+
+    Keystrokes are interpreted by the guest's keyboard layout. On the Japanese
+    one the harness drives, `a:b;c@d[e]f^g` arrives as ``a*b;c`d[e]f~g`` —
+    three substitutions, measured 2026-08-31. Nothing caught it because
+    nothing read back what it had typed, and the characters it mangles are the
+    ones a URL and an admin key are made of.
+
+    The layout only exists on a real machine, so what is checked here is the
+    routing: with a targeter present, typing must not reach the actuator. Both
+    paths that type are covered — a literal `type` action and a target's
+    `type_text`, which is the one that carries the admin key.
+    """
+    from .interfaces import Frame
+
+    class Recorder:
+        def __init__(self):
+            self.typed = []
+            self.clicked = []
+
+        def send(self, action):
+            if action.kind == "type":
+                self.typed.append(action.text)
+            else:
+                self.clicked.append(action.kind)
+
+    class FakeTargeter:
+        def __init__(self):
+            self.inserted = []
+
+        def find(self, contains, **kw):
+            from .cdp import Target
+
+            return Target(
+                text="composer", role="textbox", x=1, y=2, width=10, height=4,
+                enabled=True, in_viewport=True, off_screen="",
+            )
+
+        def insert_text(self, text):
+            self.inserted.append(text)
+
+    secret = "k:e@y^1"
+    for step in (
+        J.Step(name="literal", action=type_text(secret), trigger=J.CHECKPOINT,
+               settle=False, target=None),
+        J.Step(name="targeted", trigger=J.CHECKPOINT, settle=False,
+               target=J.TargetSpec(contains="composer", type_text=secret,
+                                   scroll_attempts=0)),
+    ):
+        rec, tgt = Recorder(), FakeTargeter()
+        driver = VisualDriver(
+            ScriptedScreen([frame("f"), frame("f")]),
+            rec,
+            ScriptedVision({}, default=True),
+            targeter=tgt,
+            now=FakeClock().now,
+            sleep=FakeClock().sleep,
+        )
+        driver.run(J.Journey(name="t", steps=[step]))
+        assert tgt.inserted == [secret], (step.name, tgt.inserted)
+        assert rec.typed == [], (
+            f"{step.name}: text was synthesised as keystrokes, which the guest's "
+            f"layout rewrites: {rec.typed}"
+        )
+
+    # No targeter (debug port closed) is the documented fallback, not a crash.
+    rec = Recorder()
+    VisualDriver(
+        ScriptedScreen([frame("f"), frame("f")]),
+        rec,
+        ScriptedVision({}, default=True),
+        now=FakeClock().now,
+        sleep=FakeClock().sleep,
+    ).run(
+        J.Journey(
+            name="t",
+            steps=[J.Step(name="literal", action=type_text(secret),
+                          trigger=J.CHECKPOINT, settle=False)],
+        )
+    )
+    assert rec.typed == [secret], rec.typed
+
+
+def scenario_remedy_survives_an_unset_vm_id() -> None:
+    """The remedy for an unmet fixture must print without OPV_VM_ID.
+
+    It is printed *because* the run could not go ahead, so it cannot have
+    preconditions the run itself lacks. OPV_VM_ID is needed only to roll back,
+    and reading it while composing the text turned an unmet fixture into a
+    traceback — the guidance was replaced by a stack trace at exactly the
+    moment it was being asked for (measured 2026-08-31, driving chat-render).
+
+    This scenario clears the variable deliberately: the module preamble does
+    `setdefault("OPV_VM_ID", "0")`, so every other scenario runs with it set
+    and none of them could have seen this.
+    """
+    import os
+
+    from . import fixtures as FX
+
+    saved = os.environ.pop("OPV_VM_ID", None)
+    try:
+        for name, fixture in FX.FIXTURES.items():
+            if not fixture.snapshot:
+                continue
+            text = FX.remedy(name)
+            assert fixture.snapshot in text, name
+            assert "OPV_VM_ID" in text, (
+                f"remedy for {name!r} must name the variable it could not read"
+            )
+    finally:
+        if saved is not None:
+            os.environ["OPV_VM_ID"] = saved
+
+
 def scenario_probe_failure_is_not_state_absence() -> None:
     """A kernel that cannot be asked must not be reported as a kernel that
     answered "no" (bug-500).
@@ -846,8 +1005,9 @@ def scenario_probe_failure_is_not_state_absence() -> None:
     # The distinction has to survive into what the operator reads: the checks
     # that never ran must not accuse the machine of lacking the state.
     details = {n: d for n, _, d in report.results}
-    assert "could not ask" in details["provider-ready:cerebras"], details
-    assert "not present" not in details["provider-ready:cerebras"], details
+    want = f"provider-ready:{FX.CHAT_PROVIDER}"
+    assert "could not ask" in details[want], details
+    assert "not present" not in details[want], details
 
     # And the reachable ones still report honestly — the failure is localized.
     assert dict((n, ok) for n, ok, _ in report.results)["kernel-responds"] is True
@@ -874,7 +1034,22 @@ def scenario_unanswerable_probe_is_never_told_to_roll_back() -> None:
     assert "UNKNOWN" in unknown, "say plainly that nothing was learned"
 
 
+def _placeholder_vm_config() -> None:
+    """Name a machine for the scenarios that only format commands.
+
+    These tests build ssh/qm command strings; they never open a connection. The
+    host config has no default (it would be the author's own machine), so the
+    test supplies its own. The .invalid TLD can never resolve, so a scenario
+    that ever did try to connect would fail loudly instead of reaching someone.
+    """
+    os.environ.setdefault("OPV_PVE_HOST", "selftest@pve.invalid")
+    os.environ.setdefault("OPV_VM_USER", "selftest")
+    os.environ.setdefault("OPV_VM_IP", "vm.invalid")
+    os.environ.setdefault("OPV_VM_ID", "0")
+
+
 def main() -> int:
+    _placeholder_vm_config()
     scenarios = [
         scenario_happy,
         scenario_frontend_bug,
@@ -896,6 +1071,8 @@ def main() -> int:
         scenario_fixture_checks_are_specific,
         scenario_every_journey_declares_a_known_fixture,
         scenario_fixture_restore_is_never_implicit,
+        scenario_remedy_survives_an_unset_vm_id,
+        scenario_typing_goes_around_the_keyboard_layout,
         scenario_probe_failure_is_not_state_absence,
         scenario_unanswerable_probe_is_never_told_to_roll_back,
     ]

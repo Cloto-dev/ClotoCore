@@ -1,0 +1,1 @@
+sorts after pkg/ by path components, before it by raw bytes

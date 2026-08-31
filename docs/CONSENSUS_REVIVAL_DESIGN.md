@@ -1,6 +1,6 @@
 # Consensus Revival — In-Kernel Proposal Generation (Design)
 
-Status: **Accepted** (2026-06-30). an earlier decision / an earlier decision / an earlier decision.
+Status: **Accepted** (2026-06-30).
 Supersedes the reverted standalone bug-408 patch (`481279c`).
 
 Ratified decisions (see §9): **(a) Option A** — kernel-driven synchronous
@@ -120,7 +120,7 @@ synchronous helper module or folded into the consensus branch. The
   unnecessary; correctness is structural (G3).
 - **Concurrency** (G2): `tokio::task::JoinSet` or `futures::join_all` over
   per-engine `run_agentic_loop` futures, each wrapped in `tokio::time::timeout`.
-- **Trace/session** (an earlier decisionc): one `trace_id` for the whole consensus
+- **Trace/session**: one `trace_id` for the whole consensus
   session; each proposal loop uses a per-engine derived `session_key` so engines
   don't share conversational state, while the synthesis loop uses its own.
 - **Pros**: simplest data flow; no event-bus round trips; no reference cycle
@@ -129,7 +129,7 @@ synchronous helper module or folded into the consensus branch. The
 - **Cons**: retires the event-driven `ConsensusOrchestrator`. (It is currently
   dead, so this removes liability rather than function.) Consensus no longer
   emits intermediate per-proposal events on the bus — if the dashboard wants to
-  visualize each engine's proposal live (an earlier decision), the branch must emit
+  visualize each engine's proposal live, the branch must emit
   explicit progress events for that purpose (see §7).
 
 ### Option B — Event-driven, add an in-kernel `ThoughtRequested` runner
@@ -160,7 +160,7 @@ speculative (YAGNI); no other feature needs it today.
 
 ## 5. Recommended design in detail (Option A)
 
-### 5.1 Agent-id stamping convention (an earlier decisionb)
+### 5.1 Agent-id stamping convention
 
 > **Revised 2026-06-30 (bug-417).** The original convention stamped the final
 > answer with `config.synthetic_agent_id` (`system.consensus`) and never
@@ -190,7 +190,7 @@ speculative (YAGNI); no other feature needs it today.
   response deterministically regardless of which `agent_id` value is chosen, so
   using the originating id does not reintroduce the synthesis-identity race.
 
-### 5.2 Fail-safe matrix (an earlier decisiond, G4)
+### 5.2 Fail-safe matrix (G4)
 
 | Condition                              | Behavior                                             |
 | -------------------------------------- | ---------------------------------------------------- |
@@ -206,7 +206,7 @@ the user never waits on a silent timeout. The background cleanup task in
 consensus.rs is removed along with the session map (no long-lived sessions
 remain).
 
-### 5.3 Reuse boundary (an earlier decisione)
+### 5.3 Reuse boundary
 
 Reused unchanged: `run_agentic_loop` (engine resolution, `mind.` prefix
 fallback, MCP/plugin dispatch, tool grants, retriable-error fallback). New code
@@ -233,7 +233,7 @@ and the fail-safe branching. No new engine-call primitive is introduced (G2).
 
 `CONSENSUS_ENGINES` empty → consensus never triggers (G6, additive default).
 Documentation of all keys and a recommended multi-engine example belongs to
-an earlier decision (distribution/docs).
+the distribution and docs work.
 
 ### 6.1 Engine-reuse fallback (`CONSENSUS_ENGINE_REUSE`, default on)
 
@@ -279,7 +279,7 @@ surfaces `SERVER_NOT_READY` (2000); a timeout surfaces `TIMEOUT` (3003). The
 kernel's `MgpError` codes are a faithful port of `mgp-spec` §14.3 (the `mgp-py`
 SDK provides the matching `ErrorData{code, message, data._mgp}` envelope).
 
-## 8. Test plan (for the implementation an earlier decision)
+## 8. Test plan (for the implementation work)
 
 - **Unit**: combined-views builder formatting; fail-safe branches
   (`< min` engines configured; an engine erroring; `< min` collected; synthesizer

@@ -6,7 +6,7 @@ looking at pixels and acting on them, which is the highest-fidelity oracle
 there is (nothing beats a real user actually using the app). Emulation, not
 simulation — the only thing automated is the user.
 
-The design authority is an earlier decision (the vision-apex line under an earlier decision).
+The design authority is the vision-apex line of the operation-to-success plan.
 The pieces here are deliberately **environment-independent**: they orchestrate
 an abstract ``ScreenSource`` + ``Actuator`` + ``VisionAssessor`` and cross-check
 against a ``KernelProbe``, so the whole loop is unit-testable with stubs before

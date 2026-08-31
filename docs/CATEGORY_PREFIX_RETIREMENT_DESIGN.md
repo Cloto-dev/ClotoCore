@@ -1,9 +1,8 @@
 # Category-Prefix Retirement (`tool.` / `vision.` / `voice.` / `io.` / `output.`) — Design
 
 **Status:** Proposed
-**Scope:** an earlier decision · an earlier decision
 **Author:** kernel team · 2026-07-04
-**Predecessor / template:** `docs/MIND_PREFIX_RETIREMENT_DESIGN.md` (an earlier decision, shipped
+**Predecessor / template:** `docs/MIND_PREFIX_RETIREMENT_DESIGN.md` (shipped
 2026-07-01 as ClotoCore PR #247 + clotohub-servers PR #30). This document completes the
 programme started there: retire **every** remaining category prefix so a server has exactly
 one canonical **bare** id, and classification is derived exclusively from the tool surface.
@@ -124,7 +123,7 @@ entry is removed rather than renamed — installing it can never succeed.
 
 ---
 
-## 5. Backend changes (an earlier decision)
+## 5. Backend changes
 
 **Delete all five prefix arms in `classify_tool`**
 (`managers/capability_dispatcher.rs:314-329`). Verified fallback coverage — each affected
@@ -136,7 +135,7 @@ category's real server advertises the fallback tool name (checked in
 | Vision | `vision.` | `analyze_image \| capture_screenshot` | `capture` exposes `analyze_image` ✓ |
 | Stt | `stt.` (already dead — real id was `voice.stt`) | `transcribe` | `stt` exposes `transcribe` ✓ |
 | Speech | `output.` | `speak` | `avatar` exposes `speak` ✓ |
-| Reasoning | `mind.` (ids already bare) | `think \| think_with_tools` | ✓ (an earlier decision) |
+| Reasoning | `mind.` (ids already bare) | `think \| think_with_tools` | ✓ (already bare) |
 | Memory | `memory.` (ids already bare) | `store \| recall \| …` | ✓ (bug-388) |
 
 Two adjustments while touching the fallback table:
@@ -183,7 +182,7 @@ change, and those fixtures rely on tool names already.
 
 ---
 
-## 6. DB migration (an earlier decision)
+## 6. DB migration
 
 `migrations/20260704*_retire_category_prefixes.sql`, same detach → rename → re-attach
 shape as `20260701120000_retire_mind_prefix.sql` (FK-safe at every statement boundary,
@@ -200,7 +199,7 @@ transaction/autocommit agnostic).
    — usually the newer, hub-sealed install — wins; the prefixed row is dropped).
 2. `mcp_access_control.server_id` — every grant under a prefixed id, de-prefixed and
    deduped against existing bare grants (same `NOT EXISTS` guard as the mind migration).
-3. **Residue sweep (gap left by an earlier decision):** `cron_jobs.engine_id` stores engine ids but
+3. **Residue sweep (gap left by the `mind.` retirement):** `cron_jobs.engine_id` stores engine ids but
    was not covered by the mind migration — de-prefix any lingering `mind.%` values here.
    (`agents.default_engine_id` needs no category pass: it only ever held engine ids.)
 
@@ -216,7 +215,7 @@ grant dedup, cron_jobs residue, fresh-DB no-op, idempotency — in-memory SQLite
 
 ---
 
-## 7. Frontend changes (an earlier decision)
+## 7. Frontend changes
 
 - `lib/presets.ts:7-13` — all four preset arrays to bare ids.
 - `components/SetupWizard.tsx` — `ALL_SELECTABLE_SERVER_IDS` to bare, `voice.tts` entry
@@ -247,7 +246,7 @@ grant dedup, cron_jobs residue, fresh-DB no-op, idempotency — in-memory SQLite
 
 ---
 
-## 8. Multi-repo Phase 2 — clotohub-servers (an earlier decision)
+## 8. Multi-repo Phase 2 — clotohub-servers
 
 Following the PR #30 pattern (edit the `id` value only; `category` / `directory` fields
 untouched):
@@ -300,7 +299,7 @@ the next import/publish.
 2. `vision.gaze_webcam → gaze` is an explicit mapping, not a mechanical strip; the gaze
    and agent_utils manifests are corrected to their directory names.
 3. Classification is tool-surface only: `classify_tool` and `serverCategory.ts` keep **no**
-   prefix arm. (Exception unchanged from an earlier decision: `is_engine_server`'s `mind.` shortcut
+   prefix arm. (Exception unchanged from the `mind.` retirement: `is_engine_server`'s `mind.` shortcut
    in `handlers/system.rs` stays as offline-grant back-compat — it classifies grants, not
    servers, and tool-surface needs a live connection.)
 4. The migration is idempotent, collision-safe (bare-twin merge), fresh-DB tolerant,
@@ -309,15 +308,3 @@ the next import/publish.
 5. Legacy config ingestion (`mcp.toml(.migrated)`) normalizes prefixed ids at the
    boundary, so no post-migration path can reintroduce a prefixed row.
 6. `voice.tts` is removed, not renamed — there is no such server to install.
-
----
-
-## 11. Task mapping (an earlier decision)
-
-| Task | This doc |
-| --- | --- |
-| #151 [design] | this document |
-| #152 [backend] | §5 |
-| #153 [DB migration] | §6 |
-| #154 [frontend] | §7 |
-| #155 [Phase 2 / clotohub-servers] | §8 |

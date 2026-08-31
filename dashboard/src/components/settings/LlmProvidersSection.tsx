@@ -9,7 +9,7 @@ const MODEL_ID_MAX_LEN = 200;
 type ThinkingMode = 'auto' | 'on' | 'off';
 
 // Backing-engine state per provider, computed by the kernel by joining the
-// provider row against the registered MCP engine servers (an earlier decision):
+// provider row against the registered MCP engine servers:
 //   connected    — an engine server is registered and operational.
 //   disconnected — an engine server is registered but down/stopped.
 //   uninstalled  — no engine server, but the user configured this provider →
@@ -301,7 +301,7 @@ export function LlmProvidersSection() {
   // is shown (with a warning) so a user's saved settings remain visible and
   // editable after an engine is removed; `catalog_only` (pristine seed, no
   // engine) is hidden — the LLM Providers list is derived from real engines,
-  // not from the seeded provider catalog (an earlier decision).
+  // not from the seeded provider catalog.
   const visibleProviders = providers.filter((p) => p.engine_status !== 'catalog_only');
 
   return (

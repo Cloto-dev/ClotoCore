@@ -673,7 +673,7 @@ async fn test_pending_permissions_success() {
 
 /// GET /api/llm/providers annotates each provider with its backing-engine
 /// state so the dashboard shows only real engines and warns (never drops) when
-/// an engine is uninstalled (an earlier decision). No engine MCP server is registered in
+/// an engine is uninstalled. No engine MCP server is registered in
 /// this harness, so classification is driven purely by user configuration.
 #[tokio::test]
 async fn test_llm_providers_engine_status_annotation() {
@@ -831,7 +831,7 @@ async fn test_pristine_seed_cleanup_preserves_configured_and_installed_rows() {
     );
 }
 
-/// Ingesting provider metadata from a catalog entry (an earlier decision) updates only
+/// Ingesting provider metadata from a catalog entry updates only
 /// provider-authored columns and never clobbers user-owned settings; the
 /// default model is seeded only when the row is first created.
 #[tokio::test]

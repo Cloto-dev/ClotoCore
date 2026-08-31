@@ -1,0 +1,232 @@
+# Documentation Policy
+
+What belongs on the public documentation site, what stays in the repository,
+and what gets archived — and how to tell which is which without guessing.
+
+## 1. Why this exists
+
+`docs/` grew to 31 files and 578,379 characters, most of it design notes
+written for whoever was building the thing at the time. Publishing that as-is
+would have meant maintaining — and, once the site is bilingual, translating —
+a corpus almost three times the size of the one the memory server publishes,
+most of which no outside reader has a use for.
+
+The first pass on that corpus removed 26.8% of it. This page records the rules
+that pass used, because the expensive part was not the moving; it was learning
+which documents only *looked* dead.
+
+## 2. Four buckets
+
+| Bucket | Meaning |
+| --- | --- |
+| **Public** | On the documentation site. Written for someone who does not work on this codebase. |
+| **Repository** | Stays in `docs/`, not on the site. Design and contract notes the implementation refers to. |
+| **Archive** | Moved to `docs/archive/`. Kept for history; nothing points at it any more. |
+| **Elsewhere** | The subject belongs to another repository. Link out rather than keep a copy. |
+
+"Public" is decided by the site navigation, not by where the file sits. A file
+in `docs/` that is not in the navigation is not published and carries no
+translation obligation. Moving files between repositories is a separate
+question from deciding what is published, and a much more expensive one — see
+§5.
+
+## 3. Deciding whether a document is dead
+
+**Do not use the last-modified date.** A pointer, a settled contract and an
+abandoned plan are indistinguishable by age, and the mistake is not symmetric:
+archiving something live breaks the readers who depend on it, while keeping
+something dead costs only shelf space.
+
+The document that proved this is the specification stub in this directory. It
+had not been touched in three months and would have been archived on age. Its
+own text says why it exists: it redirects to the repository that owns the
+specification and keeps the contributor guide's required-reading paths
+working. **A pointer does not need updating when its target moves, so being
+old is what correct looks like for it.**
+
+Ask these instead:
+
+1. **Is it a pointer?** If the authority lives elsewhere and this document
+   exists to send readers there, it is alive regardless of how still it is.
+2. **Does the implementation cite it?** A document named in a migration, a
+   source comment or a component is load-bearing. Where the implementation
+   and the document's own status line disagree, **the implementation is the
+   evidence and the status line is the stale part** — three documents here
+   still say "proposed" for work that shipped.
+3. **Would anyone look for it?** One-off audits and point-in-time measurements
+   stop being read once their conclusions land in the code or the conventions.
+   That is the ordinary end of a report, not a failure.
+4. **What refers to it?** Measure this before removing anything, and fix what
+   breaks in the same change. A link in a changelog entry is the exception: it
+   records what was true then, and rewriting it to match a move would make the
+   record wrong.
+
+Criterion 2 does the most work. Of the documents that looked abandoned by
+their own status lines, the ones that migrations and UI components cite by
+name were all still in force.
+
+## 4. What goes on the site
+
+The site is for someone who has not read this repository. That excludes most
+design documents, which assume the reader is building the subsystem.
+
+Initial navigation:
+
+| Page | Source | In the nav today |
+| --- | --- | --- |
+| Home | `index.md` | yes |
+| Getting Started | New — see §6 | no, not yet written |
+| Architecture | `ARCHITECTURE.md` | yes |
+| Build an MCP/MGP server | `QUICKSTART_MCP_SERVER.md` | yes |
+| Protocol specification | External link to the specification's own repository | yes |
+| Development | `DEVELOPMENT.md` | yes |
+| Changelog | `CHANGELOG.md` | yes |
+| Project vision | `PROJECT_VISION.md` | yes |
+
+`INSTALLER_DISTRIBUTION.md` is not on this list. It describes the distribution
+*strategy*, not what a user does, and it has not tracked the packaging changes
+made since. Getting Started replaces the role it was standing in for.
+
+Three things about that table were settled when the site was actually built:
+
+**Home is `docs/index.md`, not the README.** They address different readers.
+The README introduces a repository — badges, project layout, the full
+environment-variable table — to someone looking at source. The site's home
+introduces a piece of software to someone who has not seen the source and may
+never. Publishing the README as the home page would have meant either
+maintaining the same text twice or serving repository furniture to site
+readers. The README stays the repository's entry point and is brought into
+line with the site separately.
+
+**Getting Started is absent rather than a placeholder.** §6 says to write it
+after the structure exists, and an empty page in the navigation makes a promise
+to a reader that the site cannot keep.
+
+**The changelog is one page.** Splitting it was proposed for its size, but size
+alone is not the cost — the cost arrives with translation, and a changelog is
+the natural case for staying English-only. That declaration lands with the
+Japanese side; until then one page is the honest form, because a split is only
+worth its generator if something is paying for the length.
+
+## 5. Documents whose subject belongs to another repository
+
+Some documents here are about the memory server, which has its own repository.
+Two of them were archived: their content had stopped at a version thirteen
+minor releases back while that repository grew current pages of its own, so
+what remained was an older view rather than a second one.
+
+The rest stay where they are, and are simply left out of the site navigation.
+Physically relocating them was considered and rejected on measurement: each is
+referenced from roughly ten places across four repositories, including the
+other project's production source, its *published* documentation **and that
+page's translation** — editing one side of a translated pair without the other
+trips the drift gate. The benefit is tidiness; the cost is a cross-repository
+change with several ways to leave a dangling reference. Excluding them from
+the navigation achieves everything the site needs.
+
+Where a document has been archived and the README linked to it, the link is
+repointed at the owning repository's own current page rather than at the
+archived copy. The README already does this for the protocol specification.
+
+## 6. Getting Started — outline and sources
+
+This page does not exist yet. It is the largest gap in the public set: nothing
+currently tells a user how to install, configure, update or remove the
+application. Each section below names where its content comes from, so writing
+it is assembly and verification rather than invention.
+
+| Section | Draws on | Verified against |
+| --- | --- | --- |
+| Install | Release assets per platform; the release workflow's build matrix | The published installer, run on a clean machine |
+| First run | The onboarding design note | The real first-run screens |
+| Connect a reasoning provider | The provider endpoints and the catalog | A provider answering a live request |
+| Add an MCP server | The marketplace install path and the hub catalog | An install completing end to end |
+| Update | The updater feed: the shipped build subscribes to one channel asset, and the feed generator admits only final versions to it, so pre-releases cannot reach it | The published feed |
+| Uninstall | The lifecycle subsystem's uninstall design: cumulative scope tiers and the admin-key gate | The real dialog |
+
+**Every claim about what the user sees must be checkable.** The verification
+harness enumerates the application's real controls into a committed inventory;
+a sentence that names a control can be checked against that inventory rather
+than trusted. This makes Getting Started the page where a facts gate pays for
+itself first, and it is the reason the outline fixes its sources now: the
+sections that cannot name a source are the sections that would have been
+invented.
+
+Write the page after the site structure exists, not before — the structure
+decides where it sits and how it is split.
+
+## 7. What enforces this
+
+The rules above are only worth writing down if something fails when they are
+broken. Two of the three checks below run in CI on every change to `docs/`,
+`mkdocs.yml` or a checker; the third runs on every pull request, for a reason
+given where it is described.
+
+**The build, with `--strict`.** Every validation level in `mkdocs.yml` is set
+to `warn`, and `--strict` turns warnings into failures. The one that carries
+this policy is `nav.omitted_files`: a document that is neither in the
+navigation nor in `exclude_docs` fails the build. That is why `exclude_docs` is
+written as a list of what is *not* published rather than a pattern that admits
+only what is — adding a document to `docs/` then forces a decision about which
+bucket it is in, instead of silently defaulting to unpublished.
+
+**A link and anchor checker over the built site**
+(`scripts/check-doc-anchors.py`). It exists for two classes the build does not
+fail on, both of them measured here rather than assumed:
+
+* A `#fragment` that no longer resolves. `--strict` validates fragments in the
+  Markdown sources, but not what the rendered HTML ends up containing — which
+  is the form the question takes once pages have translations, because a
+  translated heading generates a different id.
+* A link from a published page into the unpublished set. mkdocs does notice
+  this, and reports it at a level it clamps in its own source to at most
+  `INFO`, so no configuration can promote it to a warning and `--strict` can
+  never fail on it. Three such links existed in `ARCHITECTURE.md` when the site
+  was first built, with a green build; they now point at the repository copy on
+  GitHub instead. **A published page must not link to an excluded one** —
+  link to its GitHub location, or publish it.
+
+Both arms were checked by breaking them on purpose: removing a heading id from
+a built page turns the anchor arm red and leaves the link arm green, and adding
+a link to an excluded document turns the link arm red while the strict build
+stays at exit 0.
+
+**A facts checker against the code** (`scripts/check-docs-facts.py`). The
+checks above ask whether the site is internally consistent. This one asks
+whether what the documents *say* is still true: test counts, the current
+version, release names, and the environment defaults documented in the README.
+
+It runs in `ci.yml` rather than in this workflow, because what invalidates
+these claims is a **code** change — a test added, a version bumped, a setting
+renamed — and this workflow only fires when `docs/` changes. A drift gate that
+runs only on documentation edits cannot see the edit that caused the drift.
+
+What it found on the day it was written, all of it green in CI until then: the
+README badge claimed 234 passing tests against a suite of 666; the contributor
+guide named `0.6.3-alpha.11` as the current phase against a version of
+`0.6.8-beta.5`; the support policy named a pre-release four cuts behind; one
+documented default no longer matched the code; and two documented settings —
+one of them with instructions telling contributors to export it for faster
+builds — were read by nothing in the repository at all.
+
+Two limits are worth knowing, because both were reached while building it:
+
+* **A version number is only checked where the document says it is a claim.**
+  A blanket scan for release-shaped strings was written first and withdrawn: it
+  fired on the line of the support policy that *explains* semver notation,
+  which is not an assertion about what is current. Prose cannot be asked which
+  of its numbers are claims, so a document marks them —
+  `<!-- docs-facts: latest-prerelease -->` — and a new claim is covered once it
+  is marked. That is a real gap, and a visible one, which a checker that
+  guessed would not have been.
+* **A setting counts as live if the project mentions it outside these
+  documents** — source, `.env.example`, scripts, workflows. Looking only for
+  `env::var` would have reported six live settings as dead: provider keys reach
+  the code through a mapping table, the log filter is consumed by a library,
+  and pass-through settings for plugin servers live in `.env.example`, which is
+  the file the README tells the reader to copy.
+
+**Not yet: the translation gates.** Coverage, drift, heading parity and
+language routing all presuppose a published bilingual site. They arrive with
+the Japanese side, not before — a check with nothing to check reports green and
+teaches everyone to trust it.

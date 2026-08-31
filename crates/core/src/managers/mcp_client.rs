@@ -1298,7 +1298,7 @@ while True:\n\
         );
     }
 
-    /// Source A (bug-422 sibling / an earlier decision): a child's stderr line is
+    /// Source A (bug-422 sibling): a child's stderr line is
     /// forwarded — tagged with the server_id — through the notification channel
     /// as the kernel-internal CLOTO_STDERR_LOG_METHOD pseudo-notification, which
     /// the consumer turns into McpServerLog{source:Stderr}. This pins the
@@ -1377,7 +1377,7 @@ while True:\n\
         );
     }
 
-    /// Source B (an earlier decision backend-B): `mcp_log_from_params` extracts
+    /// Source B (backend-B): `mcp_log_from_params` extracts
     /// `(level, logger, message)` from an MCP `notifications/message` params
     /// object, tolerating missing/unknown fields and non-string `data`.
     #[test]
@@ -1524,7 +1524,7 @@ while True:\n\
         .await
     }
 
-    /// Modern-era end-to-end (dual-era, an earlier decision): a server that answers
+    /// Modern-era end-to-end (dual-era): a server that answers
     /// `server/discover` with a mutual modern version is spoken to **without**
     /// `initialize` (the mock fails the connect if one arrives), every later
     /// request carries the four modern `_meta` keys, and once the kernel feeds

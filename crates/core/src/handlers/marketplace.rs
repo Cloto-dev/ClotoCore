@@ -92,6 +92,10 @@ const DEFAULT_TARBALL_URL_TEMPLATE: &str =
     "https://api.github.com/repos/Cloto-dev/clotohub-servers/tarball/{ref}";
 
 /// Resolve the marketplace catalog URL, honoring `CLOTO_CATALOG_URL` if set.
+/// Bound on `cargo build --release` for a Rust connector, in the kernel's
+/// own build step and in the install engine's.
+const CARGO_BUILD_TIMEOUT_SECS: u64 = 600;
+
 fn catalog_url() -> String {
     std::env::var("CLOTO_CATALOG_URL").unwrap_or_else(|_| DEFAULT_CATALOG_URL.to_string())
 }
@@ -104,9 +108,12 @@ fn catalog_url() -> String {
 ///
 /// In-memory only (re-fetched after restart): the JWKS is public and
 /// cheap to retrieve, and a persistent copy would lag key rotation.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct JwksCache {
     pub keys: HashMap<String, mgp_seal::ed25519::PublicKey>,
+    /// The document as served, handed to the install engine, which
+    /// resolves the signing key itself.
+    pub document: Option<serde_json::Value>,
     pub fetched_at: Option<tokio::time::Instant>,
 }
 
@@ -138,7 +145,12 @@ fn seal_jwks_url() -> Option<String> {
 /// still verifies under the key that signed it, and revocation policy
 /// is a separate concern from signature math. Individual keys that
 /// fail to parse are skipped, not fatal.
-async fn fetch_jwks(url: &str) -> anyhow::Result<HashMap<String, mgp_seal::ed25519::PublicKey>> {
+async fn fetch_jwks(
+    url: &str,
+) -> anyhow::Result<(
+    serde_json::Value,
+    HashMap<String, mgp_seal::ed25519::PublicKey>,
+)> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(SEAL_JWKS_FETCH_TIMEOUT_SECS))
         .build()?;
@@ -161,7 +173,40 @@ async fn fetch_jwks(url: &str) -> anyhow::Result<HashMap<String, mgp_seal::ed255
             Err(e) => warn!("Skipping unparseable JWK in hub JWKS: {e}"),
         }
     }
-    Ok(keys)
+    Ok((body, keys))
+}
+
+/// The JWKS cache as it stands for a lookup of `kid`: fresh and knowing
+/// the kid, else after one forced re-fetch (so a just-rotated key is
+/// picked up without waiting out the TTL), else whatever stale copy
+/// survives an unreachable hub — an old key set can still verify seals
+/// signed before the outage. Empty when the JWKS is not configured.
+async fn jwks_for_kid(state: &AppState, kid: &str) -> JwksCache {
+    {
+        let cache = state.seal_jwks_cache.read().await;
+        if let Some(at) = cache.fetched_at {
+            if at.elapsed() < JWKS_CACHE_TTL && cache.keys.contains_key(kid) {
+                return cache.clone();
+            }
+        }
+    }
+
+    let Some(url) = seal_jwks_url() else {
+        return JwksCache::default();
+    };
+    match fetch_jwks(&url).await {
+        Ok((document, keys)) => {
+            let mut cache = state.seal_jwks_cache.write().await;
+            cache.keys = keys;
+            cache.document = Some(document);
+            cache.fetched_at = Some(tokio::time::Instant::now());
+            cache.clone()
+        }
+        Err(e) => {
+            warn!(url = %url, "Hub JWKS unreachable: {e}");
+            state.seal_jwks_cache.read().await.clone()
+        }
+    }
 }
 
 /// Resolve the hub signing key for `kid`, fetching / re-fetching the
@@ -170,37 +215,15 @@ async fn fetch_jwks(url: &str) -> anyhow::Result<HashMap<String, mgp_seal::ed255
 /// (rotation lag) — callers treat that as the benign `jwks_unavailable`
 /// outcome, never as tampering.
 async fn hub_signing_key(state: &AppState, kid: &str) -> Option<mgp_seal::ed25519::PublicKey> {
-    // Fast path: fresh cache that already knows this kid.
-    {
-        let cache = state.seal_jwks_cache.read().await;
-        if let Some(at) = cache.fetched_at {
-            if at.elapsed() < JWKS_CACHE_TTL {
-                if let Some(pk) = cache.keys.get(kid) {
-                    return Some(*pk);
-                }
-                // Fresh but kid-miss: fall through to one forced re-fetch
-                // so a just-rotated key is picked up without waiting out
-                // the TTL.
-            }
-        }
-    }
+    jwks_for_kid(state, kid).await.keys.get(kid).copied()
+}
 
-    let url = seal_jwks_url()?;
-    match fetch_jwks(&url).await {
-        Ok(keys) => {
-            let mut cache = state.seal_jwks_cache.write().await;
-            cache.keys = keys;
-            cache.fetched_at = Some(tokio::time::Instant::now());
-            cache.keys.get(kid).copied()
-        }
-        Err(e) => {
-            warn!(url = %url, "Hub JWKS unreachable: {e}");
-            // Stale cache beats nothing: an old key set can still verify
-            // seals signed before the outage.
-            let cache = state.seal_jwks_cache.read().await;
-            cache.keys.get(kid).copied()
-        }
-    }
+/// The hub JWKS document for the install engine, refreshed for `kid` the
+/// same way [`hub_signing_key`] is. `None` when there is no signature to
+/// resolve a key for, or no document could be had — the engine then
+/// registers the entry unsealed, as the kernel does.
+async fn hub_jwks_document(state: &AppState, kid: Option<&str>) -> Option<serde_json::Value> {
+    jwks_for_kid(state, kid?).await.document
 }
 
 /// Extract the `kid` of the Ed25519 signature riding on a catalog entry,
@@ -958,34 +981,37 @@ async fn cargo_build_server(
         None
     };
 
-    let status = match tokio::time::timeout(Duration::from_mins(10), child.wait()).await {
-        Ok(Ok(status)) => status,
-        Ok(Err(e)) => {
-            warn!("cargo build process error: {e}");
-            emit(
-                tx,
-                SetupProgressEvent::StepError {
-                    step: "cargo_build".into(),
-                    error: format!("cargo build process error: {e}"),
-                    recoverable: true,
-                },
-            );
-            return Ok(false);
-        }
-        Err(_) => {
-            warn!("cargo build --release timed out after 10 minutes for {server_name}");
-            child.kill().await.ok();
-            emit(
-                tx,
-                SetupProgressEvent::StepError {
-                    step: "cargo_build".into(),
-                    error: "Build timed out after 10 minutes".into(),
-                    recoverable: true,
-                },
-            );
-            return Ok(false);
-        }
-    };
+    let status =
+        match tokio::time::timeout(Duration::from_secs(CARGO_BUILD_TIMEOUT_SECS), child.wait())
+            .await
+        {
+            Ok(Ok(status)) => status,
+            Ok(Err(e)) => {
+                warn!("cargo build process error: {e}");
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "cargo_build".into(),
+                        error: format!("cargo build process error: {e}"),
+                        recoverable: true,
+                    },
+                );
+                return Ok(false);
+            }
+            Err(_) => {
+                warn!("cargo build --release timed out after 10 minutes for {server_name}");
+                child.kill().await.ok();
+                emit(
+                    tx,
+                    SetupProgressEvent::StepError {
+                        step: "cargo_build".into(),
+                        error: "Build timed out after 10 minutes".into(),
+                        recoverable: true,
+                    },
+                );
+                return Ok(false);
+            }
+        };
     let error_lines = if let Some(handle) = stderr_handle {
         handle.await.unwrap_or_default()
     } else {
@@ -1043,7 +1069,8 @@ fn rust_binary_path(server_path: &std::path::Path, entry: &RegistryEntry) -> Pat
 /// working unchanged. Per-source installers handle materialization, then
 /// share [`build_and_register`] / [`register_server`] for the toolchain
 /// + add_server + auto_start steps.
-async fn run_install(
+#[allow(clippy::implicit_hasher)]
+pub async fn run_install(
     state: &AppState,
     entry: &RegistryEntry,
     env_overrides: HashMap<String, String>,
@@ -1400,7 +1427,7 @@ async fn build_and_register(
 }
 
 /// What the catalog entry's `signature_payload` says about the archive
-/// its seal was signed over (ClotoHub an earlier decision — `dual-v2` seals).
+/// its seal was signed over (`dual-v2` seals).
 enum ArchiveBinding {
     /// A `dual-v1` seal, or no seal: nothing about an archive was signed.
     Absent,
@@ -1442,9 +1469,68 @@ fn archive_binding(entry: &RegistryEntry) -> ArchiveBinding {
     }
 }
 
+/// Why an install proceeds without a local seal. The server is registered
+/// unsealed, and MGP §10 invariant 3 forces the untrusted profile at spawn.
+///
+/// Serialized as `snake_case` so the same names can appear in fixtures and
+/// in any other implementation that has to agree with this decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UnsealedReason {
+    /// The catalog entry records no `entry_point_sha256`.
+    NoEntryPointHash,
+    /// No `ed25519` block in `signature_payload` (pre-Ed25519 catalog).
+    NoSignature,
+    /// The `ed25519` block lacks `sig` or `key_id`.
+    MalformedSignatureBlock,
+    /// `sig` or `key_id` is present but cannot be decoded.
+    UndecodableSignature,
+    /// The hub JWKS is unreachable or does not carry the entry's `key_id`.
+    HubKeyUnavailable,
+    /// An `archive` block is present but unusable, so the signed message
+    /// cannot be reconstructed.
+    MalformedArchiveBinding,
+}
+
+/// Outcome of the install-time seal decision for one catalog entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SealVerdict {
+    /// Entry-point hash and Ed25519 signature both verified: mint a local
+    /// seal at the declared trust tier.
+    Verified,
+    /// Benign non-verification: register unsealed.
+    Unsealed(UnsealedReason),
+}
+
+/// A well-formed, resolvable claim that does not match what was delivered.
+/// Installation must stop; `code` is the audit-log reason and the display
+/// text is what the user sees.
+#[derive(Debug)]
+pub struct TamperSuspect {
+    /// `integrity_mismatch` or `signature_invalid`.
+    pub code: &'static str,
+    message: String,
+}
+
+impl std::fmt::Display for TamperSuspect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for TamperSuspect {}
+
 /// bug-394 proper fix: decide the install-time seal from the catalog
 /// entry's cryptographic evidence (D2 bifurcation — see
 /// `project_clotohub_ed25519_seal_verification.md` §5).
+///
+/// This is the pure half of [`local_seal_for_install`]: it touches no
+/// filesystem, so the same inputs can be replayed against fixtures — and
+/// against any other implementation that must agree with this one byte
+/// for byte. `installed_entry_point_sha256` is only called once the
+/// catalog has recorded a hash to compare against, so an entry without one
+/// never has its entry point read; an error from it aborts the install (a
+/// file that cannot be hashed cannot be verified).
 ///
 /// The catalog seal is HMAC-signed with the *hub* master key and can
 /// never verify against this kernel's local seal key, so it is never
@@ -1453,28 +1539,26 @@ fn archive_binding(entry: &RegistryEntry) -> ArchiveBinding {
 /// - **Verified** — the entry carries an Ed25519 signature whose key we
 ///   resolved from the hub JWKS, the signature validates over
 ///   `canonical_message(id, version, entry_point_sha256)`, and the
-///   installed entry point hashes to that `entry_point_sha256` → mint a
-///   LOCAL seal (declared trust tier preserved; every later spawn check
-///   verifies under the local protocol).
-/// - **Benign non-verification** (`Ok(None)` → register unsealed; MGP
+///   installed entry point hashes to that `entry_point_sha256` → the
+///   caller mints a LOCAL seal (declared trust tier preserved; every later
+///   spawn check verifies under the local protocol).
+/// - **Benign non-verification** (`Unsealed` → register unsealed; MGP
 ///   §10 invariant 3 forces the untrusted profile at spawn): no
 ///   signature (pre-Ed25519 catalog), malformed signature block, or
 ///   JWKS unreachable / kid unknown (offline, rotation lag).
-/// - **Tamper suspect** (`Err` → install hard-blocks, loud audit log):
-///   a resolvable, well-formed signature that fails verification
-///   (the signed identity does not match the served entry), or an
-///   entry-point hash mismatch (the delivered bytes do not match what
-///   was signed / recorded).
+/// - **Tamper suspect** (`Err` carrying [`TamperSuspect`] → install
+///   hard-blocks, loud audit log): a resolvable, well-formed signature
+///   that fails verification (the signed identity does not match the
+///   served entry), or an entry-point hash mismatch (the delivered bytes
+///   do not match what was signed / recorded).
 ///
 /// `hub_key` is the signing key pre-resolved for the entry's `kid` via
 /// [`hub_signing_key`]; `None` means the JWKS path is unavailable.
-fn local_seal_for_install(
-    data_dir: &std::path::Path,
+pub fn install_seal_verdict(
     entry: &RegistryEntry,
-    command: &str,
-    args: &[String],
+    installed_entry_point_sha256: impl FnOnce() -> anyhow::Result<String>,
     hub_key: Option<&mgp_seal::ed25519::PublicKey>,
-) -> anyhow::Result<Option<String>> {
+) -> anyhow::Result<SealVerdict> {
     let ed25519_block = entry
         .signature_payload
         .as_ref()
@@ -1493,33 +1577,27 @@ fn local_seal_for_install(
                 entry.id
             );
         }
-        return Ok(None);
+        return Ok(SealVerdict::Unsealed(UnsealedReason::NoEntryPointHash));
     };
 
     // Keyless integrity check first: a hash mismatch is the strongest
     // tamper signal regardless of signature state, and hard-blocks
     // (unchanged from the interim fix).
-    let entry_point = crate::managers::mcp::resolve_sealable_entry_point(command, args);
-    let data = std::fs::read(entry_point).map_err(|e| {
-        anyhow::anyhow!(
-            "read entry point for integrity check ({}): {e}",
-            entry_point.display()
-        )
-    })?;
-    let actual = {
-        use sha2::Digest;
-        hex::encode(sha2::Sha256::digest(&data))
-    };
+    let actual = installed_entry_point_sha256()?;
     if !actual.eq_ignore_ascii_case(expected) {
         error!(
             "{}: TAMPER SUSPECT (integrity_mismatch) — catalog records sha256 {expected}, \
              installed entry point hashes to {actual}",
             entry.id
         );
-        anyhow::bail!(
-            "entry point integrity check failed for '{}': catalog expects sha256 {expected}, installed file hashes to {actual}",
-            entry.id
-        );
+        return Err(TamperSuspect {
+            code: "integrity_mismatch",
+            message: format!(
+                "entry point integrity check failed for '{}': catalog expects sha256 {expected}, installed file hashes to {actual}",
+                entry.id
+            ),
+        }
+        .into());
     }
 
     // Ed25519 layer: upgrade the trust anchor from "HTTPS to the
@@ -1530,7 +1608,7 @@ fn local_seal_for_install(
              (untrusted at spawn)",
             entry.id
         );
-        return Ok(None);
+        return Ok(SealVerdict::Unsealed(UnsealedReason::NoSignature));
     };
     let (Some(sig_b64), Some(kid_str)) = (
         block.get("sig").and_then(serde_json::Value::as_str),
@@ -1540,7 +1618,9 @@ fn local_seal_for_install(
             "{}: malformed ed25519 block in signature_payload — registering unsealed",
             entry.id
         );
-        return Ok(None);
+        return Ok(SealVerdict::Unsealed(
+            UnsealedReason::MalformedSignatureBlock,
+        ));
     };
     let (Ok(sig), Ok(kid)) = (
         mgp_seal::ed25519::Signature::from_base64(sig_b64),
@@ -1550,7 +1630,7 @@ fn local_seal_for_install(
             "{}: undecodable Ed25519 signature or key id — registering unsealed",
             entry.id
         );
-        return Ok(None);
+        return Ok(SealVerdict::Unsealed(UnsealedReason::UndecodableSignature));
     };
     let Some(pk) = hub_key else {
         warn!(
@@ -1558,7 +1638,7 @@ fn local_seal_for_install(
              signature; registering unsealed (untrusted at spawn)",
             entry.id
         );
-        return Ok(None);
+        return Ok(SealVerdict::Unsealed(UnsealedReason::HubKeyUnavailable));
     };
 
     // A `dual-v2` seal signed the archive alongside the entry point, so
@@ -1579,7 +1659,9 @@ fn local_seal_for_install(
                  the signed message; registering unsealed (untrusted at spawn)",
                 entry.id
             );
-            return Ok(None);
+            return Ok(SealVerdict::Unsealed(
+                UnsealedReason::MalformedArchiveBinding,
+            ));
         }
     };
     if !mgp_seal::ed25519::verify(pk, &kid, &canonical, &sig) {
@@ -1588,14 +1670,52 @@ fn local_seal_for_install(
              '{kid_str}' does not match the entry's signed identity",
             entry.id
         );
-        anyhow::bail!(
-            "Ed25519 seal verification failed for '{}': the catalog's signature does not match its signed identity under hub key '{kid_str}' — refusing install",
-            entry.id
-        );
+        return Err(TamperSuspect {
+            code: "signature_invalid",
+            message: format!(
+                "Ed25519 seal verification failed for '{}': the catalog's signature does not match its signed identity under hub key '{kid_str}' — refusing install",
+                entry.id
+            ),
+        }
+        .into());
     }
+    Ok(SealVerdict::Verified)
+}
+
+/// Decide the install-time seal for `entry` (see [`install_seal_verdict`])
+/// and, when it verifies, mint the local seal over the installed files.
+///
+/// Returns `Ok(None)` to register unsealed, `Ok(Some(seal))` with the local
+/// seal to record, and `Err` when the install must not proceed.
+fn local_seal_for_install(
+    data_dir: &std::path::Path,
+    entry: &RegistryEntry,
+    command: &str,
+    args: &[String],
+    hub_key: Option<&mgp_seal::ed25519::PublicKey>,
+) -> anyhow::Result<Option<String>> {
+    let entry_point = crate::managers::mcp::resolve_sealable_entry_point(command, args);
+    let verdict = install_seal_verdict(
+        entry,
+        || {
+            let data = std::fs::read(entry_point).map_err(|e| {
+                anyhow::anyhow!(
+                    "read entry point for integrity check ({}): {e}",
+                    entry_point.display()
+                )
+            })?;
+            use sha2::Digest;
+            Ok(hex::encode(sha2::Sha256::digest(&data)))
+        },
+        hub_key,
+    )?;
+    if verdict != SealVerdict::Verified {
+        return Ok(None);
+    }
+    let kid_str = entry_signature_kid(entry).unwrap_or_default();
 
     let seal_key = mgp_seal::load_or_generate_seal_key(data_dir)?;
-    // an earlier decision: seal the installed tree rather than the entry point alone.
+    // Seal the installed tree rather than the entry point alone.
     // Since connectors became packaged the entry point is usually a shim, so
     // an entry-point seal certified almost none of the code that runs. When
     // the install directory does not resolve — dev layouts, tests, a server
@@ -1643,17 +1763,6 @@ async fn register_server(
         },
     );
 
-    // Build env: merge defaults with overrides
-    let mut env_map: HashMap<String, String> = HashMap::new();
-    for var in &entry.env_vars {
-        if let Some(default) = &var.default {
-            env_map.insert(var.name.clone(), default.clone());
-        }
-    }
-    for (k, v) in &env_overrides {
-        env_map.insert(k.clone(), v.clone());
-    }
-
     // Use add_server() for proper lifecycle integration:
     // creates ServerConfig → connect_server() (spawn + register) → save to DB.
     // The registry's trust_level is threaded through as MgpServerConfig so
@@ -1681,6 +1790,35 @@ async fn register_server(
                 return Ok(());
             }
         };
+    finish_registration(state, entry, command, args, seal, env_overrides, auto_start).await
+}
+
+/// The registration proper, once the seal decision is in: `add_server`,
+/// marketplace metadata, provider / grant / memory side effects, and the
+/// `finalize` completion. The caller has emitted the `finalize` start.
+/// `seal` is the local seal to record, or `None` to register unsealed.
+async fn finish_registration(
+    state: &AppState,
+    entry: &RegistryEntry,
+    command: String,
+    args: Vec<String>,
+    seal: Option<String>,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+
+    // Build env: merge defaults with overrides
+    let mut env_map: HashMap<String, String> = HashMap::new();
+    for var in &entry.env_vars {
+        if let Some(default) = &var.default {
+            env_map.insert(var.name.clone(), default.clone());
+        }
+    }
+    for (k, v) in &env_overrides {
+        env_map.insert(k.clone(), v.clone());
+    }
+
     let mgp = Some(crate::managers::mcp_mgp::MgpServerConfig {
         trust_level: Some(entry.trust_level.clone()),
     });
@@ -1724,7 +1862,7 @@ async fn register_server(
         warn!("Failed to set marketplace fields: {e}");
     }
 
-    // Engine provider metadata (an earlier decision): a reasoning-engine connector
+    // Engine provider metadata: a reasoning-engine connector
     // (`category = "mind"`) carries its upstream LLM-provider metadata in the
     // catalog entry's `provider` block. Ingest it into the `llm_providers`
     // credential registry so a new engine needs only a catalog entry, not a
@@ -2147,7 +2285,7 @@ async fn install_from_git(
 /// adversary able to forge the response substitutes the archive and that
 /// digest together, and this check passes.
 ///
-/// A `dual-v2` seal (ClotoHub an earlier decision) carries the digest **and length
+/// A `dual-v2` seal carries the digest **and length
 /// inside the signed message**, so when the entry has one we compare
 /// against that instead, and treat a disagreement between the two as a
 /// tamper signal. The signature over those values is verified later, in
@@ -2167,6 +2305,13 @@ async fn install_from_raw_url(
 ) -> anyhow::Result<()> {
     let tx = &state.setup_progress_tx;
     let is_rust = entry.runtime == "rust";
+
+    // The install engine does the fetching, extraction and build; without
+    // it there is no install, so it is checked before anything is
+    // provisioned for one.
+    let Some(installer) = crate::managers::installer::check_for_install(tx).await else {
+        return Ok(());
+    };
 
     if !ensure_toolchain(state, is_rust).await? {
         return Ok(());
@@ -2245,11 +2390,215 @@ async fn install_from_raw_url(
     tokio::fs::create_dir_all(&tmp_dir).await?;
     let archive_path = tmp_dir.join(format!("{}-raw-url.tar.gz", entry.id));
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(TARBALL_DOWNLOAD_TIMEOUT_SECS))
-        .redirect(reqwest::redirect::Policy::none())
-        .resolve_to_addrs(&host, &resolved)
-        .build()?;
+    if !fetch_raw_url_archive(tx, &installer, entry, &resolved, &archive_path).await? {
+        return Ok(());
+    }
+    materialize_with_installer(
+        state,
+        &installer,
+        entry,
+        spec.subdir.as_deref(),
+        &archive_path,
+        &tmp_dir,
+        env_overrides,
+        auto_start,
+    )
+    .await
+}
+
+/// Stage 1 of a `raw_url` install, run by the install engine (`installer`,
+/// from [`crate::managers::installer::check_for_install`]): fetch the
+/// archive into `archive_path` over a connection made only to `pinned`,
+/// checking it against the signed archive binding (or, failing that, the
+/// catalog-served digest) while it streams.
+///
+/// `pinned` is the URL's host resolved and cleared by the SSRF guard; the
+/// engine never resolves names itself. Returns `Ok(false)` after the
+/// engine emitted a `StepError` — nothing is left at `archive_path` in
+/// that case — and `Ok(true)` once `archive_path` holds a verified
+/// archive. `Err` means the engine could not run.
+pub async fn fetch_raw_url_archive(
+    tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>,
+    installer: &std::path::Path,
+    entry: &RegistryEntry,
+    pinned: &[std::net::SocketAddr],
+    archive_path: &std::path::Path,
+) -> anyhow::Result<bool> {
+    let input = serde_json::json!({
+        "entry": entry,
+        "archive_path": archive_path,
+        "pinned_addrs": pinned.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        "timeout_secs": TARBALL_DOWNLOAD_TIMEOUT_SECS,
+    });
+    let result = crate::managers::installer::run_stage(installer, "fetch", &input, tx).await?;
+    Ok(result.get("ok").and_then(serde_json::Value::as_bool) == Some(true))
+}
+
+/// Stage 2 of a `raw_url` install, run by the install engine: extract the
+/// verified archive into a staging directory under `tmp_dir`, build the
+/// Python environment (or the Rust binary) there, decide the install-time
+/// seal on the staged tree, and only then swap it into
+/// `{data_dir}/mcp-servers/`. The engine's verdict comes back as data; the
+/// kernel reports a refusal under its own `finalize` step and registers a
+/// verified or unsealed install through [`finish_registration`].
+/// `spec_subdir` is the connector's directory inside a monorepo archive.
+///
+/// What stays on this side: the shared virtualenv is resolved here and its
+/// lock held around the engine (the boot-time dependency sync shares it),
+/// the seal key and the hub JWKS are read here, and nothing is written to
+/// the database before the engine has put the tree in place.
+///
+/// Failures are reported through `StepError` events and `Ok(())`; `Err`
+/// means the engine could not run.
+#[allow(clippy::implicit_hasher, clippy::too_many_arguments)]
+pub async fn materialize_with_installer(
+    state: &AppState,
+    installer: &std::path::Path,
+    entry: &RegistryEntry,
+    spec_subdir: Option<&str>,
+    archive_path: &std::path::Path,
+    tmp_dir: &std::path::Path,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+    let is_rust = entry.runtime == "rust";
+
+    let servers_dir = resolve_servers_dir(state);
+    tokio::fs::create_dir_all(&servers_dir).await?;
+    let venv_dir =
+        crate::managers::mcp_venv::resolve_venv_dir().unwrap_or_else(|| servers_dir.join(".venv"));
+    let logs_dir = state.data_dir.join("logs");
+    let _ = tokio::fs::create_dir_all(&logs_dir).await;
+    let seal_key = mgp_seal::load_or_generate_seal_key(&state.data_dir)?;
+    let jwks = hub_jwks_document(state, entry_signature_kid(entry).as_deref()).await;
+
+    let input = serde_json::json!({
+        "entry": entry,
+        "archive_path": archive_path,
+        "subdir": spec_subdir,
+        "servers_dir": servers_dir,
+        "tmp_dir": tmp_dir,
+        "uv": crate::managers::mcp_venv::uv_bin(&state.data_dir),
+        "venv_dir": venv_dir,
+        "python_version": crate::managers::mcp_venv::TARGET_PYTHON,
+        "install_log": logs_dir.join("install.log"),
+        "seal_key_hex": hex::encode(seal_key),
+        "jwks": jwks,
+        "child_timeout_secs": CHILD_PROCESS_TIMEOUT_SECS,
+        "build_timeout_secs": CARGO_BUILD_TIMEOUT_SECS,
+    });
+
+    let result = {
+        // bug-453: the venv check → create → install runs under the same
+        // lock as the boot sync task and other installs sharing the venv.
+        let _venv_guard = if is_rust {
+            None
+        } else {
+            Some(crate::managers::mcp_venv::lock_venv().await)
+        };
+        crate::managers::installer::run_stage(installer, "materialize", &input, tx).await?
+    };
+
+    if result.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
+        // The engine has emitted the StepError and left nothing behind.
+        return Ok(());
+    }
+
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "finalize".into(),
+            description: "Registering server".into(),
+        },
+    );
+
+    let seal = result.get("seal").cloned().unwrap_or_default();
+    let verdict = seal.get("verdict").and_then(serde_json::Value::as_str);
+    let installed = result.get("installed").and_then(serde_json::Value::as_bool) == Some(true);
+    let refusal = |what: &str| SetupProgressEvent::StepError {
+        step: "finalize".into(),
+        error: what.to_string(),
+        recoverable: false,
+    };
+    let local_seal = match (installed, verdict) {
+        (true, Some("verified")) => {
+            let Some(local) = seal.get("local_seal").and_then(serde_json::Value::as_str) else {
+                emit(
+                    tx,
+                    refusal("install engine reported a verified tree without a seal"),
+                );
+                return Ok(());
+            };
+            Some(local.to_string())
+        }
+        (true, Some("unsealed")) => {
+            info!(
+                "{}: registering unsealed ({}) — untrusted at spawn",
+                entry.id,
+                seal.get("reason")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("no reason given")
+            );
+            None
+        }
+        _ => {
+            // A tamper suspect or an unreadable tree: the engine has removed
+            // the staged tree; the previous install, if any, is untouched.
+            let message = seal
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("install engine refused the tree without a reason");
+            error!("{}: install refused — {message}", entry.id);
+            emit(tx, refusal(message));
+            return Ok(());
+        }
+    };
+
+    let command = result
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| anyhow::anyhow!("install engine result has no command"))?
+        .to_string();
+    let args: Vec<String> = result
+        .get("args")
+        .cloned()
+        .map(serde_json::from_value)
+        .transpose()?
+        .unwrap_or_default();
+    finish_registration(
+        state,
+        entry,
+        command,
+        args,
+        local_seal,
+        env_overrides,
+        auto_start,
+    )
+    .await
+}
+
+/// Stage 1 of a `raw_url` install: fetch the archive over `client` into
+/// `archive_path`, checking it against the signed archive binding (or,
+/// failing that, the catalog-served digest) while it streams.
+///
+/// Superseded by [`fetch_raw_url_archive`] (the install engine does this
+/// now); kept for one release so the in-process path can be compared
+/// against the engine, then removed.
+///
+/// `client` is built by the caller, already pinned to addresses that
+/// passed the SSRF guard. Returns `Ok(false)` after emitting a `StepError`
+/// when the download must not proceed — nothing is left at `archive_path`
+/// in that case — and `Ok(true)` once `archive_path` holds a verified
+/// archive. `Err` is an I/O failure.
+pub async fn download_raw_url_archive(
+    tx: &tokio::sync::broadcast::Sender<SetupProgressEvent>,
+    entry: &RegistryEntry,
+    spec: &mgp_sdk::adapters::RawUrlSpec,
+    client: reqwest::Client,
+    archive_path: &std::path::Path,
+) -> anyhow::Result<bool> {
+    let parsed_url = reqwest::Url::parse(&spec.url)?;
     let resp = client
         .get(parsed_url)
         .header("User-Agent", "ClotoCore")
@@ -2265,7 +2614,7 @@ async fn install_from_raw_url(
                 recoverable: true,
             },
         );
-        return Ok(());
+        return Ok(false);
     }
 
     // Prefer the signed digest over the catalog-served one. When both
@@ -2292,7 +2641,7 @@ async fn install_from_raw_url(
                             recoverable: false,
                         },
                     );
-                    return Ok(());
+                    return Ok(false);
                 }
             }
             (Some(sha256), Some(length))
@@ -2326,7 +2675,7 @@ async fn install_from_raw_url(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(false);
         }
     }
 
@@ -2373,7 +2722,7 @@ async fn install_from_raw_url(
                         recoverable: false,
                     },
                 );
-                return Ok(());
+                return Ok(false);
             }
         }
 
@@ -2418,7 +2767,7 @@ async fn install_from_raw_url(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(false);
         }
     }
 
@@ -2448,7 +2797,7 @@ async fn install_from_raw_url(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(false);
         }
     }
 
@@ -2458,6 +2807,34 @@ async fn install_from_raw_url(
             step: "download".into(),
         },
     );
+    Ok(true)
+}
+
+/// Stage 2 of a `raw_url` install: extract the verified archive under a
+/// staging directory in `tmp_dir`, swap it into `{data_dir}/mcp-servers/`,
+/// build the Python environment (or the Rust binary), register the server
+/// and remove the archive. `spec_subdir` is the connector's directory
+/// inside a monorepo archive, if any.
+///
+/// Superseded by [`materialize_with_installer`] (the install engine does
+/// this now, and stages the tree until the seal verdict is in); kept for
+/// one release, then removed.
+///
+/// Failures are reported through `StepError` events and `Ok(())`; `Err`
+/// is an I/O failure. Nothing is written to the database before the tree
+/// is in place and its dependencies are installed.
+#[allow(clippy::too_many_lines, clippy::implicit_hasher)]
+pub async fn materialize_and_register(
+    state: &AppState,
+    entry: &RegistryEntry,
+    spec_subdir: Option<&str>,
+    archive_path: &std::path::Path,
+    tmp_dir: &std::path::Path,
+    env_overrides: HashMap<String, String>,
+    auto_start: bool,
+) -> anyhow::Result<()> {
+    let tx = &state.setup_progress_tx;
+    let is_rust = entry.runtime == "rust";
 
     emit(
         tx,
@@ -2506,7 +2883,7 @@ async fn install_from_raw_url(
     }
     tokio::fs::create_dir_all(&staging_dir).await?;
 
-    // an earlier decision: a `raw_url` source may carry a `subdir` (mgp-sdk
+    // A `raw_url` source may carry a `subdir` (mgp-sdk
     // v0.3.0) when the tarball is a whole monorepo served by the
     // ClotoHub blob mirror. With a subdir we extract only the
     // connector's tree (plus the sibling `common/` package when
@@ -2514,14 +2891,12 @@ async fn install_from_raw_url(
     // matches a nested git clone — `resolve_common_source` and
     // uninstall both already understand that shape. Without a subdir
     // the tarball is standalone and extracts whole, as before.
-    let subdir = spec
-        .subdir
-        .clone()
+    let subdir = spec_subdir
         .filter(|s| !s.is_empty())
         .map(|s| s.trim_matches('/').to_owned());
     let needs_common = !is_rust && entry.dependencies.contains(&"common".to_string());
 
-    let archive_path_clone = archive_path.clone();
+    let archive_path_clone = archive_path.to_path_buf();
     let staging_dir_clone = staging_dir.clone();
     let subdir_clone = subdir.clone();
     let extract_result = tokio::task::spawn_blocking(move || match &subdir_clone {
@@ -2946,7 +3321,7 @@ fn effective_install_dir(entry: &RegistryEntry) -> &str {
     // (also "servers/websearch") at the extract / register / uninstall sites,
     // doubling the on-disk path to
     // mcp-servers/servers/<name>/servers/<name>/server.py — the launch then
-    // fails because no server.py exists there (bug-399, an earlier decision). Collapse to
+    // fails because no server.py exists there (bug-399). Collapse to
     // the final path component so a malformed multi-segment value stays flat;
     // well-formed ids (incl. dotted "memory.cpersona") pass through unchanged.
     raw.trim_matches('/')
@@ -3064,7 +3439,7 @@ fn validate_dest_path(target_dir: &std::path::Path, dest: &std::path::Path) -> a
 /// Ceiling on what one archive may expand to on disk.
 ///
 /// A verified digest proves the bytes are the ones the hub signed; it says
-/// nothing about what they expand to. The signed `archive_length` (an earlier decision)
+/// nothing about what they expand to. The signed `archive_length`
 /// bounds the *compressed* transfer only, so a few tens of kilobytes can still
 /// decompress to gigabytes. Extraction therefore carries its own budget.
 const MAX_EXTRACTED_BYTES: u64 = 512 * 1024 * 1024;
@@ -3328,7 +3703,7 @@ fn extract_tarball_stripped(
 /// `common/` package) from a tarball, preserving repo-relative paths
 /// under `target_dir` after stripping a single shared top-level prefix
 /// (GitHub-archive-style). Used by the `raw_url` + `subdir` install
-/// path (an earlier decision, mgp-sdk v0.3.0): the resulting layout
+/// path (mgp-sdk v0.3.0): the resulting layout
 /// (`{target_dir}/{subdir}/…` with `common` as the subdir's sibling)
 /// matches a nested git clone, so `resolve_common_source` and the
 /// uninstall directory candidates work unchanged. Zip-slip safe via
@@ -4181,7 +4556,7 @@ mod tests {
         ("repo-v0/servers/other/server.py", b"print('other')"),
     ];
 
-    // ── Extraction policy (an earlier decision) ───────────────────────────────
+    // ── Extraction policy ──────────────────────────────────────────
 
     /// Build a GitHub-style tarball carrying one link entry of
     /// `entry_type` alongside an ordinary file.
@@ -4242,7 +4617,7 @@ mod tests {
         write_entry(&mut entry, dest, budget)
     }
 
-    /// A symlink in the archive must be refused outright. Before an earlier decision
+    /// A symlink in the archive must be refused outright. Before the
     /// the extractor split on `is_dir()` alone and wrote every other kind
     /// through `File::create`, so this landed as an *empty regular file* —
     /// harmless by accident, and silently restored the moment anyone
@@ -4284,7 +4659,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&work);
     }
 
-    /// The signed `archive_length` (an earlier decision) bounds the compressed
+    /// The signed `archive_length` bounds the compressed
     /// transfer only, so expansion needs its own ceiling — otherwise a
     /// digest-verified archive can still be a decompression bomb.
     #[test]
@@ -4402,7 +4777,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&work);
     }
 
-    /// Regression for the an earlier decision E2E failure: real GitHub archives
+    /// Regression for the subdir E2E failure: real GitHub archives
     /// open with `pax_global_header` and the top-level directory entry,
     /// both of which made `detect_shared_prefix` give up (`None`) — so
     /// stripped extraction kept the `<repo>-<ref>/` wrapper and subdir
@@ -4674,7 +5049,7 @@ mod tests {
         assert_eq!(entry_signature_kid(&entry("demo", "demo")), None);
     }
 
-    // ── dual-v2 seals: the archive binding (ClotoHub an earlier decision) ──
+    // ── dual-v2 seals: the archive binding ──
     //
     // The existing tests above cover v1 entries and are also the
     // backward-compatibility proof: an entry with no `archive` block must
@@ -4975,7 +5350,7 @@ mod tests {
 
     #[test]
     fn effective_install_dir_collapses_monorepo_relative_directory() {
-        // bug-399 / an earlier decision: a stale catalog `directory` carrying the
+        // bug-399: a stale catalog `directory` carrying the
         // monorepo-relative path must not double with the source `subdir`. Only
         // the final component is used as the on-disk install dir, so
         // mcp-servers/<dir>/<subdir> stays single-nested instead of

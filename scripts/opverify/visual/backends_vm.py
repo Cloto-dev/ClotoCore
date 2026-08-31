@@ -64,6 +64,34 @@ def _cfg(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
+def _required(name: str) -> str:
+    """Read config the harness must not invent a default for.
+
+    These name a machine that belongs to whoever runs the harness, so any value
+    committed here is wrong for every other reader and discloses the author's
+    network besides. Failing on the variable's name also beats the alternative:
+    a placeholder default still reaches ``ssh``, and the operator sees an
+    eight-second connect timeout rather than "you have not said which machine".
+    """
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"{name} is not set. The VM harness needs the machine it drives:\n"
+            "    export OPV_PVE_HOST=<ssh-user>@<hypervisor-host>\n"
+            "    export OPV_VM_USER=<guest-account>\n"
+            "    export OPV_VM_IP=<guest-address>\n"
+            "    export OPV_VM_ID=<hypervisor-vm-id>\n"
+            "Export them in the shell that runs the harness. The repo's .env is\n"
+            "read by the Rust core, not by these scripts."
+        )
+    return value
+
+
+def vm_host() -> str:
+    """``user@host`` for the guest, from config that has no default."""
+    return f"{_required('OPV_VM_USER')}@{_required('OPV_VM_IP')}"
+
+
 def _split_status(raw: bytes) -> tuple:
     """Split ``curl -w '\\n%{http_code}'`` output into (body, status).
 
@@ -104,7 +132,7 @@ def _ssh_cmd() -> List[str]:
     """SSH invocation prefix with connection multiplexing — the master
     connection persists ``OPV_SSH_PERSIST`` seconds so subsequent calls reuse
     it and skip the TCP+auth handshake (the dominant per-call cost)."""
-    vm = f"{_cfg('OPV_VM_USER', 'PC')}@{_cfg('OPV_VM_IP', '192.0.2.252')}"
+    vm = vm_host()
     return [
         "ssh",
         "-o",
@@ -366,9 +394,9 @@ def make_cofetch_backend(
 # port-forward pays that once: a persistent master forwards the VM's agent (8900)
 # and kernel (8081) loopback ports to local ports, and the Mac then hits them
 # with a plain local HTTP client — no per-call ssh exec, no PowerShell, no remote
-# curl. Measured on VM104: /grab 606→259ms (2.3x), kernel probe ~350→7.5ms. The
-# ~258ms /grab floor that remains is the VM's mss screen capture (grab ≈ grabhash
-# over the tunnel), which this transport cannot touch.
+# curl. Measured on the Windows guest: /grab 606→259ms (2.3x), kernel probe
+# ~350→7.5ms. The ~258ms /grab floor that remains is the VM's mss screen capture
+# (grab ≈ grabhash over the tunnel), which this transport cannot touch.
 
 
 def _free_local_port() -> int:
@@ -429,7 +457,7 @@ class SshTunnel:
         agent_port: Optional[int] = None,
         kernel_port: Optional[int] = None,
     ):
-        self.vm = f"{_cfg('OPV_VM_USER', 'PC')}@{_cfg('OPV_VM_IP', '192.0.2.252')}"
+        self.vm = vm_host()
         self.agent_port = agent_port or int(_cfg("OPV_AGENT_PORT", "8900"))
         self.kernel_port = kernel_port or int(_cfg("OPV_KERNEL_PORT", "8081"))
         self.local_agent = _free_local_port()
