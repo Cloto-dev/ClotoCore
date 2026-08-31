@@ -72,20 +72,41 @@ design documents, which assume the reader is building the subsystem.
 
 Initial navigation:
 
-| Page | Source |
-| --- | --- |
-| Home | `README.md` |
-| Getting Started | New — see §6 |
-| Architecture | `ARCHITECTURE.md` |
-| Build an MCP/MGP server | `QUICKSTART_MCP_SERVER.md` |
-| Protocol specification | External link to the specification's own repository |
-| Development | `DEVELOPMENT.md` |
-| Changelog | `CHANGELOG.md` — 83,605 characters, so published in split or generated form rather than as one page |
-| Project vision | `PROJECT_VISION.md` |
+| Page | Source | In the nav today |
+| --- | --- | --- |
+| Home | `index.md` | yes |
+| Getting Started | New — see §6 | no, not yet written |
+| Architecture | `ARCHITECTURE.md` | yes |
+| Build an MCP/MGP server | `QUICKSTART_MCP_SERVER.md` | yes |
+| Protocol specification | External link to the specification's own repository | yes |
+| Development | `DEVELOPMENT.md` | yes |
+| Changelog | `CHANGELOG.md` | yes |
+| Project vision | `PROJECT_VISION.md` | yes |
 
 `INSTALLER_DISTRIBUTION.md` is not on this list. It describes the distribution
 *strategy*, not what a user does, and it has not tracked the packaging changes
 made since. Getting Started replaces the role it was standing in for.
+
+Three things about that table were settled when the site was actually built:
+
+**Home is `docs/index.md`, not the README.** They address different readers.
+The README introduces a repository — badges, project layout, the full
+environment-variable table — to someone looking at source. The site's home
+introduces a piece of software to someone who has not seen the source and may
+never. Publishing the README as the home page would have meant either
+maintaining the same text twice or serving repository furniture to site
+readers. The README stays the repository's entry point and is brought into
+line with the site separately.
+
+**Getting Started is absent rather than a placeholder.** §6 says to write it
+after the structure exists, and an empty page in the navigation makes a promise
+to a reader that the site cannot keep.
+
+**The changelog is one page.** Splitting it was proposed for its size, but size
+alone is not the cost — the cost arrives with translation, and a changelog is
+the natural case for staying English-only. That declaration lands with the
+Japanese side; until then one page is the honest form, because a split is only
+worth its generator if something is paying for the length.
 
 ## 5. Documents whose subject belongs to another repository
 
@@ -133,3 +154,43 @@ invented.
 
 Write the page after the site structure exists, not before — the structure
 decides where it sits and how it is split.
+
+## 7. What enforces this
+
+The rules above are only worth writing down if something fails when they are
+broken. Three things run in CI on every change to `docs/`, `mkdocs.yml` or the
+checker itself.
+
+**The build, with `--strict`.** Every validation level in `mkdocs.yml` is set
+to `warn`, and `--strict` turns warnings into failures. The one that carries
+this policy is `nav.omitted_files`: a document that is neither in the
+navigation nor in `exclude_docs` fails the build. That is why `exclude_docs` is
+written as a list of what is *not* published rather than a pattern that admits
+only what is — adding a document to `docs/` then forces a decision about which
+bucket it is in, instead of silently defaulting to unpublished.
+
+**A link and anchor checker over the built site**
+(`scripts/check-doc-anchors.py`). It exists for two classes the build does not
+fail on, both of them measured here rather than assumed:
+
+* A `#fragment` that no longer resolves. `--strict` validates fragments in the
+  Markdown sources, but not what the rendered HTML ends up containing — which
+  is the form the question takes once pages have translations, because a
+  translated heading generates a different id.
+* A link from a published page into the unpublished set. mkdocs does notice
+  this, and reports it at a level it clamps in its own source to at most
+  `INFO`, so no configuration can promote it to a warning and `--strict` can
+  never fail on it. Three such links existed in `ARCHITECTURE.md` when the site
+  was first built, with a green build; they now point at the repository copy on
+  GitHub instead. **A published page must not link to an excluded one** —
+  link to its GitHub location, or publish it.
+
+Both arms were checked by breaking them on purpose: removing a heading id from
+a built page turns the anchor arm red and leaves the link arm green, and adding
+a link to an excluded document turns the link arm red while the strict build
+stays at exit 0.
+
+**Not yet: the translation gates.** Coverage, drift, heading parity and
+language routing all presuppose a published bilingual site. They arrive with
+the Japanese side, not before — a check with nothing to check reports green and
+teaches everyone to trust it.

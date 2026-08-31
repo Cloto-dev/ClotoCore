@@ -381,7 +381,7 @@ When a change fails these tests — it is one plugin's concern, it depends on a 
 All plugin functionality is delivered via **Model Context Protocol (MCP)** servers.
 MCP servers are independent processes that communicate with the Kernel via JSON-RPC over stdio.
 
-For full architecture details, see [MCP Plugin Architecture](MCP_PLUGIN_ARCHITECTURE.md).
+For full architecture details, see [MCP Plugin Architecture](https://github.com/Cloto-dev/ClotoCore/blob/master/docs/MCP_PLUGIN_ARCHITECTURE.md).
 
 **Key characteristics:**
 - Servers maintained in the private clotohub-servers repository (formerly cloto-mcp-servers)
@@ -476,7 +476,7 @@ Protocol versions, `_meta` keys, routing header names and the error code are def
 > **Note:** The original Three-Tier Plugin Model (Rust compiled, Python Bridge, WASM)
 > has been fully superseded by the MCP-only architecture as of v0.4.x.
 > Archived design documents are in `docs/archive/`.
-> See [MCP Plugin Architecture](MCP_PLUGIN_ARCHITECTURE.md) for current details.
+> See [MCP Plugin Architecture](https://github.com/Cloto-dev/ClotoCore/blob/master/docs/MCP_PLUGIN_ARCHITECTURE.md) for current details.
 
 ---
 
@@ -514,6 +514,6 @@ These principles define the "correct approach" within ClotoCore. The following c
 
 ### Related Design Documents
 
-- [MGP_SPEC.md](MGP_SPEC.md) — Multi-Agent Gateway Protocol specification (index)
+- [mgp-spec](https://github.com/Cloto-dev/mgp-spec) — Multi-Agent Gateway Protocol specification (its own repository)
 - [MGP Isolation Design](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_ISOLATION_DESIGN.md) — OS-Level isolation design (in the mgp-spec repo)
 - [MGP Modernization Design](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_MODERNIZATION_DESIGN.md) — MGP's adaptation to MCP 2026-07-28; the specification counterpart to §3.1.3 (in the mgp-spec repo)

@@ -534,7 +534,7 @@ First stable release of the 0.6.3 line. Promotes `0.6.3-beta.14` after coordinat
 - **CVE-2026-33672** — picomatch 2.3.1→2.3.2, 4.0.3→4.0.4 (glob matching method injection)
 
 ### Added
-- [MCP/MGP Server Quickstart](docs/QUICKSTART_MCP_SERVER.md) — two-path guide for new server developers
+- [MCP/MGP Server Quickstart](QUICKSTART_MCP_SERVER.md) — two-path guide for new server developers
 - `CLOTO_YOLO_EXCEPTIONS` documented in README configuration table
 - Tauri dev note in Quick Start section
 
