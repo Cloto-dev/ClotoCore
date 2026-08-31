@@ -134,7 +134,7 @@ pub type ActiveCronContexts = Arc<dashmap::DashMap<String, CronExecContext>>;
 pub struct EnvelopedEvent {
     pub event: Arc<ClotoEvent>,
     pub issuer: Option<cloto_shared::ClotoId>, // None = System/Kernel
-    pub correlation_id: Option<cloto_shared::ClotoId>, // 親イベントの trace_id
+    pub correlation_id: Option<cloto_shared::ClotoId>, // trace_id of the parent event
     pub depth: u8,
 }
 
@@ -599,10 +599,26 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         tracing::info!("Setup not complete — skipping MCP venv sync");
     }
 
+    // Probe the marketplace install engine so a missing or stale binary
+    // is in the boot log and on the health endpoint before anyone
+    // opens the marketplace. Off the critical path: it is re-probed by
+    // every install, which is where it is enforced.
+    tokio::spawn(async {
+        let status = managers::installer::probe().await;
+        match status.error {
+            None => tracing::info!(
+                "Marketplace install engine ready: {} ({})",
+                status.path.display(),
+                status.version.as_deref().unwrap_or("?")
+            ),
+            Some(error) => tracing::warn!("{error}"),
+        }
+    });
+
     // 0d. Set database timeout from config
     db::set_db_timeout(config.db_timeout_secs);
 
-    // 1. データベースの初期化
+    // 1. Initialize the database.
     //
     // Opens the pool and runs migrations, self-healing a corrupt / non-SQLite
     // DB file (bug-486) instead of dead-ending the launch. See `open_kernel_db`.
@@ -654,7 +670,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     let mcp_manager = Arc::new(mcp_manager);
 
     // 4. Initialize External Plugins
-    let mut registry = plugin_manager.initialize_all().await?;
+    let mut registry = plugin_manager.initialize_all()?;
     registry.set_mcp_manager(mcp_manager.clone());
     let registry_arc = Arc::new(registry);
 
@@ -669,7 +685,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     let metrics = Arc::new(managers::SystemMetrics::new());
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
-    // 🔌 System Handler の登録
+    // Register the System Handler.
     let pending_command_approvals: handlers::command_approval::PendingApprovals =
         Arc::new(dashmap::DashMap::new());
     let session_trusted_commands: handlers::command_approval::SessionTrustedCommands =
@@ -1295,7 +1311,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/agents/{id}/last-usage",
             get(handlers::get_agent_last_usage),
         )
-        // Recall precision (an earlier decision knob 3) — optional memory-capability op,
+        // Recall precision (knob 3) — optional memory-capability op,
         // routed to the agent's memory server via the capability dispatcher.
         .route(
             "/agents/{id}/recall-precision",

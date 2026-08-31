@@ -4,7 +4,7 @@
 //! message is sent to every configured engine, each returns an independent
 //! proposal, and a designated synthesizer engine merges them into one answer.
 //!
-//! Since an earlier decision the orchestration runs **in-kernel**, synchronously, inside
+//! The orchestration runs **in-kernel**, synchronously, inside
 //! `handlers/system.rs::run_consensus` — it fans the engines out through the
 //! same `run_agentic_loop` the normal message path uses, collects the
 //! proposals, then runs the synthesizer in-kernel. The kernel stamps the

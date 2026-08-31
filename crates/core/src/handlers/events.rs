@@ -32,14 +32,14 @@ pub async fn post_event_handler(
     Json(event_data): Json<cloto_shared::ClotoEventData>,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
-    // 🛡️ Security Check: 外部からの重要なシステムイベントの注入を禁止
+    // Security check: reject externally injected critical system events.
     match &event_data {
         // H-15: Only allow safe event types from external sources
         // SystemNotification removed - external callers should not inject system notifications
         cloto_shared::ClotoEventData::MessageReceived(_)
         | cloto_shared::ClotoEventData::VisionUpdated { .. }
         | cloto_shared::ClotoEventData::GazeUpdated(_) => {
-            // これらは許可
+            // These are allowed.
         }
         _ => {
             error!(

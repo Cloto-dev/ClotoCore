@@ -9,7 +9,7 @@ type Phase = 'hidden' | 'shutting-down' | 'stopped';
 let externalTrigger: (() => void) | null = null;
 
 /**
- * Show the full-screen shutdown overlay (an earlier decision). Called by the sidebar
+ * Show the full-screen shutdown overlay. Called by the sidebar
  * shutdown button; the tray-quit path triggers the same overlay through the
  * Tauri `shutdown-started` event instead. No-op if the overlay is not mounted.
  */
@@ -18,7 +18,7 @@ export function showShutdownOverlay() {
 }
 
 /**
- * Run the safe shutdown from the dashboard UI (an earlier decision): show the overlay,
+ * Run the safe shutdown from the dashboard UI: show the overlay,
  * then — desktop — invoke the shared `begin_shutdown` sequence (same path as
  * the tray Quit), or — browser — POST the kernel's shutdown endpoint.
  */

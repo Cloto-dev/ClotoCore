@@ -3,7 +3,7 @@ the harness an HTTP endpoint + admin key to drive, then tear it down.
 
 * ``local``      — an isolated child process on this machine (phase 0/1)
 * ``linux_vm``   — a Proxmox Linux guest via snapshot rollback (phase 2)
-* ``windows_vm`` — Proxmox Windows VM 104 (phase 3)
+* ``windows_vm`` — a Proxmox Windows guest via snapshot rollback (phase 3)
 
 All backends yield a :class:`RunningTarget` and honour the same
 ``start()`` / ``stop()`` contract so the harness is deployment-agnostic.

@@ -4,8 +4,6 @@
 > [`RECALL_CONTAMINATION_AB_2026-06-14.md`](RECALL_CONTAMINATION_AB_2026-06-14.md).
 > **Scope:** CPersona recall pipeline (`memory_handlers.py`, `vector.py`,
 > `admin_handlers.py`) + ClotoCore per-agent recall config.
-> **Tracks:** an earlier decision (this design / the calibration work) which blocks
-> an earlier decision (per-agent recall knobs); an earlier decision.
 
 ## 1. Summary
 
@@ -70,14 +68,15 @@ vs 2 / 20). RSF preserves score margins so the keyword channel down-ranks contam
 
 ## 3. The principle and the three orthogonal knobs
 
-Recall configurability has **three orthogonal axes**. Two are use-case knobs (an earlier decision); the third was a hidden magic constant and is split into a calibrated curve plus
-one knob:
+Recall configurability has **three orthogonal axes**. Two are use-case knobs; the
+third was a hidden magic constant and is split into a calibrated curve plus one
+knob:
 
 | Axis | Determined by | Treatment | Origin |
 | --- | --- | --- | --- |
-| **Timing** — when to recall (always / session_start / +active / manual) | use-case | knob 1 | an earlier decision |
-| **Session scope** — boundary (channel / per_user / thread) | deployment | knob 2 | an earlier decision |
-| **Precision curve** — score↔relevance map (the ROC) | corpus + embedding model | **calibrate (no human input)** | This design (an earlier decision) |
+| **Timing** — when to recall (always / session_start / +active / manual) | use-case | knob 1 | Per-agent recall knobs |
+| **Session scope** — boundary (channel / per_user / thread) | deployment | knob 2 | Per-agent recall knobs |
+| **Precision curve** — score↔relevance map (the ROC) | corpus + embedding model | **calibrate (no human input)** | This design |
 | **Precision point** — where on the curve (precision↔recall weight) | use-case value judgement | **knob 3 (new)** | This design |
 
 This split is the same data-vs-policy doctrine the project applied when it removed
@@ -102,7 +101,7 @@ The Discord-recall redesign branch (`feat/discord-recall-gating`) therefore stay
 "measured, not landing" as a contamination fix; its Phase-1 bridge change may stand on
 its own cost/UX merits.
 
-## 5. The calibration work (an earlier decision)
+## 5. The calibration work
 
 Apply the existing separation methodology (null distribution vs. a temporal-adjacency
 positive proxy, Youden-J operating point — already in `admin_handlers.do_calibrate_threshold`)
@@ -144,7 +143,7 @@ it encodes the use-case's relative cost of a contaminant vs. a missed memory.
 - **Calibration layer — CPersona.** Per-agent, keyed by embedding dimension,
   recalibrated on model/corpus change at startup (extends the v2.4.24 sidecar +
   startup-guard mechanism to gate (b)).
-- **Knobs — per-agent config.** knob 1/2 (an earlier decision) and knob 3 as agent metadata,
+- **Knobs — per-agent config.** knob 1/2 and knob 3 as agent metadata,
   surfaced in the Dashboard agent-config UI (deferred-save pattern). knob 3 spelled
   e.g. `recall_precision: strict | balanced | lenient` (or a raw β).
 
@@ -164,9 +163,9 @@ it encodes the use-case's relative cost of a contaminant vs. a missed memory.
 
 ## 8. Relationship to existing tracks
 
-- **an earlier decision** (recall redesign v1): closed on the contamination axis; redesign held,
+- **Recall redesign v1**: closed on the contamination axis; redesign held,
   not landing. This design relocates contamination ownership to precision.
-- **an earlier decision** (per-agent recall knobs): extended from 2 knobs to 3 (+ calibrate
-  layer); blocked by an earlier decision.
-- **an earlier decision** (this design / calibration work): the curve-calibration that must land
+- **Per-agent recall knobs**: extended from 2 knobs to 3 (+ calibrate
+  layer); blocked by this design.
+- **This design (the calibration work)**: the curve-calibration that must land
   before knob 3 can offer a meaningful operating point.

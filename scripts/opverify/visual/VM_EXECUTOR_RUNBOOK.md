@@ -34,6 +34,24 @@ spot-check. Cost pools also differ, and the executor's visual read is a genuine
 intelligent perceiver — exactly the apex's design (a VLM in the human perception
 loop), just hosted in a subagent.
 
+## Before anything: point the harness at your machines
+
+Every command below reads these from the environment. They have no defaults —
+they name machines that belong to whoever runs the harness, so a value committed
+to this repo would be wrong for every other reader. An unset one is reported by
+name, instead of reaching `ssh` and coming back as a connect timeout minutes
+later.
+
+```sh
+export OPV_PVE_HOST=<ssh-user>@<hypervisor-host>
+export OPV_VM_USER=<guest-account>
+export OPV_VM_IP=<guest-address>
+export OPV_VM_ID=<hypervisor-vm-id>
+```
+
+Export them in the shell that runs the harness. The repo's `.env` will not do
+it: that file is read by the Rust core, not by these scripts.
+
 ## Two ways the executor drives
 
 - **Manual VM I/O** (the flow detailed below): the subagent curl/tunnel-grabs,
@@ -62,7 +80,7 @@ loop), just hosted in a subagent.
    - **Eyeball the critical frame(s)** the executor saved (the response render at
      minimum). The visual oracle is the apex's whole point; don't take it on
      faith.
-3. **Record + decide.** Log the outcome (an earlier decision / ledger), file any real
+3. **Record + decide.** Log the outcome in the ledger, file any real
    defect, choose the next journey.
 
 ## VM executor task template (hand this, filled in, to the subagent)
@@ -91,7 +109,8 @@ goal + dual-oracle spec.
   anything scripted.
 - **Manual round trips:** run `curl.exe` directly over a multiplexed ssh —
   `ssh -o ControlMaster=auto -o ControlPersist=60 -o ControlPath=/tmp/opv-ssh-%r@%h:%p
-  PC@192.0.2.252 'curl.exe -s http://127.0.0.1:8900/grab' > frame.png`. Reuse
+  "$OPV_VM_USER@$OPV_VM_IP" 'curl.exe -s http://127.0.0.1:8900/grab' > frame.png`.
+  Reuse
   the same `-o ControlPath` on every call so the handshake is paid once. The
   legacy `scratchpad/vmps.sh` (`ssh … powershell -EncodedCommand`, UTF-16LE
   base64) remains only for ad-hoc PowerShell that isn't a simple HTTP call.
@@ -108,7 +127,7 @@ goal + dual-oracle spec.
   `/api/system/health`, `/api/chat`, `/api/history`, `/api/llm/providers`,
   `/api/mcp/servers`, `/api/system/version`.
 - **Screen** 1280×800.
-- **Grab→read:** `ssh <multiplexed-opts> PC@192.0.2.252 'curl.exe -s
+- **Grab→read:** `ssh <multiplexed-opts> "$OPV_VM_USER@$OPV_VM_IP" 'curl.exe -s
   http://127.0.0.1:8900/grab' > frame.png`, then Read the PNG (raw bytes, no
   base64 step). The legacy PS `[Convert]::ToBase64String($r.Content) | tr -d
   '\r\n' | base64 -d` still works if you're already in a PS snippet.
@@ -164,24 +183,24 @@ Every apex / uninstall measurement starts from a **known clean state** by
 rolling the VM back to a `clean-install-*` snapshot instead of reinstalling
 (~16 s measured vs ~6 min for a scripted reinstall). This also structurally
 removes the "residue of the previous experiment" class of mismeasurement
-(observed 2026-07-30). Adopted with an earlier decision (an earlier decision).
+(observed 2026-07-30). Adopted with the apex lightening line.
 
 ```bash
-ssh root@192.0.2.2 'qm rollback 104 clean-install-0-6-8-beta-2; qm start 104'
+ssh "$OPV_PVE_HOST" "qm rollback $OPV_VM_ID clean-install-0-6-8-beta-2; qm start $OPV_VM_ID"
 # vmstate snapshot → the VM resumes the saved live session (measured ~12 s for
 # the rollback task itself; the agent answers /health a few seconds later).
 # `qm start` is the safety net for a snapshot taken WITHOUT vmstate, which
-# comes back stopped. After a vmstate rollback it exits non-zero with "VM 104
-# already running" — expected, not an error. Note the `;`: chaining with `&&`
+# comes back stopped. After a vmstate rollback it exits non-zero with "VM
+# <id> already running" — expected, not an error. Note the `;`: chaining with `&&`
 # makes that benign message the exit status of the whole command, which reads
 # as a failed rollback that in fact succeeded (measured 2026-08-06).
 ```
 
 Wait for readiness the same way the verify script does — poll the actuator:
-`ssh PC@192.0.2.252 'curl.exe -s -m 2 http://127.0.0.1:8900/health'` until
+`ssh "$OPV_VM_USER@$OPV_VM_IP" 'curl.exe -s -m 2 http://127.0.0.1:8900/health'` until
 `"ok": true`.
 
-Snapshot lineage on VM 104 (`qm listsnapshot 104` is authoritative):
+Snapshot lineage on the guest (`qm listsnapshot "$OPV_VM_ID"` is authoritative):
 
 - `pristine` — blank Win11 + OpenSSH only. For installer-diff verify runs.
 - `agent-base-20260727` — OS + Python + opv_agent, ClotoCore UNINSTALLED,
@@ -200,7 +219,7 @@ Snapshot lineage on VM 104 (`qm listsnapshot 104` is authoritative):
   with a key, a transcript of 18 clean messages, and the GUI sitting on the
   chat view. The state that used to cost half an hour to rebuild by hand.
 
-## Journeys declare the state they need (`fixtures.py`, an earlier decision)
+## Journeys declare the state they need (`fixtures.py`)
 
 A journey names its start state (`_JOURNEYS[...].fixture`), and `run_vm`
 verifies it over the kernel API before driving anything. An unmet
@@ -232,7 +251,7 @@ full of `[Error]` bubbles (2026-08-06).
 **On a version change**: roll back to the current `clean-install-*`, silently
 install the new installer over it (or uninstall + install for a fresh-path
 measurement), re-verify the fingerprint (installed version, no unexpected
-`%APPDATA%` state, `/health` ok), then `qm snapshot 104 clean-install-<new>
+`%APPDATA%` state, `/health` ok), then `qm snapshot "$OPV_VM_ID" clean-install-<new>
 --vmstate 1` with a description recording the contents. Keep the previous
 snapshot as a fallback until the new one has survived one journey.
 
