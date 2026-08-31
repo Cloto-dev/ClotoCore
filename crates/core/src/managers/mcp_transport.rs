@@ -277,6 +277,14 @@ impl StdioTransport {
     ///   are set to the kernel LLM proxy.
     /// - Sensitive env vars (LLM API keys) are stripped from the child environment.
     #[allow(clippy::too_many_lines)]
+    // clippy: the body has no `.await`, but the `async` is not decoration. It
+    // calls `tokio::spawn`, which panics outside a runtime. Being an `async fn`
+    // is what makes running it outside one structurally impossible; the
+    // suggested `-> impl Future` + `std::future::ready(..)` rewrite would run
+    // the spawn eagerly at call time instead, at the caller's mercy for a
+    // runtime. The `?` operators through the body would also have to be
+    // restructured for no gain.
+    #[allow(clippy::unused_async_trait_impl)]
     pub async fn start(
         command: &str,
         args: &[String],
@@ -341,7 +349,7 @@ impl StdioTransport {
         // discover it at runtime (supplements config-level env vars).
         cmd.env("CLOTO_LLM_PROXY_PORT", llm_proxy_port.to_string());
 
-        // Never hand a child the Magic Seal key (an earlier decision). There is no
+        // Never hand a child the Magic Seal key. There is no
         // `env_clear` here — a child inherits the kernel's environment — so
         // when the kernel was started with `CLOTO_SEAL_KEY` set, every
         // connector was being given the key that authenticates its own
@@ -607,6 +615,14 @@ impl HttpTransport {
     /// routing headers and stop sending `Mcp-Session-Id` (a header MCP
     /// 2026-07-28 removed) the moment negotiation settles.
     #[allow(clippy::too_many_lines)]
+    // clippy: the body has no `.await`, but the `async` is not decoration. It
+    // calls `tokio::spawn`, which panics outside a runtime. Being an `async fn`
+    // is what makes running it outside one structurally impossible; the
+    // suggested `-> impl Future` + `std::future::ready(..)` rewrite would run
+    // the spawn eagerly at call time instead, at the caller's mercy for a
+    // runtime. The `?` operators through the body would also have to be
+    // restructured for no gain.
+    #[allow(clippy::unused_async_trait_impl)]
     pub async fn start(
         url: &str,
         auth_token: Option<&str>,
@@ -961,7 +977,7 @@ mod tests {
         assert_eq!(resolve_env_value("${NONEXISTENT_CLOTO_VAR_12345}"), "");
     }
 
-    // ── validate_entry_point_exists (bug-398 / an earlier decision robustness) ──
+    // ── validate_entry_point_exists (bug-398 robustness) ──
 
     #[test]
     fn entry_point_missing_absolute_script_is_rejected() {

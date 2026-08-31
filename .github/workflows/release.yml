@@ -61,6 +61,7 @@ jobs:
             target: x86_64-unknown-linux-gnu
             cross: false
             binary: clotocore
+            installer: cloto-installer
             archive: tar.gz
 
           - platform: linux-arm64
@@ -68,6 +69,7 @@ jobs:
             target: aarch64-unknown-linux-gnu
             cross: true
             binary: clotocore
+            installer: cloto-installer
             archive: tar.gz
 
           - platform: macos-x64
@@ -75,6 +77,7 @@ jobs:
             target: x86_64-apple-darwin
             cross: false
             binary: clotocore
+            installer: cloto-installer
             archive: tar.gz
 
           - platform: macos-arm64
@@ -82,6 +85,7 @@ jobs:
             target: aarch64-apple-darwin
             cross: false
             binary: clotocore
+            installer: cloto-installer
             archive: tar.gz
 
           - platform: windows-x64
@@ -89,6 +93,7 @@ jobs:
             target: x86_64-pc-windows-msvc
             cross: false
             binary: clotocore.exe
+            installer: cloto-installer.exe
             archive: zip
 
     runs-on: ${{ matrix.os }}
@@ -105,6 +110,22 @@ jobs:
         uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
         with:
           targets: ${{ matrix.target }}
+
+      # The marketplace install engine ships beside the kernel; the kernel
+      # refuses to install from the marketplace without it (or with one
+      # built for another version), so it is built for every kernel target
+      # here and packaged with it below.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          cache: false
+
+      - name: Build install engine
+        shell: bash
+        run: |
+          bash scripts/build-installer.sh --target "${{ matrix.target }}" \
+            --out "target/${{ matrix.target }}/release/${{ matrix.installer }}"
 
       # Per-compilation-unit object cache. rust-cache's target archive restores
       # only on an exact key match (Cargo.lock hash), so every dependency bump
@@ -188,6 +209,7 @@ jobs:
           mkdir -p "${STAGING}"
 
           cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" "${STAGING}/"
+          cp "target/${{ matrix.target }}/release/${{ matrix.installer }}" "${STAGING}/"
           cp .env.example "${STAGING}/"
 
           tar czf "${STAGING}.tar.gz" "${STAGING}"
@@ -201,6 +223,9 @@ jobs:
           # Bare binary for self-update mechanism (update.rs expects this name)
           cp "target/${{ matrix.target }}/release/${{ matrix.binary }}" \
             "clotocore-${{ matrix.target }}"
+          # The engine as a bare asset too, named by target like the kernel.
+          cp "target/${{ matrix.target }}/release/${{ matrix.installer }}" \
+            "cloto-installer-${{ matrix.target }}"
 
       - name: Package (zip)
         if: matrix.archive == 'zip'
@@ -213,6 +238,7 @@ jobs:
           New-Item -Type Directory -Path "${staging}" -Force | Out-Null
 
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" "${staging}/"
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.installer }}" "${staging}/"
           Copy-Item ".env.example" "${staging}/"
 
           Compress-Archive -Path "${staging}/*" -DestinationPath "${staging}.zip"
@@ -220,6 +246,9 @@ jobs:
           # Bare binary for self-update mechanism
           Copy-Item "target/${{ matrix.target }}/release/${{ matrix.binary }}" `
             "clotocore-${{ matrix.target }}"
+          # The engine as a bare asset too, named by target like the kernel.
+          Copy-Item "target/${{ matrix.target }}/release/${{ matrix.installer }}" `
+            "cloto-installer-${{ matrix.target }}"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
@@ -228,6 +257,7 @@ jobs:
           path: |
             cloto-${{ steps.version.outputs.version }}-${{ matrix.platform }}.*
             clotocore-${{ matrix.target }}
+            cloto-installer-${{ matrix.target }}
           retention-days: 7
 
   build-tauri:
@@ -290,6 +320,18 @@ jobs:
           # cannot hold per-unit caches for every job, so the other jobs stay
           # registry-only + sccache and this one job keeps its archive.
           cache-targets: true
+
+      # The install engine sidecar (bundle.externalBin), built before the
+      # app so tauri-build finds it and NSIS ships it.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          cache: false
+
+      - name: Build install engine sidecar
+        shell: bash
+        run: bash scripts/build-installer.sh --target x86_64-pc-windows-msvc
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -380,6 +422,18 @@ jobs:
         with:
           shared-key: release-tauri-linux
           cache-targets: false
+
+      # The install engine sidecar (bundle.externalBin), built before the
+      # app so tauri-build finds it and the .deb / AppImage ship it.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          cache: false
+
+      - name: Build install engine sidecar
+        shell: bash
+        run: bash scripts/build-installer.sh --target x86_64-unknown-linux-gnu
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
@@ -478,6 +532,18 @@ jobs:
         with:
           shared-key: release-tauri-macos-${{ matrix.arch }}
           cache-targets: false
+
+      # The install engine sidecar (bundle.externalBin), built before the
+      # app so tauri-build finds it and the .app / .dmg ship it.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          cache: false
+
+      - name: Build install engine sidecar
+        shell: bash
+        run: bash scripts/build-installer.sh --target "${{ matrix.target }}"
 
       - name: Build Tauri
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0

@@ -1,0 +1,33 @@
+{
+  "_comment": "Tree-seal parity cases. A tree seal is HMAC-SHA256 (key.hex) over the canonical manifest: one 'HEX  relpath' line per covered file, sorted by path components (not by raw bytes), '/'-separated. Values were recorded from the Rust implementation and change only when the format changes on purpose.",
+  "key_hex": "key.hex",
+  "mint": [
+    { "tree": "clean",    "expected": "tree-sha256:ca60947a6f05b61aab6b00bf0205b5e9b39109839d0589b4c7db36427359df89" },
+    { "tree": "base",     "expected": "tree-sha256:ca60947a6f05b61aab6b00bf0205b5e9b39109839d0589b4c7db36427359df89" },
+    { "tree": "tampered", "expected": "tree-sha256:74fa9faab430ae719adb43c7e3053b0d392360ad56c741077e1b30d4f186575f" },
+    { "tree": "other",    "expected": "tree-sha256:1c61a08801b668e3a8606400aca7c89f3614b03901552759e0ca4209b44b63ff" }
+  ],
+  "manifest": [
+    { "tree": "base", "file": "base.manifest.txt" }
+  ],
+  "verify": [
+    { "name": "an intact tree matches its own seal",
+      "tree": "base", "seal": "tree-sha256:ca60947a6f05b61aab6b00bf0205b5e9b39109839d0589b4c7db36427359df89", "expect": "match" },
+    { "name": "one changed byte in a covered file",
+      "tree": "tampered", "seal": "tree-sha256:ca60947a6f05b61aab6b00bf0205b5e9b39109839d0589b4c7db36427359df89", "expect": "mismatch" },
+    { "name": "a seal minted for another tree",
+      "tree": "base", "seal": "tree-sha256:1c61a08801b668e3a8606400aca7c89f3614b03901552759e0ca4209b44b63ff", "expect": "mismatch" },
+    { "name": "the right seal under the wrong key",
+      "tree": "base", "seal": "tree-sha256:ca60947a6f05b61aab6b00bf0205b5e9b39109839d0589b4c7db36427359df89",
+      "key_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff", "expect": "mismatch" },
+    { "name": "a missing seal is an error, not a pass",
+      "tree": "base", "seal": "", "expect": "error" },
+    { "name": "an entry-point seal is not a tree seal",
+      "tree": "base", "seal": "sha256:771be1aa21928b4d98cead929f95294063740910de89412a3b12df6ab22018c8", "expect": "error" },
+    { "name": "a tree that does not exist is an error, not a mismatch",
+      "tree": "missing", "seal": "tree-sha256:ca60947a6f05b61aab6b00bf0205b5e9b39109839d0589b4c7db36427359df89", "expect": "error" }
+  ],
+  "entry_point_seal": [
+    { "file": "base/server.py", "expected": "sha256:771be1aa21928b4d98cead929f95294063740910de89412a3b12df6ab22018c8" }
+  ]
+}

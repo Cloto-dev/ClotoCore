@@ -1,4 +1,4 @@
-//! Installed-tree integrity sealing (an earlier decision, an earlier decision).
+//! Installed-tree integrity sealing.
 //!
 //! The Magic Seal minted at install time (`mgp_seal::compute_seal`) covers
 //! the connector's `entry_point` — one file. Since connectors became
@@ -130,7 +130,7 @@ fn collect_files(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
                 }
             }
             // Symlinks and special files are neither hashed nor walked.
-            // Extraction refuses to create them (an earlier decision), so one here
+            // Extraction refuses to create them, so one here
             // arrived after install; `verify_tree_seal` reports that as a
             // mismatch via the file count rather than silently skipping.
         }
@@ -140,8 +140,10 @@ fn collect_files(root: &Path) -> anyhow::Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-/// Build the canonical manifest text for `root`.
-fn tree_manifest(root: &Path) -> anyhow::Result<String> {
+/// Build the canonical manifest text for `root`: one `HEX  relpath` line
+/// per file, sorted by path components, `/`-separated. Public so a fixture
+/// can pin the exact bytes the seal is computed over, not just the seal.
+pub fn tree_manifest(root: &Path) -> anyhow::Result<String> {
     let files = collect_files(root)?;
     let mut manifest = String::new();
     for relative in files {
@@ -245,7 +247,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// The whole point of an earlier decision: rewriting the implementation body must
+    /// The whole point of sealing the tree: rewriting the implementation body must
     /// be caught even though the entry point is untouched.
     #[test]
     fn tree_seal_catches_a_rewritten_implementation_file() {

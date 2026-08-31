@@ -35,6 +35,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, Tuple
 
+from .backends_vm import _required, vm_host
 from .interfaces import ProbeUnavailable
 
 # (ok, human-readable detail) — the same shape every check returns, so the
@@ -47,6 +48,15 @@ Verdict = Tuple[bool, str]
 CHAT_STORE = "/api/chat/{agent_id}/messages"
 
 DEFAULT_AGENT = "agent.cloto_default"
+
+# Which reasoning provider the guest is configured with. The fixture names one
+# on purpose — "some provider is ready" would pass on a machine whose engine is
+# not the one the transcript was built through — but *which* one is a property
+# of the guest, not of the journey. It was hardcoded until a provider started
+# answering 402 and the guest had to be moved to another one (2026-08-31);
+# rebuilding the fixture then meant editing this file, which is the wrong place
+# for a fact about a machine.
+CHAT_PROVIDER = os.environ.get("OPV_CHAT_PROVIDER", "deepseek")
 
 
 def _unwrap(body: dict) -> dict:
@@ -95,6 +105,44 @@ class SetupComplete:
         body = _unwrap(fetch_json("/api/setup/status"))
         got = bool(body.get("setup_complete"))
         return got == self.expect, f"setup_complete={got} (want {self.expect})"
+
+
+@dataclass
+class AgentUsesProvider:
+    """The agent the journey talks to is pointed at this provider.
+
+    `ProviderReady` asks whether a provider *could* answer; this asks whether
+    the one the journey will actually reach is the one that was checked. They
+    came apart on 2026-08-31: the guest's original provider started answering
+    402, the agent was moved to a second one, and the original stayed installed
+    and connected — so a fixture that only asked "is provider X ready" went on
+    passing while every turn the journey sent went somewhere else. The check
+    that caught it was the transcript, one whole rebuild later.
+    """
+
+    provider_id: str
+    agent_id: str = DEFAULT_AGENT
+    name: str = ""
+
+    def __post_init__(self):
+        self.name = self.name or f"agent-uses:{self.provider_id}"
+
+    def check(self, fetch_json) -> Verdict:
+        # `/api/agents` puts the list straight in the envelope — `{"data": [...]}`,
+        # not `{"data": {"agents": [...]}}` like the provider and message
+        # endpoints (measured on the guest, 2026-08-31). Guessing the wrong one
+        # here cost a run: the check raised instead of answering.
+        body = _unwrap(fetch_json("/api/agents"))
+        agents = body if isinstance(body, list) else body.get("agents", [])
+        for a in agents:
+            if a.get("id") != self.agent_id:
+                continue
+            got = a.get("default_engine_id")
+            return got == self.provider_id, (
+                f"{self.agent_id} default_engine_id={got!r} (want {self.provider_id!r})"
+            )
+        listed = ", ".join(str(a.get("id")) for a in agents) or "none"
+        return False, f"agent {self.agent_id!r} is not present (agents: {listed})"
 
 
 @dataclass
@@ -211,7 +259,7 @@ class ThreadDepth:
 class Fixture:
     """A named start state: how to recognize it, and how to get back to it.
 
-    `snapshot` is the VM 104 snapshot that restores it (None = it has to be
+    `snapshot` is the hypervisor snapshot that restores it (None = it has to be
     built by hand, and `build` says how). Snapshot names carry the app version
     dash-encoded because Proxmox forbids dots, and they go stale on a version
     bump by design — the ritual for re-cutting one is in
@@ -264,19 +312,31 @@ FIXTURES: Dict[str, Fixture] = {
         checks=[
             KernelResponds(),
             SetupComplete(expect=True),
-            ProviderReady("cerebras"),
+            ProviderReady(CHAT_PROVIDER),
+            AgentUsesProvider(CHAT_PROVIDER),
             ThreadDepth(minimum=18),
             TranscriptClean(),
         ],
         build=(
-            "from `onboarded`: POST /api/marketplace/install {server_id: cerebras, "
-            "auto_start: true} -> POST /api/llm/providers/cerebras/key -> post the "
-            "filler turns to /api/chat AS THE PANE'S IDENTITY "
-            "(source {type: User, id: 'default'}): the kernel persists both sides "
-            "under user_id = source.id, and the pane reads user_id 'default'. "
-            "Pace them — the provider's rate limit turns a turn into an "
-            "`[Error]` row that still counts as depth. Snapshot with the chat "
-            "view open: the journey's first step expects it."
+            f"from `onboarded`, with P = {CHAT_PROVIDER!r} (override with "
+            "OPV_CHAT_PROVIDER): FOUR things have to line up, not three — "
+            "(1) POST /api/marketplace/install {server_id: P, auto_start: true}, "
+            "(2) POST /api/llm/providers/P/key, "
+            "(3) POST /api/agents/<agent>/ with {default_engine_id: P}, and "
+            "(4) PUT /api/mcp/servers/P/access with a server_grant for the agent "
+            "— WITHOUT (4) every turn comes back as `[Error] MGP-1001: Access "
+            "denied ... not granted 'think_with_tools'`, which looks exactly "
+            "like a provider outage and is not one (measured 2026-08-31). Copy "
+            "the grant the working engine already has and change only its "
+            "server_id. Then post the filler turns to /api/chat AS THE PANE'S "
+            "IDENTITY (source {type: User, id: 'default'}, internally tagged): "
+            "the kernel persists both sides under user_id = source.id, and the "
+            "pane reads user_id 'default'. Pace them, and check the WHOLE store "
+            "after each turn — the store returns newest-first, so a check that "
+            "reads the last element reads the oldest message and reports a "
+            "thread of errors as clean. A rate-limited turn is an `[Error]` row "
+            "that still counts as depth. Snapshot with the chat view open: the "
+            "journey's first step expects it."
         ),
     ),
 }
@@ -368,9 +428,18 @@ def remedy(name: str) -> str:
         return ""
     lines = [f"fixture {fixture.name!r}: {fixture.summary}"]
     if fixture.snapshot:
+        # The remedy is printed *because* the run could not go ahead, so it must
+        # not have preconditions the run itself lacks. `vm_id()` raises when
+        # OPV_VM_ID is unset — which a run needs only to roll back — and that
+        # turned an unmet fixture into a traceback, replacing the guidance at
+        # exactly the moment it was being asked for (measured 2026-08-31).
+        try:
+            where = f"VM {vm_id()}"
+        except Exception:
+            where = "the VM named by OPV_VM_ID (currently unset)"
         lines.append(
             f"  restore it:  python -m scripts.opverify.visual.run_vm <journey> "
-            f"--rollback-to-fixture     (rolls VM {vm_id()} to {fixture.snapshot!r})"
+            f"--rollback-to-fixture     (rolls {where} to {fixture.snapshot!r})"
         )
         lines.append(
             "               NOTE: a rollback DISCARDS the VM's current state. "
@@ -385,17 +454,17 @@ def remedy(name: str) -> str:
 # Restoring one (explicit, never a side effect)
 # --------------------------------------------------------------------------
 def pve_host() -> str:
-    return os.environ.get("OPV_PVE_HOST", "root@192.0.2.2")
+    """``ssh-user@host`` for the hypervisor (no default -- see _required)."""
+    return _required("OPV_PVE_HOST")
 
 
 def vm_id() -> str:
-    return os.environ.get("OPV_VM_ID", "104")
+    """The hypervisor's id for the guest (no default -- see _required)."""
+    return _required("OPV_VM_ID")
 
 
 def guest() -> str:
-    user = os.environ.get("OPV_VM_USER", "PC")
-    ip = os.environ.get("OPV_VM_IP", "192.0.2.252")
-    return f"{user}@{ip}"
+    return vm_host()
 
 
 def _ssh(host: str, command: str, timeout: float) -> subprocess.CompletedProcess:
