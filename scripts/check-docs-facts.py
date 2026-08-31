@@ -158,14 +158,41 @@ def git(*args: str) -> str:
     return result.stdout.strip()
 
 
+def workspace_version() -> str | None:
+    """The `version` under `[workspace.package]` in the root Cargo.toml.
+
+    Scoped to that section rather than taken as the first line-anchored
+    `version =` in the file. The unscoped form happens to work today only
+    because `[workspace.package]` is written above `[workspace.dependencies]`
+    and every dependency uses an inline table (`sqlx = { version = "0.9" }`),
+    which is not line-anchored. Both of those are conventions, not guarantees:
+    a dependency written in expanded form
+    (`[workspace.dependencies.sqlx]` / `version = "0.9"`) above the package
+    section makes the unscoped search return the dependency's version, and the
+    gate would then grade every document against it — a wrong answer with no
+    symptom, since the comparison still runs and can still pass.
+    """
+    cargo = (ROOT / "Cargo.toml").read_text()
+    section = None
+    for line in cargo.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            section = stripped[1:-1]
+            continue
+        if section != "workspace.package":
+            continue
+        m = re.match(r'version\s*=\s*"([^"]+)"', stripped)
+        if m:
+            return m.group(1)
+    fail("Cargo.toml: no version under [workspace.package] — update this script")
+    return None
+
+
 def measured_versions() -> dict[str, str]:
     """Current version from Cargo.toml, plus the newest final and pre-release tags."""
-    cargo = (ROOT / "Cargo.toml").read_text()
-    m = re.search(r'^\s*version\s*=\s*"([^"]+)"', cargo, re.M)
-    if not m:
-        fail("Cargo.toml: no version field found — update this script")
+    current = workspace_version()
+    if current is None:
         return {}
-    current = m.group(1)
 
     tags = [t for t in git("tag", "--sort=-v:refname").splitlines() if t.startswith("v")]
     if not tags:
