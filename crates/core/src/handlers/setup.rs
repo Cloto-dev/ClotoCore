@@ -39,7 +39,10 @@ pub struct SetupCompleteFile {
     pub python_version: Option<String>,
 }
 
-#[derive(Serialize, Clone, Debug)]
+// `Deserialize` too: the marketplace install engine writes these same
+// events on its stdout, one JSON object per line, and the kernel forwards
+// them (`managers::installer`).
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(tag = "type")]
 pub enum SetupProgressEvent {
     StepStart {

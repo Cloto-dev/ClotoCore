@@ -1,0 +1,100 @@
+site_name: ClotoCore
+site_description: >-
+  Desktop AI agent orchestration platform. Local-first kernel, MCP/MGP plugin
+  system, and a marketplace for the servers agents run against.
+site_url: https://cloto-dev.github.io/ClotoCore/
+repo_url: https://github.com/Cloto-dev/ClotoCore
+repo_name: Cloto-dev/ClotoCore
+edit_uri: edit/master/docs/
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.action.edit
+    - content.code.copy
+    - search.suggest
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  # attr_list is here before it is needed. Once pages carry Japanese
+  # translations, each translated heading needs an explicit id ({ #english-slug })
+  # so that translating a heading does not move the anchor its English source
+  # generated — mkdocs --strict validates page links but not fragments.
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  # ARCHITECTURE.md draws its kernel diagram in mermaid, which GitHub renders
+  # natively and mkdocs does not. Without this fence the block ships as a code
+  # listing of the diagram's source — a green build showing the reader nothing.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+# What is published is decided here, not by which files live in docs/.
+#
+# The list below is a blocklist rather than an allowlist on purpose. Under
+# --strict, a file that is neither excluded nor in the nav fails the build, so
+# adding a document to docs/ forces a decision about whether it is public
+# instead of defaulting to one. An allowlist would default new documents to
+# unpublished and say nothing.
+#
+# The buckets these names come from, and the test for which bucket a document
+# belongs in, are in docs/DOCUMENTATION_POLICY.md.
+exclude_docs: |
+  DOCUMENTATION_POLICY.md
+  archive/
+  gui/
+  hn-prep/
+  CATEGORY_PREFIX_RETIREMENT_DESIGN.md
+  CONSENSUS_REVIVAL_DESIGN.md
+  DEFENDER_DESIGN.md
+  INSTALLER_DISTRIBUTION.md
+  MCP_CAPABILITY_GATE_DESIGN.md
+  MCP_PLUGIN_ARCHITECTURE.md
+  MCP_SERVER_LOGS_DESIGN.md
+  MEMORY_CAPABILITY_CONTRACT.md
+  MGP_SPEC.md
+  MIND_PREFIX_RETIREMENT_DESIGN.md
+  ONBOARDING_MODERNIZATION_DESIGN.md
+  RECALL_CONTAMINATION_AB_2026-04-24.md
+  RECALL_CONTAMINATION_AB_2026-06-14.md
+  RECALL_PRECISION_CALIBRATION_DESIGN.md
+  RECALL_SESSION_SCOPE_V2_DESIGN.md
+  RELEASE_PIPELINE_DESIGN.md
+  SCHEMA.md
+  TOOL_REJECTION_TEST_PLAN.md
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+nav:
+  - Home: index.md
+  - Architecture: ARCHITECTURE.md
+  - Build an MCP/MGP server: QUICKSTART_MCP_SERVER.md
+  - Protocol specification: https://github.com/Cloto-dev/mgp-spec
+  - Development: DEVELOPMENT.md
+  - Changelog: CHANGELOG.md
+  - Project vision: PROJECT_VISION.md

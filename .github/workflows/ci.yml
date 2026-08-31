@@ -42,7 +42,7 @@ jobs:
 
       # --all-targets also lints tests, benches and examples. Without it these
       # rot unnoticed: 12 violations had accumulated there behind a local gate
-      # that was permanently red for an unrelated reason (an earlier decision).
+      # that was permanently red for an unrelated reason.
       - name: Run clippy
         run: cargo clippy --workspace --exclude app --all-targets -- -D warnings -A clippy::too-many-lines -A clippy::struct-excessive-bools -A clippy::match-same-arms -A clippy::cast-possible-wrap -A clippy::trivially-copy-pass-by-ref -A clippy::manual-let-else -A clippy::option-if-let-else -A clippy::case-sensitive-file-extension-comparisons -A clippy::unwrap-used -A clippy::type-complexity
 
@@ -76,6 +76,39 @@ jobs:
       # live VM run.
       - name: opverify visual self-test
         run: python3 -m scripts.opverify.visual.selftest
+
+      # The other five visual suites were written and then never wired to
+      # anything: `visual.selftest` was the only one CI ran, so the transport
+      # backends — where a 403 was being handed back as if it were state
+      # (bug-500) — had no gate at all. None of them needs a VM; they are the
+      # same class of pure-logic test as the step above.
+      - name: opverify transport self-test
+        run: python3 -m scripts.opverify.visual.tunnel_selftest
+
+      - name: opverify co-fetch self-test
+        run: python3 -m scripts.opverify.visual.cofetch_selftest
+
+      - name: opverify live-assessor self-test
+        run: python3 -m scripts.opverify.visual.live_assessor_selftest
+
+      - name: opverify assessor-cache self-test
+        run: python3 -m scripts.opverify.visual.assessor_cache_selftest
+
+      - name: opverify deploy-agent self-test
+        run: python3 -m scripts.opverify.visual.deploy_agent_selftest
+
+      - name: opverify affordance-coverage self-test
+        run: python3 -m scripts.opverify.visual.affordance_coverage_selftest
+
+      - name: opverify census self-test
+        run: python3 -m scripts.opverify.visual.census_selftest
+
+      # The CSS-to-screen conversion, asserted at display scales this runner
+      # does not have. A conversion bug here does not fail a run, it aims the
+      # click at the wrong control and blames the product for what follows
+      # (bug-503).
+      - name: opverify CDP conversion self-test
+        run: python3 -m scripts.opverify.visual.cdp_selftest
 
       - name: Language pack checker self-test
         run: python3 scripts/check-language-packs.py --selftest
@@ -154,6 +187,15 @@ jobs:
           mkdir -p dashboard/dist
           echo '<html><body></body></html>' > dashboard/dist/index.html
 
+      # The marketplace install path runs through the Go install engine
+      # (tools/cloto-installer); its characterization tests build the engine
+      # from source and fail — not skip — without a toolchain.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          cache: false
+
       - name: Run tests
         run: cargo test --workspace --exclude app
         env:
@@ -221,6 +263,18 @@ jobs:
           mkdir -p dashboard/dist
           echo '<html><body></body></html>' > dashboard/dist/index.html
 
+      # The app bundles the install engine as a Tauri sidecar
+      # (bundle.externalBin); tauri-build refuses to compile without it.
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          cache: false
+
+      - name: Build install engine sidecar
+        shell: bash
+        run: bash scripts/build-installer.sh
+
       - name: Build app
         run: cargo build --package app
 
@@ -237,6 +291,27 @@ jobs:
       - name: Verify issue registry
         run: bash scripts/verify-issues.sh
 
+  docs-facts:
+    name: Docs Facts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Tags are the source of truth for the release claims, and the
+          # default checkout fetches none. Without them the version checks
+          # would have nothing to compare against — the script treats that as
+          # a failure rather than a skip, so a shallow checkout here would go
+          # red loudly rather than pass by default, but the fix is to have the
+          # tags.
+          fetch-depth: 0
+      - name: Verify documented facts against the code
+        # Lives in ci.yml rather than docs.yml on purpose. What invalidates
+        # these claims is a CODE change — a test added, a version bumped, a
+        # setting renamed — and docs.yml only runs when docs/ changes. A gate
+        # for documentation drift that only fires on documentation edits
+        # cannot see the edit that caused the drift.
+        run: python3 scripts/check-docs-facts.py
+
   nsis-hook-gate:
     name: NSIS Hook Gate
     runs-on: ubuntu-latest
@@ -244,6 +319,45 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify installer.nsh hook integrity (bug-386)
         run: bash scripts/check-nsis-hook.sh
+
+  installer:
+    name: Installer (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tools/cloto-installer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          # No module dependencies, so there is no go.sum to key a cache on.
+          cache: false
+
+      - name: Format check
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "gofmt would reformat:" "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      # The seal parity tests read crates/core/tests/fixtures/seal/, the
+      # same fixtures the Rust suite is held to.
+      - name: Test
+        run: go test ./...
+
+      - name: Cross-compile the release targets
+        run: |
+          for target in darwin/arm64 linux/amd64 windows/amd64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w" -o /dev/null .
+          done
 
   sentinel:
     name: Sentinel

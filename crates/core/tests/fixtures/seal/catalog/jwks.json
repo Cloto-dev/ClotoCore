@@ -1,0 +1,12 @@
+{
+  "keys": [
+    {
+      "alg": "EdDSA",
+      "crv": "Ed25519",
+      "kid": "clotohub-master-v1",
+      "kty": "OKP",
+      "use": "sig",
+      "x": "6eQ-Rf_zveCxBTeU9HFCbvhCLOKHqlNe84dOp0d0fws"
+    }
+  ]
+}

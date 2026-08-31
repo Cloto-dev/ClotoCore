@@ -1,0 +1,588 @@
+{
+  "_comment": "Install-time seal decision cases. Entries are trimmed copies of live catalog entries (fields outside the signed identity were dropped or shortened); hub_key names a kid in jwks.json or is null when the JWKS is unavailable.",
+  "jwks": "jwks.json",
+  "cases": [
+    {
+      "name": "a live dual-v2 entry (archive bound) verifies",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "verified"
+      }
+    },
+    {
+      "name": "a live v1 entry (entry point only) verifies",
+      "entry": {
+        "id": "cembedding",
+        "name": "CEmbedding",
+        "description": "Local-first embedding server: vector generation + index/search over HTTP (ONNX on-device or API providers).",
+        "category": "tool",
+        "version": "0.6.2",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:73e38571d736e44e30c1035f7ac74b11e82a8f2c6bab732ebe77ba2cdc6da3c1",
+        "entry_point_sha256": "7793eb2564bcda3e930d4f7b1ab713a34d9cf19fc31bf9c3fefd6a9f898c22bb",
+        "signature_payload": {
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "3Oxh4EapeauxDC76x7S/gdpnaZZ8Cq842cjosaj1pNiGLRd6dTLNvWMFvKvi5gcBX9bZsudStchSH6EH3YB3AQ=="
+          },
+          "hmac": "73e38571d736e44e30c1035f7ac74b11e82a8f2c6bab732ebe77ba2cdc6da3c1"
+        }
+      },
+      "installed_entry_point_sha256": "7793eb2564bcda3e930d4f7b1ab713a34d9cf19fc31bf9c3fefd6a9f898c22bb",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "verified"
+      }
+    },
+    {
+      "name": "the installed hash is compared case-insensitively",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ED5B73E21F015E4D512E3896240D9DC72920145D65CA62600175A6D74A86ACC",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "verified"
+      }
+    },
+    {
+      "name": "a catalog archive digest in upper case is signed in lower case",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661E841F319E17B5D72FFACD54FB96E38474FD58A08AAA3496E6229C7549F35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "verified"
+      },
+      "note": "the verifier lowercases the digest before reconstructing the signed message"
+    },
+    {
+      "name": "a changed version breaks the signed identity",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.40",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "tamper",
+        "code": "signature_invalid"
+      }
+    },
+    {
+      "name": "a changed archive length breaks the signed identity",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266815,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "tamper",
+        "code": "signature_invalid"
+      }
+    },
+    {
+      "name": "a v2 signature without its archive block does not fall back to v1",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "tamper",
+        "code": "signature_invalid"
+      },
+      "note": "the two message versions are domain-separated by their first line"
+    },
+    {
+      "name": "an archive block missing its digest cannot be reconstructed",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "unsealed",
+        "reason": "malformed_archive_binding"
+      }
+    },
+    {
+      "name": "an archive digest that is not hex cannot be reconstructed",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "unsealed",
+        "reason": "malformed_archive_binding"
+      }
+    },
+    {
+      "name": "a genuine signature from another entry does not transfer",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "3Oxh4EapeauxDC76x7S/gdpnaZZ8Cq842cjosaj1pNiGLRd6dTLNvWMFvKvi5gcBX9bZsudStchSH6EH3YB3AQ=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "tamper",
+        "code": "signature_invalid"
+      }
+    },
+    {
+      "name": "an installed entry point that does not hash to the catalog value",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86ac0",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "tamper",
+        "code": "integrity_mismatch"
+      }
+    },
+    {
+      "name": "no Ed25519 block registers unsealed",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "unsealed",
+        "reason": "no_signature"
+      }
+    },
+    {
+      "name": "no signature payload at all registers unsealed",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": null
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "unsealed",
+        "reason": "no_signature"
+      }
+    },
+    {
+      "name": "an unknown or unreachable hub key registers unsealed",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": null,
+      "expect": {
+        "verdict": "unsealed",
+        "reason": "hub_key_unavailable"
+      }
+    },
+    {
+      "name": "no catalog entry-point hash registers unsealed without reading the file",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": null,
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "never-read",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "unsealed",
+        "reason": "no_entry_point_hash"
+      }
+    },
+    {
+      "name": "a blank catalog entry-point hash counts as absent",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "  ",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "never-read",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "unsealed",
+        "reason": "no_entry_point_hash"
+      }
+    },
+    {
+      "name": "an Ed25519 block without key_id registers unsealed",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "sig": "xGghUfdR47lcgd5SLFjBG2hDhIzWJX7L4yKydzjHhgMD+cgGSvkppmiCIJbpQ9p2XMRsdw+rK58g6Htl9jNNDw=="
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "unsealed",
+        "reason": "malformed_signature_block"
+      }
+    },
+    {
+      "name": "an undecodable signature registers unsealed",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "not base64!"
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "unsealed",
+        "reason": "undecodable_signature"
+      }
+    },
+    {
+      "name": "a signature of the wrong length registers unsealed",
+      "entry": {
+        "id": "cpersona",
+        "name": "CPersona",
+        "description": "Persistent character persona memory with FTS5 + vector hybrid search, anti-contamination, and a 27-tool surface.",
+        "category": "memory",
+        "version": "2.4.41",
+        "directory": "",
+        "runtime": "python",
+        "trust_level": "core",
+        "seal": "sha256:50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b",
+        "entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+        "signature_payload": {
+          "archive": {
+            "length": 266814,
+            "sha256": "6661e841f319e17b5d72ffacd54fb96e38474fd58a08aaa3496e6229c7549f35"
+          },
+          "ed25519": {
+            "key_id": "clotohub-master-v1",
+            "sig": "AAAA"
+          },
+          "hmac": "50c8d42ef49eee63726815338499ea67fe5844e9f6cd5cd35e2d807318782d9b"
+        }
+      },
+      "installed_entry_point_sha256": "2ed5b73e21f015e4d512e3896240d9dc72920145d65ca62600175a6d74a86acc",
+      "hub_key": "clotohub-master-v1",
+      "expect": {
+        "verdict": "unsealed",
+        "reason": "undecodable_signature"
+      }
+    }
+  ]
+}

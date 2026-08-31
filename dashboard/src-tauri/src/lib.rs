@@ -29,7 +29,7 @@ static MCP_DRAINED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBoo
 /// once, no matter which UI path fires it (tray quit / dashboard button).
 static SHUTDOWN_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// Drain parameters shared by every exit path (an earlier decision: tray quit and the
+/// Drain parameters shared by every exit path (tray quit and the
 /// dashboard shutdown button must run the identical sequence).
 const DRAIN_GRACE_MS: u64 = 2000;
 const DRAIN_GLOBAL_CAP_SECS: u64 = 6;
@@ -68,7 +68,7 @@ fn drain_mcp_before_exit() {
 }
 
 /// The one safe-shutdown sequence shared by both user-facing exit paths
-/// (an earlier decision): the tray-menu Quit and the dashboard's shutdown button.
+/// the tray-menu Quit and the dashboard's shutdown button.
 ///
 /// Sequence: surface the window and emit `shutdown-started` (the webview shows
 /// the shutdown overlay), drain and reap all MCP subprocesses off the GUI
@@ -102,12 +102,190 @@ fn begin_shutdown(app: &tauri::AppHandle) {
     });
 }
 
-/// Run the shared safe-shutdown sequence from the dashboard UI (an earlier decision).
+/// Name of the environment variable WebView2's loader reads for extra browser
+/// arguments. We honour it ourselves because the loader does not: once a host
+/// passes `AdditionalBrowserArguments` explicitly — and this app does, from
+/// `tauri.conf.json` — the variable is ignored. Measured on a real install
+/// 2026-08-03: the variable reached the process and the port stayed closed.
+const WEBVIEW2_EXTRA_ARGS_ENV: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
+
+/// Append `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` to the window's configured
+/// browser arguments, when it is set.
+///
+/// This exists so the verification harness can drive **the artifact users
+/// actually install** — opening `--remote-debugging-port` for a run gives it
+/// the DOM: deterministic targeting instead of hard-coded pixel coordinates,
+/// and a structural oracle to cross-check the visual one against. Building a
+/// separate instrumented artifact was the alternative, and it would have meant
+/// verifying something other than what ships.
+///
+/// Two properties this deliberately keeps:
+///
+/// * **Closed by default.** With the variable unset the config is returned
+///   untouched, byte for byte.
+/// * **Appended, never replaced.** The configured arguments carry real settings
+///   (`--disable-features=…`, autoplay policy); overwriting them would change
+///   how the app behaves under verification, which defeats the point of
+///   verifying it.
+///
+/// The threat model is narrow: setting this variable requires control of the
+/// app's environment, and anyone holding that can already replace the binary.
+fn verification_browser_args(mut ctx: tauri::Context) -> tauri::Context {
+    let Ok(extra) = std::env::var(WEBVIEW2_EXTRA_ARGS_ENV) else {
+        return ctx;
+    };
+    let extra = extra.trim();
+    if extra.is_empty() {
+        return ctx;
+    }
+    for window in &mut ctx.config_mut().app.windows {
+        window.additional_browser_args = Some(append_browser_args(
+            window.additional_browser_args.as_deref(),
+            extra,
+        ));
+    }
+    // Visible on purpose: a run with a debug channel open should be
+    // identifiable from the log afterwards, not silently indistinguishable
+    // from an ordinary one.
+    log::warn!("{WEBVIEW2_EXTRA_ARGS_ENV} is set; appending to the window browser arguments");
+    ctx
+}
+
+/// Join configured browser arguments with the ones the environment adds.
+///
+/// Split from [`verification_browser_args`] because this is the part that can
+/// silently lose settings, and a `tauri::Context` cannot be built in a test.
+fn append_browser_args(existing: Option<&str>, extra: &str) -> String {
+    match existing.map(str::trim) {
+        Some(existing) if !existing.is_empty() => format!("{existing} {extra}"),
+        _ => extra.to_string(),
+    }
+}
+
+/// Run the shared safe-shutdown sequence from the dashboard UI.
 /// The frontend shows the shutdown overlay immediately; the `shutdown-started`
 /// event keeps any other window in sync.
 #[tauri::command]
 fn shutdown_app(app: tauri::AppHandle) {
     begin_shutdown(&app);
+}
+
+/// End the process for a shutdown the *kernel* sequenced (bug-499).
+///
+/// `POST /api/system/shutdown` and the Danger Zone's `/api/system/uninstall`
+/// both finish by signalling [`cloto_core::KernelHandle::shutdown`] — and that
+/// signal only stops the HTTP server and the kernel's background tasks. Nothing
+/// in the kernel can end the process, because the process belongs to this
+/// shell: `app.exit(0)` is reachable from [`begin_shutdown`] alone. Until this
+/// waiter existed, those two endpoints left the app running with its API gone.
+///
+/// For an uninstall that is not cosmetic. The detached purge helper is started
+/// with this pid and waits 30s for it to exit (`PARENT_EXIT_TIMEOUT`); a parent
+/// that never exits means the helper removes **nothing** — deliberately, since
+/// deleting a running installation is how targets end up half-removed and
+/// locked — and the window sits on the shutdown overlay forever. Measured on a
+/// user's machine on 2026-08-03: plan and helper staged, no report, no listening
+/// ports, install fully intact, app still up.
+///
+/// Deliberately *not* [`begin_shutdown`]: the kernel has already drained MCP
+/// (and, on the uninstall path, closed the pool) before it signals. Re-draining
+/// would spend seconds out of the helper's 30s budget to redo finished work.
+fn exit_after_kernel_shutdown(app: &tauri::AppHandle) {
+    use tauri::Emitter;
+
+    if !claim_kernel_exit() {
+        return;
+    }
+    if let Err(e) = app.emit("shutdown-started", ()) {
+        log::warn!("failed to emit shutdown-started: {e}");
+    }
+    log::info!("kernel signalled shutdown; exiting the app");
+    app.exit(0);
+}
+
+/// Decide whether this kernel-signalled shutdown owns the exit, and record that
+/// the drain is already done. Split out from [`exit_after_kernel_shutdown`] so
+/// the re-entrancy rule — the part that can actually race — is testable without
+/// a `tauri::AppHandle`.
+///
+/// Returns `false` when a UI path claimed the sequence first: that path
+/// signalled this very Notify on its way to its own `app.exit`, so exiting here
+/// too would race it.
+fn claim_kernel_exit() -> bool {
+    use std::sync::atomic::Ordering;
+    if SHUTDOWN_STARTED.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    // The kernel drains before it signals, on both endpoints. Claiming this
+    // guard keeps the `ExitRequested` backstop from draining an already-drained
+    // manager and spending the purge helper's 30s budget on finished work.
+    MCP_DRAINED.store(true, Ordering::SeqCst);
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    /// One test, not three: the guards are process-wide statics, so separate
+    /// `#[test]` functions would race each other inside the same binary.
+    #[test]
+    fn kernel_exit_is_claimed_once_and_marks_the_drain_done() {
+        SHUTDOWN_STARTED.store(false, Ordering::SeqCst);
+        MCP_DRAINED.store(false, Ordering::SeqCst);
+
+        assert!(
+            claim_kernel_exit(),
+            "the first kernel-signalled shutdown must own the exit — nothing else will end the process"
+        );
+        assert!(
+            MCP_DRAINED.load(Ordering::SeqCst),
+            "the kernel drained before signalling; the exit backstop must not drain again"
+        );
+        assert!(
+            !claim_kernel_exit(),
+            "a second signal must not re-enter: app.exit is already under way"
+        );
+
+        // A UI path that started first owns the sequence, and this waiter — which
+        // that path's own notify_waiters() wakes — must stand down.
+        SHUTDOWN_STARTED.store(true, Ordering::SeqCst);
+        MCP_DRAINED.store(false, Ordering::SeqCst);
+        assert!(
+            !claim_kernel_exit(),
+            "begin_shutdown claimed the sequence; the kernel waiter must not race it"
+        );
+        assert!(
+            !MCP_DRAINED.load(Ordering::SeqCst),
+            "standing down must not touch the drain guard the UI path is relying on"
+        );
+    }
+
+    #[test]
+    fn env_browser_args_are_appended_never_substituted() {
+        // The configured arguments are real settings, not decoration: this app
+        // ships `--disable-features=…` and an autoplay policy. Replacing them
+        // would change how the app behaves during the very run meant to verify
+        // it — and overwriting is exactly what WebView2's own loader does with
+        // this variable, which is why the app has to join them itself.
+        assert_eq!(
+            append_browser_args(
+                Some("--disable-features=msWebOOUI"),
+                "--remote-debugging-port=9222"
+            ),
+            "--disable-features=msWebOOUI --remote-debugging-port=9222"
+        );
+        assert_eq!(
+            append_browser_args(None, "--remote-debugging-port=9222"),
+            "--remote-debugging-port=9222"
+        );
+        assert_eq!(
+            append_browser_args(Some("   "), "--remote-debugging-port=9222"),
+            "--remote-debugging-port=9222",
+            "whitespace-only config must not produce a leading separator"
+        );
+    }
 }
 
 /// Returns the kernel HTTP port (used by frontend to construct API URLs).
@@ -672,7 +850,7 @@ pub fn run() {
                         }
                     }
                     "quit" => {
-                        // Shared safe-shutdown sequence (an earlier decision): overlay +
+                        // Shared safe-shutdown sequence: overlay +
                         // MCP drain off the GUI thread + kernel shutdown + exit.
                         // Same path as the dashboard's shutdown button.
                         begin_shutdown(app);
@@ -728,6 +906,24 @@ pub fn run() {
                         // drain and reap MCP subprocesses (orphan-leak fix, Step 4);
                         // the kernel task keeps running regardless. Shutdown is also
                         // available via the /api/system/shutdown endpoint.
+                        //
+                        // Give the kernel's shutdown signal somewhere to land
+                        // (bug-499): it stops the HTTP server, and this ends the
+                        // process it belongs to. `enable()` registers interest
+                        // before the first await point, so a signal that fires
+                        // between spawning this task and polling it is still
+                        // received — `notify_waiters` only wakes registered
+                        // waiters, and a missed one here is an app that never
+                        // exits.
+                        let exit_signal = handle.shutdown.clone();
+                        let exit_app = kernel_app_handle.clone();
+                        tauri::async_runtime::spawn(async move {
+                            let notified = exit_signal.notified();
+                            tokio::pin!(notified);
+                            notified.as_mut().enable();
+                            notified.await;
+                            exit_after_kernel_shutdown(&exit_app);
+                        });
                         let _ = KERNEL_HANDLE.set(handle);
                     }
                     Err(e) => {
@@ -789,7 +985,7 @@ pub fn run() {
                 with_window_log!(window.hide());
             }
         })
-        .build(tauri::generate_context!())
+        .build(verification_browser_args(tauri::generate_context!()))
         .expect("error while building tauri application");
 
     // Run with cleanup on exit

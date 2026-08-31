@@ -60,6 +60,25 @@ def noop() -> Action:
 # Screen frames + fingerprints (settle detection needs a cheap "did it
 # change?" signal without decoding the image)
 # --------------------------------------------------------------------------
+def _png_size(data: bytes):
+    """(width, height) of a PNG, or (None, None) for anything else.
+
+    The size of the picture is how the harness knows which pixel space it is
+    looking at -- a DPI-unaware capture of a 1280x800 panel comes back 1024x640
+    at 125 % scale, and nothing else in a frame says so. Stub frames are not
+    PNGs, so this stays quiet rather than raising for them.
+    """
+    if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n":
+        return None, None
+    try:
+        return (
+            int.from_bytes(data[16:20], "big"),
+            int.from_bytes(data[20:24], "big"),
+        )
+    except Exception:
+        return None, None
+
+
 @dataclass
 class Frame:
     """A captured screen image plus a cheap fingerprint used by settle to
@@ -76,6 +95,8 @@ class Frame:
     def of(
         cls, data: bytes, width: Optional[int] = None, height: Optional[int] = None
     ) -> "Frame":
+        if width is None and height is None:
+            width, height = _png_size(data)
         return cls(
             data=data,
             fingerprint=hashlib.sha256(data).hexdigest(),
@@ -117,6 +138,30 @@ class VisionAssessor(Protocol):
     scripts the answers so the loop is deterministic in tests."""
 
     def assess(self, frame: Frame, question: str) -> VisionAssessment: ...
+
+
+# --------------------------------------------------------------------------
+# "I could not ask" — distinct from "the answer is no"
+# --------------------------------------------------------------------------
+class ProbeUnavailable(RuntimeError):
+    """The kernel could not be *asked*, so nothing was learned about its state.
+
+    The distinction this class carries is the whole point of it. A kernel that
+    answers 403 because the key is wrong returns a body with no ``providers``
+    key in it, and ``body.get("providers", [])`` turns that into "this machine
+    has no providers" — an absent *state* rather than an absent *answer*. On
+    2026-08-06 that read a fully configured VM as an unmet fixture and printed
+    the remedy for an unmet fixture, which is a rollback that would have
+    discarded the very state it failed to see (bug-500).
+
+    So: raise this when the question could not be put to the kernel (non-2xx,
+    unset credentials), and let a genuine "no" be an ordinary False. Callers
+    that treat both the same are the bug.
+    """
+
+    def __init__(self, message: str, status: Optional[int] = None):
+        super().__init__(message)
+        self.status = status
 
 
 # --------------------------------------------------------------------------

@@ -57,18 +57,82 @@ import subprocess
 import time
 from typing import List, Optional
 
-from .interfaces import Action, Frame, VisionAssessment
+from .interfaces import Action, Frame, ProbeUnavailable, VisionAssessment
 
 
 def _cfg(name: str, default: str) -> str:
     return os.environ.get(name, default)
 
 
+def _required(name: str) -> str:
+    """Read config the harness must not invent a default for.
+
+    These name a machine that belongs to whoever runs the harness, so any value
+    committed here is wrong for every other reader and discloses the author's
+    network besides. Failing on the variable's name also beats the alternative:
+    a placeholder default still reaches ``ssh``, and the operator sees an
+    eight-second connect timeout rather than "you have not said which machine".
+    """
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(
+            f"{name} is not set. The VM harness needs the machine it drives:\n"
+            "    export OPV_PVE_HOST=<ssh-user>@<hypervisor-host>\n"
+            "    export OPV_VM_USER=<guest-account>\n"
+            "    export OPV_VM_IP=<guest-address>\n"
+            "    export OPV_VM_ID=<hypervisor-vm-id>\n"
+            "Export them in the shell that runs the harness. The repo's .env is\n"
+            "read by the Rust core, not by these scripts."
+        )
+    return value
+
+
+def vm_host() -> str:
+    """``user@host`` for the guest, from config that has no default."""
+    return f"{_required('OPV_VM_USER')}@{_required('OPV_VM_IP')}"
+
+
+def _split_status(raw: bytes) -> tuple:
+    """Split ``curl -w '\\n%{http_code}'`` output into (body, status).
+
+    The status is appended after a newline, so the body is everything before
+    the last one. A reply that carries no parseable trailer is reported as
+    status 0 — unknown, which the callers treat as "could not ask" rather than
+    silently as 200.
+    """
+    head, sep, tail = raw.rpartition(b"\n")
+    if not sep:
+        return raw, 0
+    try:
+        return head, int(tail.strip())
+    except ValueError:
+        return raw, 0
+
+
+def _require_key(key: str, path: str) -> str:
+    """Refuse to send an authenticated probe with no credential.
+
+    ``OPV_API_KEY`` defaults to the empty string, so forgetting it does not
+    fail — it sends a keyless request, collects the 403, and hands back a body
+    with none of the keys the caller reads. The run then reports the *state*
+    as absent. Failing here names the real cause once, instead of letting it
+    surface as a fixture the machine appears not to be in (bug-500).
+    """
+    if not key:
+        raise ProbeUnavailable(
+            f"OPV_API_KEY is unset, so the authenticated probe of {path} was never "
+            "actually put to the kernel. Set it to the CLOTO_API_KEY the app under "
+            "test was launched with — an empty key returns 403, and a 403 body "
+            "reads as an absent state, not as a failure to ask."
+        )
+    return key
+
+
 def _ssh_cmd() -> List[str]:
     """SSH invocation prefix with connection multiplexing — the master
     connection persists ``OPV_SSH_PERSIST`` seconds so subsequent calls reuse
     it and skip the TCP+auth handshake (the dominant per-call cost)."""
-    vm = f"{_cfg('OPV_VM_USER', 'PC')}@{_cfg('OPV_VM_IP', '192.0.2.252')}"
+    vm = vm_host()
     return [
         "ssh",
         "-o",
@@ -221,15 +285,24 @@ class KernelApiProbe:
 
     def check(self) -> bool:
         # key is a hex token (secrets.token_hex) — safe inside single quotes.
+        key = _require_key(self._key, self._path)
         try:
-            body = _run(
-                f"curl.exe -s -m 8 -H 'X-API-Key: {self._key}' "
+            raw = _run(
+                f"curl.exe -s -m 8 -w '\\n%{{http_code}}' -H 'X-API-Key: {key}' "
                 f"{_kernel_url(self._path)}",
                 timeout=15,
-            ).decode(errors="replace")
+            )
         except Exception:  # noqa: BLE001 - unreachable kernel is a False gate
             return False
-        return self._want in body
+        body, status = _split_status(raw)
+        # A rejected credential is not the kernel saying "no" (bug-500).
+        if not 200 <= status < 300:
+            raise ProbeUnavailable(
+                f"kernel answered {status} for {self._path} "
+                f"({'check OPV_API_KEY' if status in (401, 403) else 'not a state answer'})",
+                status=status,
+            )
+        return self._want in body.decode(errors="replace")
 
 
 class CompositeVmScreen:
@@ -321,9 +394,9 @@ def make_cofetch_backend(
 # port-forward pays that once: a persistent master forwards the VM's agent (8900)
 # and kernel (8081) loopback ports to local ports, and the Mac then hits them
 # with a plain local HTTP client — no per-call ssh exec, no PowerShell, no remote
-# curl. Measured on VM104: /grab 606→259ms (2.3x), kernel probe ~350→7.5ms. The
-# ~258ms /grab floor that remains is the VM's mss screen capture (grab ≈ grabhash
-# over the tunnel), which this transport cannot touch.
+# curl. Measured on the Windows guest: /grab 606→259ms (2.3x), kernel probe
+# ~350→7.5ms. The ~258ms /grab floor that remains is the VM's mss screen capture
+# (grab ≈ grabhash over the tunnel), which this transport cannot touch.
 
 
 def _free_local_port() -> int:
@@ -336,10 +409,27 @@ def _free_local_port() -> int:
 
 
 def _http_get(port: int, path: str, headers=None, timeout: float = 15.0) -> bytes:
+    """GET over the port-forward, refusing to return a body the kernel did not
+    agree to give.
+
+    The status check lives here rather than at the call sites because here is
+    the only place that still holds the response. Return the body and every
+    caller downstream sees an ordinary dict with the keys missing — which is
+    how a 403 became "this machine has no providers" (bug-500).
+    """
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     try:
         conn.request("GET", path, headers=headers or {})
-        return conn.getresponse().read()
+        resp = conn.getresponse()
+        body = resp.read()
+        if not 200 <= resp.status < 300:
+            raise ProbeUnavailable(
+                f"kernel answered {resp.status} for {path} "
+                f"({'check OPV_API_KEY' if resp.status in (401, 403) else 'not a state answer'}): "
+                f"{body[:120].decode(errors='replace')!r}",
+                status=resp.status,
+            )
+        return body
     finally:
         conn.close()
 
@@ -367,7 +457,7 @@ class SshTunnel:
         agent_port: Optional[int] = None,
         kernel_port: Optional[int] = None,
     ):
-        self.vm = f"{_cfg('OPV_VM_USER', 'PC')}@{_cfg('OPV_VM_IP', '192.0.2.252')}"
+        self.vm = vm_host()
         self.agent_port = agent_port or int(_cfg("OPV_AGENT_PORT", "8900"))
         self.kernel_port = kernel_port or int(_cfg("OPV_KERNEL_PORT", "8081"))
         self.local_agent = _free_local_port()
@@ -474,7 +564,11 @@ class TunnelHealthProbe:
             body = _http_get(self._t.local_kernel, self._path, timeout=8.0).decode(
                 errors="replace"
             )
-        except OSError:  # unreachable kernel is a False gate
+        # Liveness is the one probe for which "could not ask" and "the answer
+        # is no" really are the same thing: the question is whether the kernel
+        # is answering at all. Unauthenticated, so a 403 here is not the
+        # credential trap the authenticated probes guard against.
+        except (OSError, ProbeUnavailable):  # unreachable kernel is a False gate
             return False
         return self._want in body.replace(" ", "")
 
@@ -495,11 +589,16 @@ class TunnelApiProbe:
         self._key = api_key if api_key is not None else _cfg("OPV_API_KEY", "")
 
     def check(self) -> bool:
+        # A missing or rejected credential is not a "no" from the kernel, so it
+        # must not become one: ProbeUnavailable propagates out of the poll loop
+        # and fails the run loudly (bug-500). Only an unreachable socket is a
+        # False gate, as before.
+        headers = {"X-API-Key": _require_key(self._key, self._path)}
         try:
             body = _http_get(
                 self._t.local_kernel,
                 self._path,
-                headers={"X-API-Key": self._key},
+                headers=headers,
                 timeout=15.0,
             ).decode(errors="replace")
         except OSError:
@@ -522,13 +621,13 @@ class TunnelJsonFetch:
         body = _http_get(
             self._t.local_kernel,
             path,
-            headers={"X-API-Key": self._key},
+            headers={"X-API-Key": _require_key(self._key, path)},
             timeout=15.0,
         )
         try:
             return json.loads(body)
         except ValueError as e:
-            raise RuntimeError(
+            raise ProbeUnavailable(
                 f"kernel returned non-JSON for {path}: {body[:200]!r}"
             ) from e
 
@@ -541,14 +640,25 @@ class KernelJsonFetch:
         self._key = api_key if api_key is not None else _cfg("OPV_API_KEY", "")
 
     def __call__(self, path: str) -> dict:
-        body = _run(
-            f"curl.exe -s -m 8 -H 'X-API-Key: {self._key}' {_kernel_url(path)}",
+        # `curl -s` exits 0 on a 403 and prints the error body, so the status
+        # has to be carried out-of-band or it is simply lost (bug-500).
+        raw = _run(
+            f"curl.exe -s -m 8 -w '\\n%{{http_code}}' "
+            f"-H 'X-API-Key: {_require_key(self._key, path)}' {_kernel_url(path)}",
             timeout=15,
         )
+        body, status = _split_status(raw)
+        if not 200 <= status < 300:
+            raise ProbeUnavailable(
+                f"kernel answered {status} for {path} "
+                f"({'check OPV_API_KEY' if status in (401, 403) else 'not a state answer'}): "
+                f"{body[:120].decode(errors='replace')!r}",
+                status=status,
+            )
         try:
             return json.loads(body)
         except ValueError as e:
-            raise RuntimeError(
+            raise ProbeUnavailable(
                 f"kernel returned non-JSON for {path}: {body[:200]!r}"
             ) from e
 

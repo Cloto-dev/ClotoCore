@@ -34,6 +34,24 @@ spot-check. Cost pools also differ, and the executor's visual read is a genuine
 intelligent perceiver — exactly the apex's design (a VLM in the human perception
 loop), just hosted in a subagent.
 
+## Before anything: point the harness at your machines
+
+Every command below reads these from the environment. They have no defaults —
+they name machines that belong to whoever runs the harness, so a value committed
+to this repo would be wrong for every other reader. An unset one is reported by
+name, instead of reaching `ssh` and coming back as a connect timeout minutes
+later.
+
+```sh
+export OPV_PVE_HOST=<ssh-user>@<hypervisor-host>
+export OPV_VM_USER=<guest-account>
+export OPV_VM_IP=<guest-address>
+export OPV_VM_ID=<hypervisor-vm-id>
+```
+
+Export them in the shell that runs the harness. The repo's `.env` will not do
+it: that file is read by the Rust core, not by these scripts.
+
 ## Two ways the executor drives
 
 - **Manual VM I/O** (the flow detailed below): the subagent curl/tunnel-grabs,
@@ -62,7 +80,7 @@ loop), just hosted in a subagent.
    - **Eyeball the critical frame(s)** the executor saved (the response render at
      minimum). The visual oracle is the apex's whole point; don't take it on
      faith.
-3. **Record + decide.** Log the outcome (an earlier decision / ledger), file any real
+3. **Record + decide.** Log the outcome in the ledger, file any real
    defect, choose the next journey.
 
 ## VM executor task template (hand this, filled in, to the subagent)
@@ -91,7 +109,8 @@ goal + dual-oracle spec.
   anything scripted.
 - **Manual round trips:** run `curl.exe` directly over a multiplexed ssh —
   `ssh -o ControlMaster=auto -o ControlPersist=60 -o ControlPath=/tmp/opv-ssh-%r@%h:%p
-  PC@192.0.2.252 'curl.exe -s http://127.0.0.1:8900/grab' > frame.png`. Reuse
+  "$OPV_VM_USER@$OPV_VM_IP" 'curl.exe -s http://127.0.0.1:8900/grab' > frame.png`.
+  Reuse
   the same `-o ControlPath` on every call so the handshake is paid once. The
   legacy `scratchpad/vmps.sh` (`ssh … powershell -EncodedCommand`, UTF-16LE
   base64) remains only for ad-hoc PowerShell that isn't a simple HTTP call.
@@ -108,7 +127,7 @@ goal + dual-oracle spec.
   `/api/system/health`, `/api/chat`, `/api/history`, `/api/llm/providers`,
   `/api/mcp/servers`, `/api/system/version`.
 - **Screen** 1280×800.
-- **Grab→read:** `ssh <multiplexed-opts> PC@192.0.2.252 'curl.exe -s
+- **Grab→read:** `ssh <multiplexed-opts> "$OPV_VM_USER@$OPV_VM_IP" 'curl.exe -s
   http://127.0.0.1:8900/grab' > frame.png`, then Read the PNG (raw bytes, no
   base64 step). The legacy PS `[Convert]::ToBase64String($r.Content) | tr -d
   '\r\n' | base64 -d` still works if you're already in a PS snippet.
@@ -164,19 +183,24 @@ Every apex / uninstall measurement starts from a **known clean state** by
 rolling the VM back to a `clean-install-*` snapshot instead of reinstalling
 (~16 s measured vs ~6 min for a scripted reinstall). This also structurally
 removes the "residue of the previous experiment" class of mismeasurement
-(observed 2026-07-30). Adopted with an earlier decision (an earlier decision).
+(observed 2026-07-30). Adopted with the apex lightening line.
 
 ```bash
-ssh root@192.0.2.2 'qm rollback 104 clean-install-0-6-8-beta-2 && qm start 104'
-# vmstate snapshot → the VM resumes the saved live session; qm start is a
-# no-op safety for the non-vmstate case. Agent answers /health in ~16 s.
+ssh "$OPV_PVE_HOST" "qm rollback $OPV_VM_ID clean-install-0-6-8-beta-2; qm start $OPV_VM_ID"
+# vmstate snapshot → the VM resumes the saved live session (measured ~12 s for
+# the rollback task itself; the agent answers /health a few seconds later).
+# `qm start` is the safety net for a snapshot taken WITHOUT vmstate, which
+# comes back stopped. After a vmstate rollback it exits non-zero with "VM
+# <id> already running" — expected, not an error. Note the `;`: chaining with `&&`
+# makes that benign message the exit status of the whole command, which reads
+# as a failed rollback that in fact succeeded (measured 2026-08-06).
 ```
 
 Wait for readiness the same way the verify script does — poll the actuator:
-`ssh PC@192.0.2.252 'curl.exe -s -m 2 http://127.0.0.1:8900/health'` until
+`ssh "$OPV_VM_USER@$OPV_VM_IP" 'curl.exe -s -m 2 http://127.0.0.1:8900/health'` until
 `"ok": true`.
 
-Snapshot lineage on VM 104 (`qm listsnapshot 104` is authoritative):
+Snapshot lineage on the guest (`qm listsnapshot "$OPV_VM_ID"` is authoritative):
 
 - `pristine` — blank Win11 + OpenSSH only. For installer-diff verify runs.
 - `agent-base-20260727` — OS + Python + opv_agent, ClotoCore UNINSTALLED,
@@ -188,13 +212,157 @@ Snapshot lineage on VM 104 (`qm listsnapshot 104` is authoritative):
   journeys. Proxmox snapshot names cannot contain dots, so the version is
   dash-encoded (`0.6.8-beta.2` → `clean-install-0-6-8-beta-2`); the exact
   version is in the snapshot description.
+- `onboarded-<version>` — installed, onboarding walked, main window, and
+  `%APPDATA%` data a purge plan can enumerate (tier 4: 11 entries). What
+  `clean-install-*` cannot be, because it is data-free by definition.
+- `configured-chat-<version>` — the above plus a Connected cerebras engine
+  with a key, a transcript of 18 clean messages, and the GUI sitting on the
+  chat view. The state that used to cost half an hour to rebuild by hand.
+
+## Journeys declare the state they need (`fixtures.py`)
+
+A journey names its start state (`_JOURNEYS[...].fixture`), and `run_vm`
+verifies it over the kernel API before driving anything. An unmet
+precondition **fails the run (exit 3) with the remedy printed** — it is not a
+warning, because the failure mode is not a red run, it is a green one:
+
+- a purge journey on a data-free install builds an empty plan and reports that
+  everything it did not remove is absent;
+- a chat journey on a short thread asserts that a reply is visible without
+  scrolling in a pane nothing has ever filled;
+- a main-window journey started on the onboarding carousel fails eight targets
+  in a row, which reads as eight product defects (2026-08-05).
+
+```sh
+python -m scripts.opverify.visual.run_vm agents          # gate on by default
+python -m scripts.opverify.visual.run_vm agents --no-check-fixture
+python -m scripts.opverify.visual.run_vm chat-render --rollback-to-fixture
+```
+
+`--rollback-to-fixture` is the only thing here that touches the VM, and it is
+never implied: it runs `qm rollback`, which **discards the live state** with no
+snapshot of "now" to come back to.
+
+Fixtures are checked, not assumed: `verify()` runs every check even after one
+fails (one trip to the VM, not one per failure), and `TranscriptClean` exists
+because depth alone let a rate-limited build pass with two thirds of the pane
+full of `[Error]` bubbles (2026-08-06).
 
 **On a version change**: roll back to the current `clean-install-*`, silently
 install the new installer over it (or uninstall + install for a fresh-path
 measurement), re-verify the fingerprint (installed version, no unexpected
-`%APPDATA%` state, `/health` ok), then `qm snapshot 104 clean-install-<new>
+`%APPDATA%` state, `/health` ok), then `qm snapshot "$OPV_VM_ID" clean-install-<new>
 --vmstate 1` with a description recording the contents. Keep the previous
 snapshot as a fallback until the new one has survived one journey.
+
+**Look at the live state before rolling back.** `qm rollback` discards it —
+there is no "current" snapshot to return to. On 2026-08-03 a rollback threw
+away the only configured (onboarded + engine + provider key) environment,
+which existed nowhere else because no `clean-install-*` snapshot carries app
+data by definition. Rebuilding it is the recipe below, not a disaster, but it
+is twenty minutes that a five-second look would have priced in. If a
+configured state is worth keeping, snapshot it *first* under its own name.
+
+## Rebuilding chat preconditions from a clean-install snapshot
+
+`clean-install-*` is deliberately data-free, so any journey needing a working
+engine starts with onboarding, no MCP servers and no provider key. All of it
+except the wizard clicks is scriptable through the authenticated admin API —
+which is also how the provider key stays out of the GUI, the actuator's
+request bodies and every frame:
+
+1. Launch with a known admin key — `POST :8900/run` with
+   `{"path": "C:\\Program Files\\ClotoCore\\app.exe", "env": {"CLOTO_API_KEY": "…"}}`.
+2. Install the engine — `POST :8081/api/marketplace/install`
+   `{"server_id": "cerebras", "auto_start": true}`. It comes up `Connected`
+   and creates the provider row (`has_key: false`).
+3. Set the provider key — `POST :8081/api/llm/providers/cerebras/key`
+   `{"api_key": "…"}`. Confirm with `GET /api/llm/providers`: `has_key: true`,
+   `configured: true`.
+4. Click through the wizard: name → **skip** the assistant preset (its batch
+   install is minutes of work that step 2 already did) → tick the admin-key
+   acknowledgement, and **do not press the regenerate button** — it would
+   invalidate the `CLOTO_API_KEY` every later probe authenticates with.
+5. Prove the kernel oracle before driving any GUI: `POST /api/chat` with a
+   nonce, then find the `ThoughtResponse` in `/api/history` with the expected
+   `engine_id` and the nonce as its content.
+
+**A chat journey also needs a tall thread.** Without one the transcript is
+shorter than the viewport, every new turn is visible however the scroll logic
+behaves, and `reply-rendered-without-scrolling` passes while testing nothing.
+
+Build it through the API, not the GUI. The kernel persists **both sides** of
+an `/api/chat` turn into the console store, keyed by `user_id =
+source.id` (`handlers/system.rs`, `extract_user_id`), and the pane reads
+`user_id` `default` (`handlers/chat.rs`, `DEFAULT_USER_ID`). So a turn posted
+as `{"source": {"type": "User", "id": "default", …}}` lands in the pane, and
+one posted under any other sender id does not — which is what the earlier
+version of this section had recorded as "API posts do not reach the console
+store" (measured and corrected 2026-08-06: it is the identity, not the
+transport). Nine paced turns take a couple of minutes and no clicking.
+
+Three things that bite:
+
+- **Pace the turns.** The provider rate-limits, and a rate-limited turn is
+  persisted as an ordinary agent row carrying `[Error] …`. Row count goes up,
+  the pane fills with error bubbles, and a check that counts rows is happy.
+- **The console renders what it loaded.** Rebuilding the store behind an open
+  chat view leaves the old messages on screen — navigate away and back
+  (the component remounts and refetches) before trusting a frame or taking a
+  vmstate snapshot of it.
+- If you do drive the GUI instead, click the composer before *each* send:
+  focus is not retained after Enter, so a loop that clicks once silently drops
+  every turn after the first.
+
+Two quoting traps on the way in, both costly to rediscover: the guest's default
+shell is PowerShell, so `curl.exe -H "…"` inside an `ssh` command line arrives
+mangled — put headers in a curl config file (`curl.exe -K C:\opv\auth.cfg`,
+one `header = "X-API-Key: …"` line per header, plus a second file adding
+`Content-Type: application/json` for POSTs, which the kernel requires). And
+`--data-binary @-` over stdin is parsed by PowerShell before curl sees it; copy
+the body to the guest and use `-d @C:\opv\body.json`.
+
+## `danger-zone-purge` — the outcome journey (destructive)
+
+`danger-zone` stops at the preview. `danger-zone-purge` presses the button and
+then asserts the machine: the app ends, the detached helper writes a clean
+report, and a sweep of the OS finds nothing left. It runs at **tier 4**, because
+the narrower tiers deliberately keep the ARP entry and the vendor key, so
+"residue is zero" only means anything at the widest scope.
+
+Three things it needs, each of which fails the run loudly rather than quietly
+passing:
+
+1. **A launch with the debug port open and a known admin key.** Targets are
+   resolved live over CDP (`cdp.py`), and gate 3 asks for the key:
+   `POST :8900/run` with `{"env": {"CLOTO_API_KEY": "…",
+   "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS": "--remote-debugging-port=9222"}}`,
+   and `OPV_API_KEY` set to the same key for the harness.
+2. **An install with data to remove.** The journey refuses to build on an empty
+   tier-4 plan, and `PurgeReportClean` fails a report whose entries are all
+   `absent` — a purge with nothing to purge verifies nothing. A *fresh* install
+   is not enough on its own: it comes up on the onboarding carousel, which the
+   first step rejects by name (the main window is what the rest is written
+   against). Walk onboarding first — name → **skip** the assistant preset → tick
+   the admin-key acknowledgement, and **do not press regenerate**.
+3. **A live visual oracle.** `OPV_ASSESSOR=handshake` is enforced: replayed
+   verdicts would agree with anything while the uninstall proceeded.
+
+Restoring afterwards is a reinstall, not only a snapshot rollback — the
+installer is already on the guest at `C:\opv\` after the first run.
+
+Two lessons from building it, both about *targeting* rather than the product:
+
+- **The window is not what an element is visible within.** A control scrolled
+  just past the bottom of the modal's scroll pane still has a rect inside the
+  window; clicking it lands on the backdrop and closes the modal, and the run
+  then reads as "the app refused to uninstall". `cdp.py` intersects the
+  clipping ancestors and hit-tests with `elementFromPoint`, so a target is only
+  actionable when a click would actually reach it.
+- **Ask the visual oracle only what the frame can answer.** "Are all four
+  checkboxes checked" is a question about the scroll position; "is the widest
+  one checked" is a question about the app. The scope really widening is the
+  kernel probe's job, and it answers authoritatively.
 
 ## Journey preconditions (learned 2026-07-31, danger-zone round 3)
 

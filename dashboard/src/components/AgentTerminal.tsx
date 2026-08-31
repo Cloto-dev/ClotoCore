@@ -65,7 +65,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
   const [deletePassword, setDeletePassword] = useState('');
 
   // Engine / memory discovery is by tool surface, not a server-id prefix
-  // (category prefixes retired, an earlier decision): a reasoning engine exposes
+  // (category prefixes retired): a reasoning engine exposes
   // `think`, a memory backend exposes `store`/`recall`.
   // Must be called before any conditional returns to satisfy React's Rules of Hooks
   const { servers: mcpServers, refetch: refetchMcpServers } = useMcpServers();

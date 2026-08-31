@@ -220,9 +220,9 @@ impl EventProcessor {
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
 
-            // ── (1) User メッセージ → SystemHandler を spawn (プラグイン外) ──
-            // Agentic loop はイベントループをブロックせず独立して実行される。
-            // Per-agent Semaphore で同一エージェントへの並行処理を直列化。
+            // -- (1) User message -> spawn SystemHandler (outside the plugins) --
+            // The agentic loop runs independently and never blocks the event loop.
+            // A per-agent semaphore serializes concurrent work for the same agent.
             if let cloto_shared::ClotoEventData::MessageReceived(ref msg) = event.data {
                 if matches!(
                     msg.source,
@@ -251,8 +251,8 @@ impl EventProcessor {
                 }
             }
 
-            // ── (2) 即時 SSE ブロードキャスト (dispatch_event の前) ──
-            // ActionRequested / PermissionGranted は後続 match で個別処理。
+            // -- (2) Immediate SSE broadcast (before dispatch_event) --
+            // ActionRequested / PermissionGranted are handled individually in the match below.
             match &event.data {
                 cloto_shared::ClotoEventData::ActionRequested { .. }
                 | cloto_shared::ClotoEventData::PermissionGranted { .. } => {}
@@ -261,12 +261,12 @@ impl EventProcessor {
                 }
             }
 
-            // ── (3) プラグイン配信 (SystemHandler は含まれない → 高速) ──
+            // -- (3) Deliver to plugins (SystemHandler is not among them, so this stays fast) --
             self.registry
                 .dispatch_event(envelope.clone(), &event_tx)
                 .await;
 
-            // ── (4) イベント固有の後処理 ──
+            // -- (4) Event-specific post-processing --
             // (Consensus is now orchestrated in-kernel inside
             //  SystemHandler::run_consensus — see docs/CONSENSUS_REVIVAL_DESIGN.md.
             //  It no longer rides the event bus, so there is no orchestrator hook

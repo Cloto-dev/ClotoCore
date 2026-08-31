@@ -26,9 +26,21 @@ import sys
 import traceback
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import mss
-import mss.tools
-import pyautogui
+# Declare per-monitor DPI awareness before anything measures the screen.
+# Windows hands a DPI-unaware process virtualised metrics: at 125 % scaling the
+# 1280x800 panel is reported as 1024x640, /grab comes back downscaled, and every
+# injected coordinate is read in that shrunken space -- so a frame, an ROI or a
+# coordinate measured at 100 % silently means something else at 125 %. Awareness
+# keeps this agent in physical pixels at any scale (measured 2026-08-09, CSC
+# Best effort: an OS without the call runs as before.
+try:
+    ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+except Exception:
+    pass
+
+import mss  # noqa: E402
+import mss.tools  # noqa: E402
+import pyautogui  # noqa: E402
 
 pyautogui.FAILSAFE = False
 pyautogui.PAUSE = 0.05

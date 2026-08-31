@@ -111,7 +111,7 @@ impl SafeHttpClient {
         })
     }
 
-    /// IPアドレスベースでの制限チェック (Principle #5: Strict Permission Isolation).
+    /// Restriction check based on the IP address (Principle #5: Strict Permission Isolation).
     /// Delegates to the free `is_restricted_ip`; kept as a method (test-only) to
     /// preserve the `client.is_restricted_addr(..)` test surface after the guard
     /// logic moved to the free function. The production paths call `is_restricted_ip`
@@ -122,7 +122,7 @@ impl SafeHttpClient {
         is_restricted_ip(ip)
     }
 
-    /// ホスト名ベースでのホワイトリストチェック (O(1) HashSet lookup)
+    /// Allowlist check based on the host name (O(1) HashSet lookup).
     fn is_whitelisted_host(&self, host: &str) -> bool {
         let hosts = self.allowed_hosts.read().unwrap_or_else(|e| {
             tracing::warn!("RwLock poisoned on allowed_hosts read — recovering");
@@ -157,7 +157,7 @@ impl NetworkCapability for SafeHttpClient {
             .ok_or_else(|| anyhow::anyhow!("Invalid URL: No host found"))?;
         let port = url.port_or_known_default().unwrap_or(80);
 
-        // 1. ホワイトリストチェック (ホスト名)
+        // 1. Allowlist check (host name).
         if !self.is_whitelisted_host(host) {
             warn!(
                 "🚫 Security Violation: Host '{}' is not in the whitelist.",

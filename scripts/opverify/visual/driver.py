@@ -29,6 +29,9 @@ from .interfaces import (
     ScreenSource,
     VisionAssessment,
     VisionAssessor,
+    click,
+    scroll,
+    type_text,
 )
 from .roi import crop_frame
 from .settle import poll_until_visible, settle
@@ -83,6 +86,7 @@ class VisualDriver:
         assessor: VisionAssessor,
         *,
         change_probe: Optional[Callable[[], str]] = None,
+        targeter=None,
         crop: Callable[[Frame, tuple], Frame] = crop_frame,
         now: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
@@ -90,6 +94,10 @@ class VisualDriver:
         self.screen = screen
         self.actuator = actuator
         self.assessor = assessor
+        # Resolves a step's TargetSpec to a screen coordinate at the moment it
+        # acts (see .cdp). None → a journey that declares targets fails loudly
+        # rather than falling back to a coordinate that may not be there.
+        self._targeter = targeter
         # Optional cheap settle signal (e.g. agent /grabhash) — halves settle
         # cost from N full grabs to N hash polls + one grab. None → grab-based.
         self._change_probe = change_probe
@@ -110,10 +118,92 @@ class VisualDriver:
         )
 
     # -- per-step -------------------------------------------------------
+    def _act(self, step: J.Step) -> None:
+        """Perform the step's input: a resolved target if it declares one, else
+        its literal action."""
+        if step.target is None:
+            if step.action.kind == "type":
+                self._type(step.action.text)
+            elif step.action.kind != "noop":
+                self.actuator.send(step.action)
+            return
+        if self._targeter is None:
+            raise RuntimeError(
+                f"step {step.name!r} declares a target but the driver has no "
+                "targeter (was the app launched with cdp.debug_env()?)"
+            )
+        spec = step.target
+
+        def resolve():
+            return self._targeter.find(
+                spec.contains,
+                nth=spec.nth,
+                require_enabled=spec.require_enabled,
+                exact=spec.exact,
+            )
+
+        t = resolve()
+        # Wheel toward it and look again. Scrolling by wheel rather than
+        # scrollIntoView keeps the emulation a user's: the pane moves the way it
+        # moves for a person, including any clamping the WebView applies.
+        for _ in range(spec.scroll_attempts):
+            if t.in_viewport:
+                break
+            if t.off_screen == "covered":
+                # Something is on top of it. The wheel will not move an overlay,
+                # so scrolling here would only burn attempts and then blame the
+                # scroll bound for what is really a modal in the way.
+                break
+            self.actuator.send(
+                scroll(spec.scroll_step if t.off_screen == "above" else -spec.scroll_step)
+            )
+            self._sleep(spec.settle_s)
+            t = resolve()
+        # The pane keeps moving after the wheel event: the WebView animates the
+        # scroll. A coordinate read mid-animation is stale by the time the click
+        # lands, and the click goes to whatever is at that spot once the pane
+        # stops — on 2026-08-05 that was the backdrop, which closed the modal and
+        # made the app look like it had refused to uninstall. So require the
+        # position to hold still before acting on it.
+        for _ in range(spec.settle_attempts):
+            self._sleep(spec.settle_s)
+            again = resolve()
+            if (again.x, again.y) == (t.x, t.y) and again.in_viewport:
+                t = again
+                break
+            t = again
+        if not t.in_viewport:
+            # Clicking its coordinate anyway would land on whatever *is* at that
+            # spot — the backdrop, the neighbouring control — and the run would
+            # fail later, somewhere else, wearing a disguise.
+            raise RuntimeError(
+                f"step {step.name!r}: target {t.text!r} is still {t.off_screen or 'out'} "
+                f"of the viewport after {spec.scroll_attempts} scroll attempts "
+                "(is the pointer over the scrolling pane?)"
+            )
+        self.actuator.send(click(t.x, t.y))
+        if step.target.type_text is not None:
+            self._type(step.target.type_text)
+
+    def _type(self, text: str) -> None:
+        """Type into whatever is focused, preferring the layout-independent path.
+
+        Synthesised keystrokes go through the guest's keyboard layout and come
+        out wrong for `:`, `@` and `^` on a Japanese one (measured 2026-08-31).
+        A targeter means a CDP session, and CDP can deliver text as text. The
+        actuator stays the fallback for a run with no debug port — that run
+        simply cannot type those characters faithfully, which is worth knowing
+        rather than hiding.
+        """
+        insert = getattr(self._targeter, "insert_text", None)
+        if insert is not None:
+            insert(text)
+            return
+        self.actuator.send(type_text(text))
+
     def _run_step(self, step: J.Step) -> StepResult:
         try:
-            if step.action.kind != "noop":
-                self.actuator.send(step.action)
+            self._act(step)
         except Exception as e:  # noqa: BLE001 - an actuation failure is a step failure
             return StepResult(step.name, step.trigger, verdict=None, error=repr(e))
 

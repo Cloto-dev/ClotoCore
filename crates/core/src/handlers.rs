@@ -63,10 +63,27 @@ pub async fn version_handler() -> axum::Json<serde_json::Value> {
     }))
 }
 
-/// GET /api/system/health — lightweight liveness check (no auth required)
+/// GET /api/system/health — lightweight liveness check (no auth required).
+///
+/// `installer` reports the marketplace install engine as last probed (at
+/// boot, then by each install): `ready`, or why not — `missing`,
+/// `version_mismatch`, `unusable` — and `unknown` before the first probe.
+/// A broken engine does not make the kernel unhealthy; it makes marketplace
+/// installs stop with an explicit error, and this is where that shows.
 pub async fn health_handler() -> axum::Json<serde_json::Value> {
+    let installer = crate::managers::installer::last_status().map_or_else(
+        || serde_json::json!({ "status": "unknown" }),
+        |status| {
+            serde_json::json!({
+                "status": status.state,
+                "version": status.version,
+                "expected": status.expected,
+            })
+        },
+    );
     json_data(serde_json::json!({
-        "status": "ok"
+        "status": "ok",
+        "installer": installer,
     }))
 }
 
@@ -1071,7 +1088,7 @@ pub struct SetRecallPrecisionRequest {
 
 /// **Route:** `POST /api/agents/:id/recall-precision`
 ///
-/// Set an agent's recall precision (an earlier decision, knob 3). This is an OPTIONAL,
+/// Set an agent's recall precision (knob 3). This is an OPTIONAL,
 /// feature-detected memory-capability operation: it routes through the capability
 /// dispatcher to whichever memory server backs the agent (no hardcoded provider),
 /// and returns 400 when the active memory server does not advertise
@@ -1114,7 +1131,7 @@ pub async fn set_recall_precision(
 
 /// **Route:** `GET /api/agents/:id/recall-precision`
 ///
-/// Read an agent's effective recall precision (an earlier decision, knob 3) — the read-back
+/// Read an agent's effective recall precision (knob 3) — the read-back
 /// companion to [`set_recall_precision`], so the dashboard can load the current value
 /// and present the control as read-edit-save rather than write-only. Same OPTIONAL,
 /// feature-detected memory-capability contract: it routes through the capability

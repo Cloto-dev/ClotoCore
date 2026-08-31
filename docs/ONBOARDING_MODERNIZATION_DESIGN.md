@@ -1,7 +1,6 @@
 # Onboarding Modernization — Admin-Key Handover + Hub-Synced Presets
 
 **Status**: Draft (design approved 2026-07-17)
-**Tracking**: an earlier decision (an earlier decision, 0.6.8 line)
 **Related**: `DEFENDER_DESIGN.md` (the sudo-mode uninstall gate assumes the
 user was handed the admin key — §2 here is its prerequisite),
 `MCP_PLUGIN_ARCHITECTURE.md`, `docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md`
@@ -148,7 +147,7 @@ answer and unchanged by this design).
 Ghost IDs in `lib/presets.ts` are a live first-run defect and get fixed
 directly against the current hub catalog (verify `embedding` / `cpersona`
 status against what the kernel actually fetches, remove or replace, confirm
-batch-install path has no silent failure). Tracked as an earlier decision.
+batch-install path has no silent failure).
 
 ## 5. Phasing
 

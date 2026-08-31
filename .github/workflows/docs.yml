@@ -1,0 +1,98 @@
+name: docs
+
+# Builds the documentation site from docs/ and deploys it to GitHub Pages.
+#
+# What is published is decided by mkdocs.yml's nav and exclude_docs, not by
+# which files exist in docs/ — the rules are in docs/DOCUMENTATION_POLICY.md.
+# This workflow is what makes that decision binding: --strict fails the build
+# when a document is neither in the nav nor excluded, so adding a document
+# forces the decision instead of defaulting to one.
+#
+# Deployment happens only on push to master; pull requests build and check.
+
+on:
+  # Both lists are spelled out because GitHub Actions does not resolve YAML
+  # anchors — keep them in step. scripts/check-doc-anchors.py is on the trigger
+  # so that a PR editing the checker actually runs the checker it edited;
+  # otherwise that is the one change that cannot be tested. It is on the push
+  # list for the same reason in reverse: filtering push by the same paths means
+  # a checker-only change would not redeploy, and a regression in it would stay
+  # latent until an unrelated docs/ edit carried it out.
+  push:
+    branches: [master]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+      - "scripts/check-doc-anchors.py"
+  # Deliberately without a `branches:` filter, unlike ci.yml. ci.yml is scoped
+  # to `pull_request: branches: [master]`, which means it does not run on a PR
+  # targeting another branch — so in a stacked series only the bottom PR is
+  # gated (DEVELOPMENT.md §3.1). Documentation changes stack routinely, and a
+  # gate that skips the middle of a stack is a gate that is absent exactly when
+  # several changes are in flight at once.
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - ".github/workflows/docs.yml"
+      - "scripts/check-doc-anchors.py"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned like every other tool this repository runs in CI, so that a theme
+  # release cannot change what "the build passed" meant.
+  MKDOCS_MATERIAL_VERSION: "9.7.7"
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install mkdocs-material
+        run: pip install "mkdocs-material==${MKDOCS_MATERIAL_VERSION}"
+
+      - name: Build site (strict)
+        # --strict promotes the validation levels set in mkdocs.yml to errors:
+        # a document missing from the nav, a link to a page that does not
+        # exist, an anchor that does not exist in the Markdown sources.
+        run: mkdocs build --strict
+
+      - name: In-site links and anchors (blocking)
+        # Two classes --strict does not fail on, both measured on this
+        # repository: a fragment that no longer resolves in the built HTML,
+        # and a link into the unpublished set. The second one mkdocs caps at
+        # INFO in its own source, so no configuration can make the build fail
+        # on it — the checker exists because the gate cannot.
+        run: python3 scripts/check-doc-anchors.py site
+
+      - name: Upload Pages artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4.0.0
+        with:
+          path: site/
+
+  deploy:
+    name: Deploy
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

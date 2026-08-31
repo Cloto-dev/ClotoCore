@@ -1,6 +1,6 @@
 {
   "name": "cloto_dashboard",
-  "version": "0.6.8-beta.3",
+  "version": "0.6.8-beta.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -20,7 +20,7 @@
     "@pixiv/three-vrm-animation": "^3.5.5",
     "@tauri-apps/api": "^2.11.1",
     "@tauri-apps/plugin-dialog": "^2.7.2",
-    "@tauri-apps/plugin-global-shortcut": "^2.3.1",
+    "@tauri-apps/plugin-global-shortcut": "^2.3.2",
     "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
@@ -39,8 +39,8 @@
     "three": "^0.185.1"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.5",
-    "@tauri-apps/cli": "^2.10.1",
+    "@biomejs/biome": "^2.5.6",
+    "@tauri-apps/cli": "^2.11.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",

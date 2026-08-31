@@ -94,13 +94,20 @@ export function PillSelect<T extends string>({
       btnRef.current?.blur();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsOpen(false);
+      if (e.key !== 'Escape') return;
+      // Claim the key so an enclosing Modal does not close as well: dismissing
+      // the popover and the dialog around it on one press loses the edit.
+      // Capture phase, because both listeners sit on `document` and the modal —
+      // mounted first — would otherwise reach its bubble handler first and read
+      // defaultPrevented before this ever runs.
+      e.preventDefault();
+      setIsOpen(false);
     };
     document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
+    document.addEventListener('keydown', onKey, true);
     return () => {
       document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('keydown', onKey, true);
     };
   }, [isOpen]);
 

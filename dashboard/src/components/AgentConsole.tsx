@@ -18,6 +18,7 @@ import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
 import { useLongPress } from '../hooks/useLongPress';
 import { useMcpServers } from '../hooks/useMcpServers';
+import { useStickToBottom } from '../hooks/useStickToBottom';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
 import { findBranchPoints, flattenConversation } from '../lib/conversationTree';
 import { sendNativeNotification } from '../lib/notifications';
@@ -50,7 +51,6 @@ import { StatusDot } from './ui/StatusDot';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
-const SCROLL_BOTTOM_THRESHOLD_PX = 50;
 const LONG_PRESS_MS = 1500;
 const ERROR_DISPLAY_MS = 5000;
 
@@ -161,7 +161,6 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
   const initialLoadDone = useRef(false);
-  const isScrolledToBottom = useRef(true);
   const sendTimestampRef = useRef<number>(0);
   // Holds the correct parent_id during retry (null = not retrying)
   const retryParentIdRef = useRef<string | null>(null);
@@ -170,6 +169,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   const hasVrm = agent.metadata?.has_vrm === 'true';
   useGazeBroadcast(hasVrm);
+  // Follow the newest turn as it arrives (bug-498), unless the user scrolled up.
+  const { onScroll: handleScroll } = useStickToBottom(scrollRef);
 
   // Flatten branching conversation to linear display
   const displayMessages = useMemo(() => flattenConversation(messages, activeBranches), [messages, activeBranches]);
@@ -260,19 +261,6 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     };
   }, [isTyping, recoverTypingState]);
 
-  // Scroll to bottom on initial load and new messages (only if user is at bottom)
-  useEffect(() => {
-    if (!isLoading && isScrolledToBottom.current && scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [isLoading]);
-
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    isScrolledToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < SCROLL_BOTTOM_THRESHOLD_PX;
-  }, []);
-
   const loadOlderMessages = useCallback(async () => {
     if (isLoadingMore || !hasMore || messages.length === 0) return;
     setIsLoadingMore(true);
@@ -359,7 +347,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       }
 
       // Thinking process visualization. An event carrying engine_id is an
-      // engine event by construction — ids are bare (an earlier decision), so presence
+      // engine event by construction — ids are bare, so presence
       // is the signal, not a prefix.
       if (event.data?.agent_id === agent.id || event.data?.engine_id !== undefined) {
         if (event.type === 'ToolInvoked' && event.data.agent_id === agent.id) {

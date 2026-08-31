@@ -1,7 +1,7 @@
 """Result ledger — the persistent, append-only record of every verification
 run, plus regression detection against the prior baseline.
 
-This is permanence mechanism ③ (an earlier decision): each run distils the full
+This is permanence mechanism ③: each run distils the full
 report into one compact JSON line appended to ``qa/opverify/history.jsonl``
 (committed to the repo, so quality trend is tracked over time). Before
 appending, the new entry is compared against the most recent prior entry for
@@ -57,6 +57,22 @@ class LedgerEntry:
     covered: int = 0
     total_routes: int = 0
     ratchet_mode: str = "report"
+    # Apex-only provenance. Both are part of the baseline key (see
+    # _latest_baseline) because rows that differ in either are not comparable:
+    #
+    #   journey  — different journeys have disjoint step names, so a
+    #              "passed before, failing now" diff across two of them is
+    #              noise, not a regression.
+    #   assessor — "recorded" replays canned visual verdicts, so such a row
+    #              carries no visual evidence at all; scoring it against a
+    #              "handshake" row (live assessor) compares different things.
+    #              Recorded on the row so the committed trend cannot present
+    #              the two as equivalent.
+    #
+    # None on harness rows (and on apex rows written before this field
+    # existed, whose assessor is genuinely unknown).
+    journey: Optional[str] = None
+    assessor: Optional[str] = None
 
 
 @dataclass
@@ -146,7 +162,12 @@ def _apex_step_bucket(step: dict) -> str:
 
 
 def entry_from_apex_report(
-    report: dict, ts: float, os_label: str, sha: Optional[str] = None
+    report: dict,
+    ts: float,
+    os_label: str,
+    sha: Optional[str] = None,
+    assessor: Optional[str] = None,
+    coverage: Optional[dict] = None,
 ) -> LedgerEntry:
     """Distil a visual-apex ``RunReport.as_dict()`` into a compact ledger entry.
 
@@ -154,8 +175,15 @@ def entry_from_apex_report(
     harness one, so this is a sibling of :func:`entry_from_report` rather than a
     branch inside it. Steps map onto the ledger's operation fields, so the
     existing op-regression check ("a step that passed last time is failing
-    now") applies unchanged. Coverage fields stay 0 — the apex measures no
-    route coverage, and 0.0 -> 0.0 can never trip the coverage-drop check.
+    now") applies unchanged.
+
+    ``coverage`` carries the affordance numbers when an affordance census was
+    available (``{"coverage_pct", "covered", "total"}`` — see
+    :mod:`visual.affordance_coverage`). Without one the fields stay 0 of 0,
+    which :func:`detect_regressions` reads as "not measured" rather than as a
+    collapse to zero. The apex measures no *route* coverage either way; the
+    columns are reused rather than duplicated because the ratchet's question
+    ("did this run reach less than last time") is the same question.
     """
     steps = report.get("steps", [])
     journey = report.get("journey", "?")
@@ -180,10 +208,12 @@ def entry_from_apex_report(
         ops_passed=sum(1 for st in steps if not _apex_step_failed(st)),
         failed_ops=failed,
         per_domain_pass=per_bucket,
-        coverage_pct=0.0,
-        covered=0,
-        total_routes=0,
-        ratchet_mode=APEX_RATCHET_MODE,
+        coverage_pct=float((coverage or {}).get("coverage_pct", 0.0)),
+        covered=int((coverage or {}).get("covered", 0)),
+        total_routes=int((coverage or {}).get("total", 0)),
+        ratchet_mode="report" if coverage else APEX_RATCHET_MODE,
+        journey=journey,
+        assessor=assessor,
     )
 
 
@@ -205,14 +235,30 @@ def load_history(history_path: str) -> List[dict]:
 
 
 def _latest_baseline(
-    history: List[dict], target_kind: str, os_label: str
+    history: List[dict],
+    target_kind: str,
+    os_label: str,
+    journey: Optional[str] = None,
+    assessor: Optional[str] = None,
 ) -> Optional[dict]:
-    """Most recent prior entry for the same target+os (by list order, which is
-    append order = chronological)."""
+    """Most recent prior entry for the same target+os+journey+assessor (by list
+    order, which is append order = chronological).
+
+    ``journey`` and ``assessor`` are None on harness rows, where they match the
+    None stored on every other harness row and so change nothing. On apex rows
+    they narrow the line to rows that are actually comparable — see the field
+    docs on :class:`LedgerEntry`. Legacy apex rows predate both fields, so they
+    read back as None and form their own line rather than silently becoming the
+    baseline for a run whose provenance is known; the first row of each new
+    line establishes it, as with any first run.
+    """
     match = [
         e
         for e in history
-        if e.get("target_kind") == target_kind and e.get("os") == os_label
+        if e.get("target_kind") == target_kind
+        and e.get("os") == os_label
+        and e.get("journey") == journey
+        and e.get("assessor") == assessor
     ]
     return match[-1] if match else None
 
@@ -220,7 +266,9 @@ def _latest_baseline(
 def detect_regressions(entry: LedgerEntry, history: List[dict]) -> List[Regression]:
     """Compare a fresh entry against the latest same-target baseline. A missing
     baseline yields no regressions (first run establishes the line)."""
-    base = _latest_baseline(history, entry.target_kind, entry.os)
+    base = _latest_baseline(
+        history, entry.target_kind, entry.os, entry.journey, entry.assessor
+    )
     if base is None:
         return []
     regs: List[Regression] = []
@@ -240,8 +288,16 @@ def detect_regressions(entry: LedgerEntry, history: List[dict]) -> List[Regressi
         )
 
     # (b) coverage dropped (a route lost its owning operation)
+    #
+    # Only when both rows actually measured coverage. An apex run taken without
+    # a census records 0 of 0 — that is "not measured", not "covers nothing",
+    # and comparing it against a row that did measure reports a collapse that
+    # never happened. A zero denominator is the honest marker of an unmeasured
+    # run, so it is the thing to test.
     base_cov = float(base.get("coverage_pct", 0.0))
-    if entry.coverage_pct + 1e-9 < base_cov:
+    measured_now = entry.total_routes > 0
+    measured_before = int(base.get("total_routes", 0)) > 0
+    if measured_now and measured_before and entry.coverage_pct + 1e-9 < base_cov:
         regs.append(
             Regression(
                 kind="coverage-drop",
@@ -286,15 +342,21 @@ def record_apex(
     os_label: str,
     history_path: Optional[str] = None,
     sha: Optional[str] = None,
+    assessor: Optional[str] = None,
+    coverage: Optional[dict] = None,
 ) -> tuple[LedgerEntry, List[Regression]]:
     """:func:`record` for a visual-apex run — same ledger, same file, same
     detect-then-append ordering; only the distillation differs.
 
     ``os_label`` names the OS *under verification* (the VM the GUI runs on),
-    not the host that orchestrated the run.
+    not the host that orchestrated the run. ``assessor`` names which visual
+    oracle produced the verdicts; pass it so the row cannot be mistaken for
+    one gathered by a different oracle.
     """
     path = history_path or os.path.join(_repo_root(), DEFAULT_HISTORY_REL)
-    entry = entry_from_apex_report(report, ts=ts, os_label=os_label, sha=sha)
+    entry = entry_from_apex_report(
+        report, ts=ts, os_label=os_label, sha=sha, assessor=assessor, coverage=coverage
+    )
     history = load_history(path)
     regressions = detect_regressions(entry, history)
 

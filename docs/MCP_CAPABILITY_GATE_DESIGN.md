@@ -186,7 +186,7 @@ Once the chokepoint enforces uniformly, these collapse:
 - **Kernel-native tools** (`mgp.*`, `gui.*`): keep the dedicated
   `server_id="kernel"` RBAC, evaluated on the kernel-native early-return path
   **before** the central gate; do not route through `resolve_tool_access` server
-  grants. **Decision (the maintainer 2026-07-01): the kernel gate special-cases the default
+  grants. **Decision 2026-07-01: the kernel gate special-cases the default
   to Allow (Deny-only RBAC).** This fixes a **confirmed live defect** — the live
   `kernel` row is `opt-in`, so `resolve_tool_access(...,"kernel",...)` currently
   returns Deny for every agent without an explicit kernel grant; today only
@@ -199,7 +199,7 @@ Once the chokepoint enforces uniformly, these collapse:
   (`mcp.rs:1480`), **DeleteAgentData** (`agents.rs:339`): `Caller::System`.
 - **Background memory ops** (`system.rs:703/1113/1294/1506/3550+`):
   `Caller::Agent(agent_id)`.
-- **Default-proceed (AI, 2026-07-01, 事後 override 可)**: media preprocessing
+- **Default-proceed (AI, 2026-07-01, reversible by a later override)**: media preprocessing
   (`AnalyzeImage` `system.rs:3092`, `Transcribe` `system.rs:3202`) → `System`
   (kernel preprocessing, not agent-initiated); episode-archival summarizer
   (`system.rs:3863`) → `Agent(message-agent)`.
@@ -213,7 +213,7 @@ actually deny, and an agent that was *never* granted an engine still runs it
 (the LM Studio repro). This is a **policy default**, separate from the
 enforcement unification.
 
-**Decision (the maintainer, 2026-06-30): flip every server back to `opt-in`
+**Decision 2026-06-30: flip every server back to `opt-in`
 (deny-by-default) globally.** Rationale — the simplest, most predictable mental
 model: `grant ⇒ allow`, `no grant ⇒ deny`, `revoke = delete ⇒ deny` falls out
 for free. This makes both the zero-grant case (LM Studio) and the
@@ -278,13 +278,13 @@ mandatory; `granted_at` is `NOT NULL` with no default and must be supplied.
    The `NOT EXISTS` also matches `permission='deny'` rows, so existing explicit
    DENYs (e.g. `cpersona_bench`) are preserved.
 
-**Decisions (the maintainer, 2026-07-01) — strict enforcement, consistent with global opt-in:**
+**Decisions 2026-07-01 — strict enforcement, consistent with global opt-in:**
 
 - **Engine backfill grants only `default_engine_id`** (not routing /
   `escalate_to` / `fallback` / `engine_override` — 0 live rows; reached engines
   surface the "engine not granted" error below). It deliberately grants only what
   an agent demonstrably owns; it does **not** re-grant every active server.
-- **Repro agent `agent.テスト用` is EXCLUDED** from the backfill (the `a.id !=`
+- **Repro agent `agent.テスト用` ("for testing") is EXCLUDED** from the backfill (the `a.id !=`
   guard above), so it is genuinely denied after the flip — this validates the
   reported "grant-0 agent still responds" bug on the real agent. (For all other
   agents the bug is fixed for future never-granted agents + revoke semantics.)

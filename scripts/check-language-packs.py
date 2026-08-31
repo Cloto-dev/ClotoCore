@@ -12,7 +12,7 @@ GUI in that locale.
 It did surface, exactly that way: the 2026-07-27 opverify apex run found the
 Danger Zone — the most destructive screen in the app — rendering wholly in
 English for a Japanese user, because `settings.health.danger.*` had never been
-added to the ja pack (103 of 652 keys missing, an earlier decision). This check is the
+added to the ja pack (103 of 652 keys missing). This check is the
 part that does not depend on someone looking at a screenshot.
 
 Blocking (exit 1):
