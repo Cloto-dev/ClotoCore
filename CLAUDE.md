@@ -19,10 +19,13 @@ If a proposed change conflicts with any of these, flag it before proceeding.
 - Dashboard lint: `cd dashboard && npx biome check src/`
 - Dashboard format: `cd dashboard && npx biome format --write src/`
 - Dashboard build: `cd dashboard && npm run build`
+- Install engine sidecar: `bash scripts/build-installer.sh` (needs Go; builds `tools/cloto-installer` into `dashboard/src-tauri/binaries/`. **Run it before any `app` build** — `tauri dev`, `tauri build`, `cargo build -p app` — because `bundle.externalBin` makes tauri-build fail without it. For a bare kernel (`cargo run --bin clotocore`) use `--out target/debug/cloto-installer`, or point `CLOTO_INSTALLER` at a build. `cargo test` builds its own copy and needs `go` on `PATH`)
 - Dev launch: `cd dashboard && npx tauri dev` (starts Vite + Tauri together. Do NOT run `app.exe` directly — the debug build's devUrl points to the Vite dev server)
 - Release build: `cd dashboard && npx tauri build` (`cargo build --release -p app` is prohibited)
 - Bug verify: `bash scripts/verify-issues.sh`
 - Test ratchet: `bash scripts/check-test-count.sh`
+- Docs facts: `python3 scripts/check-docs-facts.py` (blocking CI gate — test counts, current version, release names and documented env defaults must match the code. A version number is only checked where the document marks it as a claim: `<!-- docs-facts: latest-prerelease -->`)
+- Docs site: `mkdocs build --strict && python3 scripts/check-doc-anchors.py site` (blocking CI gate — what is published is decided by `mkdocs.yml`'s nav and `exclude_docs`; see `docs/DOCUMENTATION_POLICY.md`)
 - Language packs: `python3 scripts/check-language-packs.py` (blocking CI gate — every key in `dashboard/src/locales/en/` must exist in each pack under `dashboard/src-tauri/resources/`. Adding UI strings means adding the ja values in the same PR; `fallbackLng` hides the gap at runtime and the component tests only see English)
 
 **MUST (pre-push lint for Rust changes):** before pushing any change under `crates/`, run **both** `cargo fmt --all -- --check` **and** clippy locally — the CI **Lint** job gates on both and a formatting/clippy diff fails the PR. Running the dashboard `biome` check alone does **not** cover the Rust Lint job. `scripts/lint-rust.sh` reads the clippy invocation out of the CI Lint job and runs it, so the local gate reproduces CI byte-for-byte and cannot disagree with it on which lints are enabled — do not hand-copy the `-A clippy::*` allowlist or `--all-targets` anywhere. It is expected to be **green**; a red local gate means a real regression, not a known-bad baseline. `.github/workflows/ci.yml` is the authoritative gate. Two things keep it that way and should be kept: the CI clippy step passes `--all-targets` (so lint rot in tests, benches and examples fails a PR rather than accumulating unseen), and the **lint-rust.sh self-check** step asserts the derivation still works — reshaping the clippy step so the script cannot parse it will fail CI, not just break the tool quietly on someone's machine.
@@ -167,9 +170,9 @@ The dashboard has two distinct surface patterns. Pick the right one for the role
 
 ### VM verify policy (every release, adopted 2026-07-13)
 
-`scripts/proxmox-windows-verify.sh` (Proxmox VM 104, ~6 min automated NSIS
-upgrade verify) is gated on the **release event**, not on NSIS-touching diffs —
-the diff detector (`nsis-touching-detect.yml`) remains as an extra per-PR
+`scripts/proxmox-windows-verify.sh` (Proxmox Windows guest, ~6 min automated
+NSIS upgrade verify) is gated on the **release event**, not on NSIS-touching
+diffs — the diff detector (`nsis-touching-detect.yml`) remains as an extra per-PR
 signal, but a quiet detector never waives this policy:
 
 - **Stable release (`X.Y.Z`)**: VM verify is **MUST** before publish, no
@@ -191,7 +194,8 @@ elsewhere; event-based triggers cannot be missed.
 ### opverify quality gate (stable cut, adopted 2026-07-14)
 
 `scripts/opverify/` drives a broad catalog of **real operations to success**
-against a live headless `clotocore` kernel over its HTTP admin API (an earlier decision) — the operation-coverage complement to the boot-only `--smoke` and the
+against a live headless `clotocore` kernel over its HTTP admin API — the
+operation-coverage complement to the boot-only `--smoke` and the
 installer-diff VM verify above. See `scripts/opverify/README.md`.
 
 - **Before a stable cut (`X.Y.Z`)**: opverify is **MUST**. At minimum the

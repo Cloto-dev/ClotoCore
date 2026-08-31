@@ -191,7 +191,7 @@ are surfaced to operators via the dashboard or programmatic API.
 #### `tools_for_capability` (capability declaration, vendor extension)
 
 ClotoCore vendor extension on `MgpServerCapabilities`, added in ClotoCore
-`0.6.8-alpha.2` (Pattern-C, an earlier decision). Lets MCP servers explicitly declare
+`0.6.8-alpha.2` (Pattern-C). Lets MCP servers explicitly declare
 which tools they expose under each ClotoCore `CapabilityType`, overriding
 the kernel's heuristic `classify_tool` fallback.
 

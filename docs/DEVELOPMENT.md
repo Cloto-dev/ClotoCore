@@ -150,7 +150,7 @@ Always review this list before making code changes and adhere to the constraints
 | Feature | GitHub Pages landing page (OS auto-detection) | Done |
 | Infra | GitHub Actions release workflow (5 platforms + installer) | Done |
 
-**Test Count:** 248 tests (Rust 234 + Dashboard 14)
+**Test Count:** 731 tests (Rust 666 + Dashboard 65)
 **Audit Score:** 90+/100
 
 ### Remaining Items (Next Phase)
@@ -169,7 +169,7 @@ ClotoCore uses a phase-based versioning scheme with three stages.
 | Phase | Display | Cargo (Semver) | Git Tag | Status |
 |-------|---------|---------------|---------|--------|
 | Alpha | A1, A2, ... | `0.0.1`, `0.0.2`, ... | `vA1` | Completed (A1–A7) |
-| Beta | βX.Y | `0.X.Y` | `v0.X.Y` | **Current (0.6.3-alpha.11)** |
+| Beta | βX.Y | `0.X.Y` | `v0.X.Y` | **Current (0.6.8-beta.5)** |
 | Stable | 1.X.Y | `1.X.Y` | `v1.X.Y` | Future |
 
 - **Alpha (A)**: Rapid prototyping. Breaking changes expected on every release.
@@ -192,6 +192,23 @@ Plugins maintain their own version numbers because they can evolve independently
 2. Commit: `chore: bump version to 0.6.4` (or appropriate version)
 3. Create the release via `gh release create` (this auto-creates the git tag — do NOT create tags manually with `git tag`)
 4. The GitHub Actions release workflow builds and publishes automatically
+
+---
+
+## 3.1 CI only runs on pull requests that target `master`
+
+`ci.yml` triggers on `pull_request: branches: [master]`. A pull request whose
+base is another branch — a stacked one, for instance — gets the NSIS diff
+detector and nothing else. The checks tab looks calm because almost nothing
+ran, which is the failure mode worth knowing: **an absent check and a passing
+check are not distinguishable at a glance.** Read what actually ran before
+treating a stacked pull request as verified.
+
+Changing the base afterwards does not start the workflows either — a base edit
+is not one of the activity types the `pull_request` event fires on by default.
+Closing and reopening the pull request does, because `reopened` is. The other
+way is to rebase onto the current `master` and push, which both starts CI and
+reduces the diff to the change under review.
 
 ---
 

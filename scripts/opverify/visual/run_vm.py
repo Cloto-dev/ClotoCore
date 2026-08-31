@@ -52,7 +52,7 @@ from . import os_oracle as OS
 from .assessor_cache import CachingAssessor
 from .cdp import CdpTargeter, CdpTunnel, captured_size, space_mismatch
 from .driver import VisualDriver
-from .interfaces import Frame, click, move, press_key, scroll, type_text
+from .interfaces import Frame, move, press_key, scroll, type_text
 from .live_assessor import AgentHandshakeAssessor
 
 
@@ -126,6 +126,39 @@ def _fetch_plan(fetch_json, tier: int) -> dict:
     return body
 
 
+# Locale-independent anchors: *what* a step acts on, in the words the app puts
+# on screen. The VM runs the Japanese pack, the locale files are authored in
+# English, and buttons render through `text-transform: uppercase`, so each
+# anchor carries both spellings and matching is case-insensitive.
+#
+# They live at module scope so one control has one name for the whole suite.
+# The affordance ratchet derives its numerator from these declarations
+# (`affordance_coverage.declared_targets`), so a second spelling of the same
+# button in a second journey would be a second name for one affordance.
+SETTINGS = ("設定", "settings")
+HEALTH = ("ヘルス", "health")
+REVIEW = ("削除される対象を確認", "review what would be removed")
+# Scope checkboxes render their name followed by the description of what the
+# tier removes, so these match on the tier name alone (substring).
+USER_DATA = ("ユーザーデータ", "user data")
+EVERYTHING = ("その他すべて", "everything else")
+KEY_FIELD = ("管理 API キー", "admin api key")
+# The card's button and the confirm dialog's button are on screen together once
+# the dialog opens, and one name contains the other. The card's is matched by
+# the part the dialog's lacks; the dialog's is matched exactly.
+EXECUTE = ("をアンインストール", "uninstall clotocore")
+CONFIRM = ("アンインストール", "uninstall")
+# The chat composer along the bottom of the chat view. Its accessible name is
+# the placeholder, which is what the census records for it.
+CHAT_INPUT = ("コマンドを入力", "type a command")
+# Onboarding's first advance. Note that no census covers the first-run surface
+# — a census starts from the state the app is in, and the app has to be
+# installed and unconfigured to show this — so this declaration is expected to
+# report as unmatched until a first-run census exists. It is declared anyway:
+# resolving by name is what keeps the step off a coordinate that drifts.
+GET_STARTED = ("はじめる", "get started")
+
+
 def _liveness_journey(health_probe, make_api_probe, fetch_json):
     """Single no-action step: the app is rendered AND the kernel is healthy."""
     return J.Journey(
@@ -157,7 +190,7 @@ def _onboarding_journey(health_probe, make_api_probe, fetch_json):
             ),
             J.Step(
                 name="advance-to-language",
-                action=click(639, 443),  # "はじめる" / Get Started
+                target=J.TargetSpec(contains=GET_STARTED),
                 trigger=J.CHECKPOINT,
                 settle=False,
                 vision_question="did onboarding advance to the language-select page?",
@@ -184,13 +217,6 @@ def _agents_journey(health_probe, make_api_probe, fetch_json):
             )
         ],
     )
-
-
-# Chat view geometry on the 1280x800 VM screen (measured 2026-08-03 against
-# 0.6.8-beta.3). The composer runs along the bottom; clicking mid-width focuses
-# it without hitting the attach / mic / model-picker controls on the left or the
-# send button on the right.
-_CHAT_INPUT_XY = (800, 714)
 
 
 class _AwaitingProbe:
@@ -269,7 +295,7 @@ def _chat_journey(health_probe, make_api_probe, fetch_json):
             # nothing (image tokens are the dominant cost).
             J.Step(
                 name="focus-chat-input",
-                action=click(*_CHAT_INPUT_XY),
+                target=J.TargetSpec(contains=CHAT_INPUT),
                 trigger=J.CHECKPOINT,
                 settle=False,
             ),
@@ -352,11 +378,13 @@ def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
 
     Nothing here is destructive: the plan endpoint is read-only, and the journey
     stops short of the admin-key field, so the uninstall button stays disabled.
-    Executing a purge is the VM-tier kernel scenario (an earlier decision), not this.
+    Executing a purge is the VM-tier kernel scenario, not this.
 
-    Coordinates are for the 1280×800 VM at the app's default zoom. A drifted
-    coordinate does not silently pass: the step's visual question fails, because
-    the assessor is asked what the frame actually shows.
+    Every click resolves its target by visible text at the moment it acts. The
+    remaining coordinates are the pointer parks and wheel deltas — a wheel acts
+    where the cursor is, so those steps are about *where the pointer sits*, not
+    about which control is being pressed, and they are for the 1280×800 VM at
+    the app's default zoom.
 
     The tier-1 / tier-2 questions are derived at construction time from the
     plan endpoint itself (:func:`derive_danger_zone_questions`) — the expected
@@ -377,14 +405,16 @@ def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
             ),
             J.Step(
                 name="open-settings",
-                action=click(66, 592),  # left rail: 設定 / Settings
+                # The left rail and the settings nav both carry this name once
+                # the modal is open; nth=0 is the rail, which is what opens it.
+                target=J.TargetSpec(contains=SETTINGS, nth=0),
                 trigger=J.CHECKPOINT,
                 vision_question="is the SETTINGS modal open?",
                 kernel_probe=health_probe,
             ),
             J.Step(
                 name="open-health",
-                action=click(259, 339),  # settings nav: ヘルス / Health
+                target=J.TargetSpec(contains=HEALTH),
                 trigger=J.CHECKPOINT,
                 vision_question="does the settings pane show a system-health check list?",
                 kernel_probe=health_probe,
@@ -407,7 +437,7 @@ def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
             ),
             J.Step(
                 name="open-the-plan",
-                action=click(574, 524),  # "review what would be removed"
+                target=J.TargetSpec(contains=REVIEW),
                 trigger=J.CHECKPOINT,
                 vision_question="are cumulative scope checkboxes shown, with the narrowest (application only) checked and disabled?",
                 kernel_probe=make_api_probe(
@@ -442,7 +472,11 @@ def _danger_zone_journey(health_probe, make_api_probe, fetch_json):
             ),
             J.Step(
                 name="widen-to-user-data",
-                action=click(455, 453),  # "+ ユーザーデータ" checkbox (measured 2026-07-31)
+                # The blind click this replaces landed on "+ everything else"
+                # on 2026-07-31 because the column had scrolled, and cumulative
+                # tiers silently over-selected. Resolving by name is what makes
+                # that class of drift impossible rather than merely visible.
+                target=J.TargetSpec(contains=USER_DATA),
                 trigger=J.CHECKPOINT,
                 vision_question="is the '+ user data' scope checkbox now checked, while the two wider scopes (large assets / everything else) remain unchecked?",
                 kernel_probe=make_api_probe(
@@ -495,27 +529,17 @@ def _danger_zone_purge_journey(health_probe, make_api_probe, fetch_json):
     if entries == 0:
         raise RuntimeError(
             "the tier-4 plan is empty — this journey needs an installed app with "
-            "data to remove. Roll the VM to a fixture that has some (an earlier decision); "
+            "data to remove. Roll the VM to a fixture that has some; "
             "passing on an empty plan would verify nothing."
         )
     admin_key = os.environ.get("OPV_API_KEY", "")
     if not admin_key:
         raise RuntimeError("OPV_API_KEY is required: gate 3 asks for the admin key")
 
-    # Locale-independent anchors: the VM runs the Japanese pack, the locale
-    # files are authored in English, and buttons render through
-    # `text-transform: uppercase`. Matching is case-insensitive.
-    SETTINGS = ("設定", "settings")
-    HEALTH = ("ヘルス", "health")
-    REVIEW = ("削除される対象を確認", "review what would be removed")
-    EVERYTHING = ("その他すべて", "everything else")
-    KEY_FIELD = ("管理 API キー", "admin api key")
-    # The card's button and the confirm dialog's button are on screen together
-    # once the dialog opens, and one name contains the other. The card's is
-    # matched by the part the dialog's lacks; the dialog's is matched exactly.
-    EXECUTE = ("をアンインストール", "uninstall clotocore")
-    CONFIRM = ("アンインストール", "uninstall")
-
+    # Anchors are module-level (see the block above `_liveness_journey`): the
+    # dry-run journey presses the same controls, and the ratchet counts a
+    # declaration by name, so a second spelling here would be a second name for
+    # one affordance.
     return J.Journey(
         name="danger-zone-purge",
         steps=[
@@ -789,7 +813,7 @@ DESTRUCTIVE_JOURNEYS = {"danger-zone-purge"}
 
 # The OS label recorded on an apex ledger row. It names the machine *under
 # verification*, not the orchestrating host: the apex drives the real installed
-# GUI on the Windows VM (VM 104 — see VM_EXECUTOR_RUNBOOK.md), while the
+# GUI on the Windows guest (see VM_EXECUTOR_RUNBOOK.md), while the
 # orchestrator typically runs on macOS. Hardcoded because the apex has exactly
 # one VM target today; a second one would make this a CLI argument.
 APEX_OS_LABEL = "windows-vm"

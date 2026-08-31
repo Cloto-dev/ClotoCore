@@ -7,7 +7,7 @@
 An open-source AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-234%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-666%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
@@ -125,7 +125,7 @@ All plugin functionality is delivered via **MCP (Model Context Protocol)** serve
 | `mind.cerebras` | Reasoning | Ultra-high-speed reasoning via Cerebras API |
 | `mind.claude` | Reasoning | Anthropic Claude API (native Messages API) |
 | `mind.ollama` | Reasoning | Local model inference via Ollama |
-| `cpersona` | Memory | [CPersona](https://github.com/Cloto-dev/CPersona) — persistent memory with RRF hybrid search (vector + FTS5 + keyword), confidence scoring, episodic/profile memory, 24 tools (MIT) |
+| `cpersona` | Memory | [CPersona](https://github.com/Cloto-dev/CPersona) — persistent memory with RRF hybrid search (vector + FTS5 + keyword), confidence scoring, episodic/profile memory (MIT) |
 | `tool.terminal` | Tool | Sandboxed shell command execution |
 | `tool.agent_utils` | Tool | Deterministic utilities (time, math, UUID, hash, etc.) |
 | `tool.cron` | Tool | Stateless CRON job management via kernel REST API |
@@ -183,11 +183,10 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CONSENSUS_ENGINES` | (none) | Filter over the agent's engines for consensus mode (empty = all; never adds engines) |
 | `DEFAULT_AGENT_ID` | `agent.cloto_default` | Default agent for `/api/chat` |
 | `EMBEDDING_API_KEY` | (none) | Embedding API key (OpenAI-compatible) |
-| `CLOTO_SKIP_ICON_EMBED` | (none) | Set to `1` to skip icon embedding during dev builds |
 | `RUST_LOG` | `info` | Log level filter |
 | `MAX_EVENT_DEPTH` | `10` | Maximum event cascading depth |
 | `PLUGIN_EVENT_TIMEOUT_SECS` | `120` | Plugin event handler timeout (1-300) |
-| `CORS_ORIGINS` | `localhost:5173` | Allowed CORS origins (comma-separated) |
+| `CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Allowed CORS origins (comma-separated) |
 | `ALLOWED_HOSTS` | (none) | Network whitelist for plugin access |
 | `BIND_ADDRESS` | `127.0.0.1` | Server bind address (`0.0.0.0` for network access) |
 | `MEMORY_CONTEXT_LIMIT` | `10` | Maximum memory entries returned per recall |
@@ -361,7 +360,7 @@ are opt-in only and carry no guarantees.
 - [MGP Communication](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_COMMUNICATION.md) — MGP communication protocol
 - [MGP Discovery](https://github.com/Cloto-dev/mgp-spec/blob/main/docs/MGP_DISCOVERY.md) — MGP service discovery
 - [MCP Architecture](docs/MCP_PLUGIN_ARCHITECTURE.md) — MCP server communication protocol
-- [CPersona Memory](docs/CPERSONA_MEMORY_DESIGN.md) — Memory system design
+- [CPersona Memory](https://github.com/Cloto-dev/cpersona/blob/master/docs/architecture.md) — Memory system design
 - [Database Schema](docs/SCHEMA.md) — SQLite schema reference
 - [Changelog](docs/CHANGELOG.md) — Development history
 

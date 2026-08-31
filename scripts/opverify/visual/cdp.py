@@ -20,18 +20,18 @@ Two deliberate limits:
   role, visible text, rect and enabled-ness — never ``data-testid`` or route
   names. An exploring agent that could read internal identifiers would know
   things a user cannot, and "the user cannot find this" is the defect class the
-  apex exists to catch (an earlier decision).
+  apex exists to catch.
 * **Dependency-free.** A minimal RFC6455 client rather than a package, so the
   harness keeps installing with nothing but the stdlib on the orchestrator.
 
 The screen conversion is ``(screenX + css_x) * devicePixelRatio`` -- see
 :func:`to_screen`. It was ``screenX + css_x * dpr`` until 2026-08-09, which is
 the same arithmetic whenever ``dpr`` is 1 and wrong by a quarter of the window
-offset at 125 % (an earlier decision): measured on VM 104, a click aimed at the
-sidebar's "agents" entry landed on "cron", and one aimed at the minimise button
-ran off the edge of the screen onto the header. Nothing failed loudly -- the run
-simply acted on the wrong control and reported what followed as the app's
-behaviour.
+offset at 125 %: measured on the Windows guest at that scale, a click aimed at
+the sidebar's "agents" entry landed on "cron", and one aimed at the minimise
+button ran off the edge of the screen onto the header. Nothing failed loudly --
+the run simply acted on the wrong control and reported what followed as the
+app's behaviour.
 
 Three coordinate spaces meet here, and the conversion is only correct while two
 of them are pinned:
@@ -61,7 +61,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import List, Optional
 
-from .backends_vm import _cfg
+from .backends_vm import _cfg, vm_host
 
 # Port the app is told to open on the guest, and the local port the tunnel maps
 # it to. Both overridable so two runs can coexist on one orchestrator.
@@ -91,7 +91,7 @@ class CdpTunnel:
     def __init__(self):
         self.local = int(_cfg("OPV_CDP_LOCAL_PORT", LOCAL_DEBUG_PORT))
         self.guest = _cfg("OPV_CDP_GUEST_PORT", GUEST_DEBUG_PORT)
-        self.vm = f"{_cfg('OPV_VM_USER', 'PC')}@{_cfg('OPV_VM_IP', '192.0.2.252')}"
+        self.vm = vm_host()
         self._ctl = f"/tmp/opv-cdp-{self.local}-%r@%h:%p"
 
     def open(self, timeout: float = 20.0) -> "CdpTunnel":
@@ -428,6 +428,31 @@ class CdpTargeter:
                 )
             )
         return self.last_affordances
+
+    def insert_text(self, text: str) -> None:
+        """Put `text` into the focused element without a keyboard layout.
+
+        Synthesised keystrokes are interpreted by whatever layout the guest is
+        configured with, and the guest runs a Japanese one. Measured there on
+        2026-08-31, `a:b;c@d[e]f^g` came back as ``a*b;c`d[e]f~g``: three
+        substitutions, all of them characters whose shifted position differs
+        between layouts. Nothing in the harness noticed, because nothing read
+        back what it had typed — the chat journey's model answered the mangled
+        prompt correctly and the kernel oracle passed.
+
+        The characters that break are the ones a journey most needs to get
+        right: ``:`` and ``@`` are in every URL, and an admin key is typed
+        verbatim into a field that compares it byte for byte.
+
+        `Input.insertText` is delivered as text, not as key events, so the
+        layout is not consulted at all.
+        """
+        target = self.tunnel.page_target()
+        ws = _WebSocket(target["webSocketDebuggerUrl"], self.tunnel.local)
+        try:
+            ws.call("Input.insertText", {"text": text})
+        finally:
+            ws.close()
 
     def find(
         self,

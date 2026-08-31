@@ -25,7 +25,7 @@ pub struct ProviderQuirks {
     pub switch_model_tool: Option<String>,
     /// Example model id for the dashboard's model-input placeholder (e.g. LM
     /// Studio's `org/name` vs Ollama's `name:tag`). Ingested from the connector
-    /// catalog's provider block (an earlier decision); superseded the frontend's hardcoded
+    /// catalog's provider block; superseded the frontend's hardcoded
     /// per-provider map.
     #[serde(default)]
     pub model_placeholder: Option<String>,
@@ -106,7 +106,7 @@ pub async fn get_llm_provider(pool: &SqlitePool, id: &str) -> anyhow::Result<Llm
 }
 
 /// Upsert an LLM provider's **metadata** from a connector catalog entry
-/// (an earlier decision: registry.json provider block → ingest at marketplace install).
+/// (registry.json provider block → ingest at marketplace install).
 ///
 /// Writes only provider-authored metadata columns (display_name, api_url,
 /// auth_type, timeout_secs, quirks). It never overwrites user-owned columns

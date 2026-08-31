@@ -551,8 +551,8 @@ impl McpClientManager {
             .servers
             .into_iter()
             .map(|mut server_config| {
-                // Config files predating the prefix retirement (an earlier decision)
-                // spell ids as `tool.terminal`, `mind.local`, … . Normalize at
+                // Config files predating the prefix retirement spell ids as
+                // `tool.terminal`, `mind.local`, … . Normalize at
                 // this ingestion boundary so a stale mcp.toml(.migrated) —
                 // re-read whenever `config-loaded` placeholders need repair —
                 // cannot re-insert prefixed rows after the DB migration
@@ -716,10 +716,9 @@ impl McpClientManager {
 
             // Regenerate script file if needed
             if let Some(ref content) = record.script_content {
-                let script_path = std::path::Path::new("data/mcp_scripts")
-                    .join(format!("mcp_{}.py", record.name));
+                let script_path = super::mcp_types::mcp_script_path(&record.name);
                 if !script_path.exists() {
-                    let _ = std::fs::create_dir_all("data/mcp_scripts");
+                    let _ = std::fs::create_dir_all(super::mcp_types::MCP_SCRIPTS_DIR);
                     if let Err(e) = std::fs::write(&script_path, content) {
                         warn!(
                             error = %e,
@@ -979,7 +978,7 @@ impl McpClientManager {
                         .parent()
                         .unwrap_or(std::path::Path::new("data")),
                 )?;
-                // an earlier decision: a `tree-sha256:` seal covers the whole installed
+                // A `tree-sha256:` seal covers the whole installed
                 // tree, so it is verified against that tree instead of the
                 // entry point. Servers sealed before this existed still carry
                 // an entry-point seal and take the unchanged path below — the
@@ -1529,7 +1528,7 @@ impl McpClientManager {
         // Skip reasoning engines — their tools (think, think_with_tools) are
         // engine-internal and called directly via call_server_tool(engine_id, ...),
         // not through tool_index. Detected by tool surface, not id prefix, so
-        // bare-id engines (local, ollama, deepseek, …) are all recognised (an earlier decision).
+        // bare-id engines (local, ollama, deepseek, …) are all recognised.
         {
             let mut state = self.state.write().await;
             state.servers.insert(id.clone(), handle);
@@ -1738,7 +1737,7 @@ impl McpClientManager {
     /// Return IDs of connected reasoning engines (servers exposing the
     /// think / think_with_tools tool surface). Detected by tool surface, not id
     /// prefix, so bare-id engines (local, ollama, deepseek, …) are all included
-    /// (an earlier decision).
+    /// prefix.
     pub async fn list_connected_mind_servers(&self) -> Vec<String> {
         let state = self.state.read().await;
         state
@@ -1750,7 +1749,7 @@ impl McpClientManager {
     }
 
     /// Registered MCP-server status keyed by server id, for classifying whether
-    /// an LLM provider's backing engine actually exists (an earlier decision).
+    /// an LLM provider's backing engine actually exists.
     ///
     /// The join key for the provider → engine view is *registration presence*,
     /// not `is_reasoning_engine()`: a stopped engine keeps its handle (status
@@ -1833,7 +1832,7 @@ impl McpClientManager {
                 continue;
             }
             // Skip reasoning engines — think/think_with_tools are engine-internal,
-            // not agent-facing. Detected by tool surface, not id prefix (an earlier decision).
+            // not agent-facing. Detected by tool surface, not id prefix.
             if handle.is_reasoning_engine() {
                 continue;
             }
@@ -1919,7 +1918,7 @@ impl McpClientManager {
                 continue;
             }
             // Skip reasoning engines — think/think_with_tools are engine-internal,
-            // not agent-facing. Detected by tool surface, not id prefix (an earlier decision).
+            // not agent-facing. Detected by tool surface, not id prefix.
             if handle.is_reasoning_engine() {
                 continue;
             }
@@ -2323,7 +2322,7 @@ impl McpClientManager {
     /// the synthetic `"kernel"` server — the server's `default_policy` is never
     /// consulted (via [`crate::db::resolve_explicit_permission`]), so the §6
     /// global opt-in flip cannot turn kernel tools into deny-by-default. This is
-    /// the code-level "kernel default-Allow special-case" (the maintainer decision
+    /// the code-level "kernel default-Allow special-case" (decision
     /// 2026-07-01). [`Caller::System`] bypasses.
     async fn enforce_kernel_rbac(&self, caller: &Caller, tool_name: &str) -> Result<()> {
         let agent_id = match caller {
@@ -3236,7 +3235,7 @@ impl McpClientManager {
     /// Engines are identified by having a matching `llm_providers` row — an
     /// ordinary MCP server (cpersona, github-bridge, …) has none, so the DB
     /// lookup misses and the env is returned untouched. This replaces the
-    /// retired `mind.` prefix classifier (an earlier decision): engine ids are bare
+    /// retired `mind.` prefix classifier: engine ids are bare
     /// (`local`, `ollama`, `deepseek`, …) and equal their provider id.
     ///
     /// This exists because engine servers usually receive their model via the
@@ -3312,7 +3311,7 @@ impl McpClientManager {
 
     /// Look up the kernel-side validator name for a given tool.
     /// Returns `Some("sandbox")` if the tool has a sandbox validator configured, etc.
-    pub async fn get_tool_validator(&self, tool_name: &str) -> Option<String> {
+    pub fn get_tool_validator(&self, tool_name: &str) -> Option<String> {
         super::mcp_tool_validator::get_kernel_validator(tool_name).map(String::from)
     }
 
@@ -3561,7 +3560,7 @@ fn expand_path_vars(input: &str, paths: &HashMap<String, String>) -> String {
 /// canonical bare form (docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md §5).
 ///
 /// `mcp.toml` / `mcp.toml.migrated` files written before the prefix
-/// retirement (an earlier decision) spell ids as `tool.terminal`, `mind.local`,
+/// retirement spell ids as `tool.terminal`, `mind.local`,
 /// … . Those files are re-read whenever `config-loaded` placeholder rows need
 /// repair, so this one-shot normalization at the ingestion boundary is what
 /// keeps a stale file from re-inserting prefixed rows after the DB migration
@@ -3658,7 +3657,7 @@ pub(crate) fn detect_external_rejection(text: &str) -> Option<cloto_shared::Tool
 mod tests {
     use super::*;
 
-    // ── normalize_legacy_server_id (an earlier decision) ──
+    // ── normalize_legacy_server_id ──
 
     #[test]
     fn legacy_prefixed_config_ids_normalize_to_bare() {

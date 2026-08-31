@@ -158,7 +158,7 @@ async fn test_event_cascading_protection() {
         depth: 0,
     };
 
-    // 手動で dispatch を呼ぶ
+    // Dispatch manually.
     registry.dispatch_event(trigger, &tx_internal).await;
 
     // Count events in broadcast

@@ -123,8 +123,9 @@ class Surface:
         )
 
 
-# VM 104 runs the Japanese pack while the locale files are authored in English,
-# so every surface carries both spellings — the same reason journeys do.
+# The Windows verify guest runs the Japanese pack while the locale files are
+# authored in English, so every surface carries both spellings — the same reason
+# journeys do.
 SURFACES: List[Surface] = [
     Surface("main"),  # the walk starts wherever the app already is
     Surface("agents", TargetSpec(contains=("エージェント", "agents"))),
@@ -391,7 +392,7 @@ def main(argv=None) -> int:
     # Required, with no default. `main` is "wherever the app already is", so an
     # unlabelled census is a denominator nobody can compare against — which is
     # exactly how two of them ended up differing by 8 affordances for reasons
-    # that had nothing to do with the app (an earlier decision). Defaulting the label
+    # that had nothing to do with the app. Defaulting the label
     # would restore the silence: the operator would get one without choosing.
     p.add_argument(
         "--start-state",

@@ -5,6 +5,7 @@
 
 mod agents;
 pub mod capability_dispatcher;
+pub mod installer;
 pub mod llm_proxy;
 pub mod mcp;
 pub mod mcp_client;

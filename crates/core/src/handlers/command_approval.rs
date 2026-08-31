@@ -175,7 +175,7 @@ async fn collect_untrusted_commands(
     let mut untrusted_cmds: Vec<serde_json::Value> = Vec::new();
     for call in calls {
         let has_sandbox_validator = if let Some(mcp) = mcp_manager {
-            mcp.get_tool_validator(&call.name).await.as_deref() == Some("sandbox")
+            mcp.get_tool_validator(&call.name).as_deref() == Some("sandbox")
         } else {
             false
         };

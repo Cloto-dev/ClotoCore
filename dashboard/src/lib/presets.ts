@@ -4,7 +4,7 @@ import { Box, Layers, type LucideIcon, Shield, Zap } from 'lucide-react';
 import type { MarketplaceCatalogEntry, MarketplaceCollection, McpServerInfo } from '../types';
 import { isEngineServer } from './serverCategory';
 
-// Server ids are bare (an earlier decision — the category prefixes are retired;
+// Server ids are bare (the category prefixes are retired;
 // docs/CATEGORY_PREFIX_RETIREMENT_DESIGN.md).
 //
 // Every id below MUST exist in the live ClotoHub catalog

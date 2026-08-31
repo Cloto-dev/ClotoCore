@@ -36,19 +36,12 @@ python -m venv .venv
 cd -
 ```
 
-For faster development builds (skips icon embedding):
-
-```bash
-export CLOTO_SKIP_ICON_EMBED=1
-cargo build
-```
-
 ## Running Tests
 
 All tests must pass before submitting a pull request:
 
 ```bash
-# Rust (234 tests)
+# Rust (666 tests)
 cargo test --workspace --exclude app
 bash scripts/lint-rust.sh   # the CI Lint job's clippy, read out of ci.yml
 
