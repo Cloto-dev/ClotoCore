@@ -4,7 +4,7 @@
 
 ### Build Your Own AI Partner
 
-An open-source AI container platform written in Rust.
+An AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
 [![Tests](https://img.shields.io/badge/tests-666%20passing-brightgreen)]()

@@ -9,7 +9,7 @@ Show HN: ClotoCore – A Rust AI agent platform ($230 total dev cost, 50K LOC, s
 
 **B:**
 ```
-Show HN: ClotoCore – Open-source AI agent platform in Rust with GUI dashboard
+Show HN: ClotoCore – AI agent platform in Rust with GUI dashboard
 ```
 
 **C:**
@@ -24,8 +24,8 @@ Show HN: ClotoCore – Build AI agents with sandboxed MCP plugins, Rust kernel, 
 ```
 Hi HN,
 
-I've been building ClotoCore for the past 3 months — an open-source platform
-for constructing AI agents with pluggable capabilities, written in Rust.
+I've been building ClotoCore for the past 3 months — a platform for
+constructing AI agents with pluggable capabilities, written in Rust.
 
 AI agents that can execute code, access files, and make network requests are
 powerful — and dangerous when poorly contained. Recent incidents with popular

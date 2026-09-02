@@ -1,6 +1,6 @@
 # ClotoCore
 
-An open-source platform for building AI agents that run on your own machine.
+A platform for building AI agents that run on your own machine.
 
 ClotoCore is a Rust kernel plus a desktop dashboard. Everything an agent can
 actually *do* — reason, remember, see, speak, reach the network — arrives as a

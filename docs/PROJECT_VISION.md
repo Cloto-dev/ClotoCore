@@ -7,7 +7,7 @@
 
 ## 1. What is ClotoCore?
 
-ClotoCore is a Rust-based open-source platform that makes it possible to build and operate
+ClotoCore is a Rust-based platform that makes it possible to build and operate
 highly advanced AIs -- comparable to Neuro-Sama -- through a high-quality GUI,
 using the combination of **AI Containers** and **plugin sets**.
 
