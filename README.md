@@ -9,6 +9,7 @@ Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
 [![Tests](https://img.shields.io/badge/tests-666%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
+[![Sponsor](https://img.shields.io/badge/sponsor-Cloto--dev-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Cloto-dev)
 
 [Documentation](docs/ARCHITECTURE.md) · [Vision](docs/PROJECT_VISION.md)
 
@@ -369,6 +370,25 @@ are opt-in only and carry no guarantees.
 **Business Source License 1.1** — converts to **MIT** on 2028-02-14.
 
 You can freely use ClotoCore for plugin development, internal tools, consulting, education, and small-scale commercial projects. Large-scale commercial deployment (>$100k revenue, >1,000 users, >50 employees, or SaaS) requires prior approval. See [LICENSE](LICENSE) for the full terms.
+
+## Sponsorship
+
+ClotoCore is available under the terms in [LICENSE](LICENSE) whether or not
+anyone sponsors it, and sponsorship does not change those terms. It is not a
+commercial licence and it does not move the thresholds above which large-scale
+deployment needs prior approval. It buys no position in the issue queue
+either — issues are triaged by impact, reproducibility and safety, the same
+for everyone.
+
+If ClotoCore is useful to you and you would like the work to continue,
+[GitHub Sponsors](https://github.com/sponsors/Cloto-dev) is the one place that
+covers it, together with [CPersona](https://github.com/Cloto-dev/cpersona) —
+the memory layer this platform ships with — and the rest of what is published
+under that account.
+
+Money is not the only thing that helps. Starring the repository, saying which
+part of the setup was confusing, filing a reproducible issue, or improving the
+documentation all move the project forward.
 
 ## Community
 
