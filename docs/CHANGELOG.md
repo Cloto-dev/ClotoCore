@@ -7,6 +7,51 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8-beta.6] — 2026-09-03
+
+Soak release. It is the first cut that carries the separate install engine, and
+this line counts soak on the *published* artifact — an engine that only ever ran
+from a developer checkout has not been soaked at all.
+
+### Added
+
+- **Marketplace installs from a raw URL run through a separate install engine.**
+  `cloto-installer` is a single binary shipped beside the application; it
+  fetches the archive, verifies the seal, extracts it and builds the virtual
+  environment, and the kernel records the resulting registration. When the
+  engine is absent, or reports a version other than the one this build expects,
+  the install stops with a message naming both versions instead of falling back
+  to a second implementation — a missing engine is a visible failure, never a
+  silent change of behaviour. `GET /api/health/scan` reports the engine's state
+  under `installer`. (#469, #470, #471, #472)
+- **A published documentation site**, built from `docs/` and gated: the build
+  is strict, every in-site link and heading anchor must resolve, and the
+  measurable claims documents make about the project — test counts, the current
+  version, environment defaults — are checked against the code on every run.
+  (#476, #477, #478)
+
+### Fixed
+
+- **Deleting a dynamic MCP server deletes its generated script** (bug-505). The
+  three paths that create such a server wrote its Python into the directory
+  named by `MCP_SCRIPTS_DIR`, while deletion looked under a legacy `scripts/`
+  directory the writers had stopped using. The existence check was therefore
+  always false, the unlink was never reached, and the user-supplied Python
+  stayed on disk after the server and its connection were gone. The location is
+  now derived in one place that every call site goes through, and a removal
+  failure is logged with its path rather than discarded. (#463)
+- **The Windows dependency tree is unified again.** An `h2` bump had split
+  `windows-sys` into two versions in the same build. (#460)
+- Lint and Security Audit are green on `master` again. (#459)
+
+### Changed
+
+- The repository's published text is English. (#461)
+- The verification harness requires its host configuration to be supplied
+  rather than shipping a default that pointed at one particular machine. (#458)
+
+---
+
 ## [0.6.8-beta.5] — 2026-08-09
 
 Soak release, cut because the first fix below is a CRITICAL one that beta.4
