@@ -225,7 +225,6 @@ export const api = {
   getAgents: (apiKey?: string) => fetchJson<AgentMetadata[]>('/agents', 'fetch agents', apiKey),
   getPendingPermissions: (apiKey?: string) =>
     fetchJson<PermissionRequest[]>('/permissions/pending', 'fetch pending permissions', apiKey),
-  getVersion: () => fetchJson<{ version: string; build_target: string }>('/system/version', 'fetch version'),
   getMetrics: (apiKey?: string) => fetchJson<Metrics>('/metrics', 'fetch metrics', apiKey),
   getMemories: async (
     apiKey?: string,
@@ -256,7 +255,6 @@ export const api = {
     return data.episodes ?? [];
   },
   getHistory: (apiKey?: string) => fetchJson<StrictSystemEvent[]>('/history', 'fetch history', apiKey),
-  getPlugins: (apiKey?: string) => fetchJson<unknown[]>('/plugins', 'fetch plugins', apiKey),
   fetchJson: <T>(path: string, apiKey: string) =>
     fetch(`${API_BASE}${path}`, { headers: { 'X-API-Key': apiKey } }).then((r) => {
       if (!r.ok) throw new Error(`${r.statusText}`);
@@ -288,34 +286,6 @@ export const api = {
   getRecallPrecision: (id: string, apiKey: string) =>
     fetchJson<RecallPrecisionInfo>(`/agents/${id}/recall-precision`, 'fetch recall precision', apiKey),
 
-  getPluginPermissions: async (pluginId: string, apiKey: string): Promise<string[]> => {
-    const res = await fetch(`${API_BASE}/plugins/${pluginId}/permissions`, {
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-    });
-    if (!res.ok) throw new Error(`Failed to get permissions: ${res.statusText}`);
-    const data = (await res.json()).data;
-    return data.permissions ?? [];
-  },
-
-  revokePermission: async (pluginId: string, permission: string, apiKey: string): Promise<void> => {
-    const res = await fetch(`${API_BASE}/plugins/${pluginId}/permissions`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
-      body: JSON.stringify({ permission }),
-    });
-    await throwIfNotOk(res, 'revoke permission');
-  },
-
-  grantPermission: (pluginId: string, permission: string, apiKey: string) =>
-    mutate(
-      `/plugins/${pluginId}/permissions/grant`,
-      'POST',
-      'grant permission',
-      { permission },
-      { 'X-API-Key': apiKey },
-    ).then(() => {}),
-  postEvent: (eventData: unknown, apiKey: string) =>
-    mutate('/events/publish', 'POST', 'post event', eventData, { 'X-API-Key': apiKey }).then(() => {}),
   post: (path: string, payload: unknown, apiKey: string) =>
     mutate(path, 'POST', `post to ${path}`, payload, { 'X-API-Key': apiKey }).then(() => {}),
   approvePermission: (requestId: string, approvedBy: string, apiKey: string) =>
@@ -822,8 +792,6 @@ export const api = {
   // Bootstrap Setup
   getSetupStatus: (): Promise<SetupStatus> => fetchJson<SetupStatus>('/setup/status', 'fetch setup status'),
 
-  getSetupProgressUrl: (): string => `${API_BASE}/setup/progress`,
-
   // Marketplace
   getMarketplaceCatalog: async (
     apiKey: string,
@@ -965,7 +933,6 @@ export function createAuthenticatedApi(apiKey: string) {
   return {
     // Pass-through (no apiKey needed)
     getHealth: () => api.getHealth(),
-    getVersion: () => api.getVersion(),
     // Asset URLs — the key rides as a query param (see withToken)
     getAttachmentUrl: (id: string) => api.getAttachmentUrl(id, k),
     getAvatarUrl: (id: string, version?: string | number) => api.getAvatarUrl(id, k, version),
@@ -976,7 +943,6 @@ export function createAuthenticatedApi(apiKey: string) {
     getMemories: (agentId?: string) => api.getMemories(k, agentId),
     getEpisodes: (agentId?: string) => api.getEpisodes(k, agentId),
     getHistory: () => api.getHistory(k),
-    getPlugins: () => api.getPlugins(k),
     getAgentAccess: (agentId: string) => api.getAgentAccess(agentId, k),
     // Generic
     fetchJson: <T>(path: string) => api.fetchJson<T>(path, k),
@@ -999,13 +965,9 @@ export function createAuthenticatedApi(apiKey: string) {
     deleteChatMessages: (agentId: string, userId?: string) => api.deleteChatMessages(agentId, k, userId),
     retryResponse: (agentId: string, messageId: string) => api.retryResponse(agentId, messageId, k),
     // Permissions
-    getPluginPermissions: (pluginId: string) => api.getPluginPermissions(pluginId, k),
-    revokePermission: (pluginId: string, permission: string) => api.revokePermission(pluginId, permission, k),
-    grantPermission: (pluginId: string, permission: string) => api.grantPermission(pluginId, permission, k),
     approvePermission: (requestId: string, approvedBy: string) => api.approvePermission(requestId, approvedBy, k),
     denyPermission: (requestId: string, approvedBy: string) => api.denyPermission(requestId, approvedBy, k),
     // Events
-    postEvent: (eventData: unknown) => api.postEvent(eventData, k),
     // Command approval
     approveCommand: (approvalId: string) => api.approveCommand(approvalId, k),
     trustCommand: (approvalId: string) => api.trustCommand(approvalId, k),
@@ -1063,7 +1025,6 @@ export function createAuthenticatedApi(apiKey: string) {
     importMemories: (data: string, agentId: string) => api.importMemories(data, agentId, k),
     // Setup
     getSetupStatus: () => api.getSetupStatus(),
-    getSetupProgressUrl: () => api.getSetupProgressUrl(),
     // Marketplace
     getMarketplaceCatalog: (forceRefresh?: boolean) => api.getMarketplaceCatalog(k, forceRefresh),
     installMarketplaceServer: (payload: {

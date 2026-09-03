@@ -288,52 +288,6 @@ mod tests {
     }
 }
 
-/// Returns the kernel HTTP port (used by frontend to construct API URLs).
-#[tauri::command]
-fn get_kernel_port() -> u16 {
-    std::env::var("PORT")
-        .ok()
-        .and_then(|p| p.parse().ok())
-        .unwrap_or(8081)
-}
-
-/// Capture the primary screen and return a base64-encoded PNG.
-#[tauri::command]
-fn capture_screen() -> Result<String, String> {
-    use base64::Engine;
-    use xcap::Monitor;
-
-    let monitors = Monitor::all().map_err(|e| format!("Failed to enumerate monitors: {}", e))?;
-    let primary = monitors
-        .into_iter()
-        .find(|m| m.is_primary().unwrap_or(false))
-        .or_else(|| Monitor::all().ok().and_then(|m| m.into_iter().next()))
-        .ok_or_else(|| "No monitor found".to_string())?;
-
-    let image = primary
-        .capture_image()
-        .map_err(|e| format!("Screen capture failed: {}", e))?;
-
-    let mut buf = std::io::Cursor::new(Vec::new());
-    image
-        .write_to(&mut buf, image::ImageFormat::Png)
-        .map_err(|e| format!("PNG encoding failed: {}", e))?;
-
-    Ok(base64::engine::general_purpose::STANDARD.encode(buf.into_inner()))
-}
-
-/// Select a file within the scripts/ directory. Returns a relative path.
-#[tauri::command]
-fn select_script_file(base_dir: String) -> Result<Option<String>, String> {
-    // This is a synchronous helper; the actual dialog is done via tauri-plugin-dialog on the frontend.
-    // This command validates a proposed path against security constraints.
-    let path = std::path::Path::new(&base_dir);
-    if !path.exists() || !path.is_dir() {
-        return Err(format!("Directory does not exist: {}", base_dir));
-    }
-    Ok(None)
-}
-
 /// Read a text file and return its contents.
 #[tauri::command]
 fn read_text_file(path: String) -> Result<String, String> {
@@ -786,7 +740,6 @@ pub fn run() {
                 }
             },
         ))
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::new().build())
@@ -794,9 +747,6 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
-            get_kernel_port,
-            capture_screen,
-            select_script_file,
             get_auto_api_key,
             read_text_file,
             get_languages_dir,
