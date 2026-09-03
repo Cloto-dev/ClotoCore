@@ -203,6 +203,9 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CLOTO_CRON_ENABLED` | `true` | Enable cron job scheduler |
 | `CLOTO_CRON_INTERVAL` | `60` | Cron check interval in seconds |
 | `CLOTO_LLM_PROXY_PORT` | `8082` | LLM API proxy port |
+| `CLOTO_LLM_PROXY_TOKEN` | (generated per boot) | Token MCP servers present to the LLM proxy; the kernel passes it to the servers it spawns |
+| `CLOTO_LLM_PROXY_REQUIRE_TOKEN` | `false` | Reject LLM proxy calls without a valid token (otherwise they are served and logged) |
+| `CLOTO_ALLOW_UNAUTHENTICATED_HTTP` | `false` | Allow the kernel to start without `CLOTO_API_KEY` on a non-loopback `BIND_ADDRESS` |
 | `CONSENSUS_SYNTHESIZER` | (first working engine) | Engine that merges the proposals |
 | `CONSENSUS_MIN_PROPOSALS` | `2` | Minimum proposals before synthesis |
 | `CONSENSUS_SESSION_TIMEOUT_SECS` | `60` | Per-phase timeout (proposal collection / synthesis) |
