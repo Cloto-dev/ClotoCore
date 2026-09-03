@@ -24,7 +24,7 @@ pub enum Commands {
         /// Register as OS service (systemd on Linux, sc.exe on Windows)
         #[arg(long)]
         service: bool,
-        /// Service user (Linux only, default: current user)
+        /// Service user (Linux only, default: root; the prefix is chowned to this user)
         #[arg(long)]
         user: Option<String>,
     },
