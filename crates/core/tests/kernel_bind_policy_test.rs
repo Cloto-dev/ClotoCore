@@ -44,11 +44,26 @@ impl Scratch {
     fn command(&self, bind: &str, port: u16, key: Option<&str>) -> Command {
         let root: &Path = self.root.path();
         let mut cmd = Command::new(&self.exe);
-        cmd.current_dir(root)
-            .env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
-            .env("HOME", std::env::var("HOME").unwrap_or_default())
-            .env("PORT", port.to_string())
+        cmd.current_dir(root).env_clear();
+        // A cleared environment must keep what the OS itself needs: on
+        // Windows, Winsock fails to initialise without SYSTEMROOT (os error
+        // 10106), which surfaces as the kernel failing to bind and exiting.
+        for name in [
+            "PATH",
+            "HOME",
+            "SYSTEMROOT",
+            "SystemRoot",
+            "TEMP",
+            "TMP",
+            "USERPROFILE",
+            "LOCALAPPDATA",
+            "APPDATA",
+        ] {
+            if let Ok(v) = std::env::var(name) {
+                cmd.env(name, v);
+            }
+        }
+        cmd.env("PORT", port.to_string())
             .env("BIND_ADDRESS", bind)
             .env(
                 "DATABASE_URL",
