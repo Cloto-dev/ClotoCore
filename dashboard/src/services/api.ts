@@ -822,9 +822,6 @@ export const api = {
   // Bootstrap Setup
   getSetupStatus: (): Promise<SetupStatus> => fetchJson<SetupStatus>('/setup/status', 'fetch setup status'),
 
-  startSetup: (apiKey: string): Promise<void> =>
-    mutate('/setup/start', 'POST', 'start setup', undefined, { 'X-API-Key': apiKey }).then(() => {}),
-
   getSetupProgressUrl: (): string => `${API_BASE}/setup/progress`,
 
   // Marketplace
@@ -1066,7 +1063,6 @@ export function createAuthenticatedApi(apiKey: string) {
     importMemories: (data: string, agentId: string) => api.importMemories(data, agentId, k),
     // Setup
     getSetupStatus: () => api.getSetupStatus(),
-    startSetup: () => api.startSetup(k),
     getSetupProgressUrl: () => api.getSetupProgressUrl(),
     // Marketplace
     getMarketplaceCatalog: (forceRefresh?: boolean) => api.getMarketplaceCatalog(k, forceRefresh),

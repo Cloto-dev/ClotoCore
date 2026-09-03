@@ -662,7 +662,7 @@ pub async fn set_llm_provider_context_length(
     ok_data(serde_json::json!({}))
 }
 
-/// POST /api/llm/providers/:id/reasoning-prefill
+/// POST /api/llm/providers/:id/thinking-mode
 ///
 /// Sets the per-provider user-facing thinking mode. Accepts
 /// `{ "value": "auto" | "on" | "off" }` where the semantic is user intent:

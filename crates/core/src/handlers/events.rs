@@ -8,7 +8,7 @@ use super::{check_auth, ok_data};
 
 /// Inject an event into the event bus from external sources.
 ///
-/// **Route:** `POST /api/events`
+/// **Route:** `POST /api/events/publish`
 ///
 /// # Authentication
 /// Requires valid API key in `X-API-Key` header.

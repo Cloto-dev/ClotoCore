@@ -81,7 +81,7 @@ pub async fn get_plugin_config(
 
 /// Update a single plugin configuration key-value pair.
 ///
-/// **Route:** `PUT /api/plugins/:id/config`
+/// **Route:** `POST /api/plugins/:id/config`
 ///
 /// # Authentication
 /// Requires valid API key in `X-API-Key` header.
@@ -156,7 +156,7 @@ pub async fn update_plugin_config(
 
 /// Batch apply plugin enabled/disabled settings.
 ///
-/// **Route:** `POST /api/plugins/settings`
+/// **Route:** `POST /api/plugins/apply`
 ///
 /// # Authentication
 /// Requires valid API key in `X-API-Key` header.
@@ -191,7 +191,7 @@ pub async fn apply_plugin_settings(
 
 /// Grant a permission to a plugin.
 ///
-/// **Route:** `POST /api/plugins/:id/permissions`
+/// **Route:** `POST /api/plugins/:id/permissions/grant`
 ///
 /// # Authentication
 /// Requires valid API key in `X-API-Key` header.

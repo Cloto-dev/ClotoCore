@@ -213,7 +213,7 @@ pub async fn create_agent(
 
 /// Update an existing agent's settings.
 ///
-/// **Route:** `PUT /api/agents/:id`
+/// **Route:** `POST /api/agents/:id`
 ///
 /// # Authentication
 /// Requires valid API key in `X-API-Key` header.
