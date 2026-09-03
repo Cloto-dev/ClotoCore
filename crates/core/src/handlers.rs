@@ -217,10 +217,8 @@ pub(crate) fn spawn_admin_audit(
 ///
 /// # Behavior
 /// 1. Broadcasts `SystemNotification` shutdown message
-/// 2. Creates `.maintenance` file (atomic write via tmp + rename)
-/// 3. Signals shutdown after 1-second delay (allows response delivery)
-///
-/// Guardian process can detect `.maintenance` file and handle restart logic.
+/// 2. Drains MCP servers, then signals shutdown (the 1-second delay lets
+///    this response reach the caller first)
 ///
 /// # Response
 /// - **200 OK:** `{ "status": "shutting_down" }`
@@ -257,17 +255,6 @@ pub async fn shutdown_handler(
         // child's process group. Shared with the Tauri app-exit path via
         // McpClientManager::drain_all (orphan-leak fix, Step 4).
         mcp.drain_all("kernel shutdown", 5000, 10).await;
-
-        // 🚧 Signal maintenance mode (atomic write to prevent symlink attacks)
-        let maint = crate::config::exe_dir().join(".maintenance");
-        let suffix: u64 = rand::random();
-        let maint_tmp = crate::config::exe_dir().join(format!(".maintenance_{:016x}.tmp", suffix));
-        match std::fs::write(&maint_tmp, "active")
-            .and_then(|()| std::fs::rename(&maint_tmp, &maint))
-        {
-            Ok(()) => info!("🚧 Maintenance mode engaged."),
-            Err(e) => error!("❌ Failed to create .maintenance file: {}", e),
-        }
 
         // bug-366: abort any in-flight install task so its child uv/pip processes
         // are reaped via kill_on_drop instead of orphaned across shutdown.

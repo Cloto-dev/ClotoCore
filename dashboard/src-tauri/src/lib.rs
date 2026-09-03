@@ -997,11 +997,6 @@ pub fn run() {
         tauri::RunEvent::ExitRequested { .. } => {
             drain_mcp_before_exit();
         }
-        tauri::RunEvent::Exit => {
-            // Clean up stale maintenance file if present
-            let maint = cloto_core::config::exe_dir().join(".maintenance");
-            let _ = std::fs::remove_file(maint);
-        }
         _ => {}
     });
 }

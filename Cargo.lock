@@ -1208,8 +1208,6 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
- "tokio-stream",
- "tokio-test",
  "toml 1.0.7+spec-1.1.0",
  "tower",
  "tower-http 0.7.0",
@@ -8211,17 +8209,6 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "tokio-test"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3f6d24790a10a7af737693a3e8f1d03faef7e6ca0cc99aae5066f533766de545"
-dependencies = [
- "futures-core",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
