@@ -10,6 +10,7 @@ use governor::{
     state::{InMemoryState, NotKeyed},
     Quota, RateLimiter as GovernorRateLimiter,
 };
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -82,6 +83,51 @@ impl RateLimiter {
     pub fn tracked_ips(&self) -> usize {
         self.limiters.len()
     }
+}
+
+/// Routes under `/api` that answer without the admin key.
+///
+/// Everything else under `/api` is authenticated by [`auth_middleware`].
+/// Keep this list short and deliberate: each entry is a promise that the
+/// response carries nothing an unauthenticated caller should not see.
+pub const PUBLIC_API_PATHS: &[&str] = &[
+    "/system/version",
+    "/system/health",
+    "/setup/status",
+    "/setup/progress",
+    "/marketplace/progress",
+];
+
+/// Whether a request path (with or without the `/api` prefix) is public.
+#[must_use]
+pub fn is_public_api_path(path: &str) -> bool {
+    let path = path.strip_prefix("/api").unwrap_or(path);
+    PUBLIC_API_PATHS.contains(&path)
+}
+
+/// Axum middleware: every `/api` route requires the admin key unless it is
+/// on [`PUBLIC_API_PATHS`].
+///
+/// The key is accepted in `X-API-Key` or as `?token=` (browser-initiated
+/// loads such as `EventSource` and `<img src>` cannot set headers). A
+/// rejection carries the same JSON error envelope as a handler-level denial.
+/// Handlers keep their own `check_auth` calls; this layer is what makes a
+/// route that forgets one still safe.
+pub async fn auth_middleware(
+    State(state): State<Arc<crate::AppState>>,
+    request: Request,
+    next: Next,
+) -> Response {
+    if is_public_api_path(request.uri().path()) {
+        return next.run(request).await;
+    }
+    let query: HashMap<String, String> = axum::extract::Query::try_from_uri(request.uri())
+        .map(|q: axum::extract::Query<HashMap<String, String>>| q.0)
+        .unwrap_or_default();
+    if let Err(e) = crate::handlers::check_auth_with_query(&state, request.headers(), &query) {
+        return axum::response::IntoResponse::into_response(e);
+    }
+    next.run(request).await
 }
 
 /// Axum middleware: rejects requests with 429 when rate limit is exceeded.

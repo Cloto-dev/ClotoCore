@@ -48,9 +48,114 @@ fn create_test_router(state: Arc<AppState>) -> axum::Router {
             get(handlers::get_pending_permissions),
         )
         .merge(admin_routes)
+        // A route whose handler performs NO auth check of its own. It stands
+        // in for the next route someone adds and forgets to guard: the auth
+        // layer below is what keeps it closed.
+        .route("/unguarded", get(|| async { "open" }))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            cloto_core::middleware::auth_middleware,
+        ))
         .with_state(state);
 
     axum::Router::new().nest("/api", api_routes)
+}
+
+/// The auth layer closes a route whose handler forgot `check_auth`.
+#[tokio::test]
+async fn auth_layer_denies_an_unguarded_route_without_a_key() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+/// The same route opens with the key in the header or as `?token=`; a wrong
+/// token stays closed.
+#[tokio::test]
+async fn auth_layer_admits_a_valid_key_by_header_or_query() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    let by_header = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded")
+                .header("X-API-Key", "test-key")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(by_header.status(), StatusCode::OK);
+
+    let by_query = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded?token=test-key")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(by_query.status(), StatusCode::OK);
+
+    let wrong = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded?token=wrong")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(wrong.status(), StatusCode::FORBIDDEN);
+}
+
+/// The public allowlist is exactly the bootstrap surface: liveness, version,
+/// setup state and the two progress streams. Nothing else.
+#[test]
+fn public_api_allowlist_is_the_bootstrap_surface_only() {
+    use cloto_core::middleware::{is_public_api_path, PUBLIC_API_PATHS};
+    let expected = [
+        "/system/version",
+        "/system/health",
+        "/setup/status",
+        "/setup/progress",
+        "/marketplace/progress",
+    ];
+    assert_eq!(PUBLIC_API_PATHS, &expected);
+    for p in expected {
+        assert!(is_public_api_path(p), "{p} should be public");
+        assert!(
+            is_public_api_path(&format!("/api{p}")),
+            "/api{p} should be public"
+        );
+    }
+    for p in [
+        "/agents",
+        "/system/shutdown",
+        "/system/healthz",
+        "/events",
+        "/",
+    ] {
+        assert!(!is_public_api_path(p), "{p} must not be public");
+    }
 }
 
 #[tokio::test]
