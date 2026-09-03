@@ -334,7 +334,7 @@ pub struct KernelHandle {
     /// (orphan-leak fix, Step 4). Use `mcp_manager.drain_all(...)` before exit.
     pub mcp_manager: Arc<managers::McpClientManager>,
     /// Join handle for the HTTP server task.
-    _server_task: tokio::task::JoinHandle<()>,
+    server_task: tokio::task::JoinHandle<()>,
 }
 
 /// Connect to the SQLite pool and run migrations/seeds. Factored out of
@@ -1536,7 +1536,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     Ok(KernelHandle {
         shutdown: shutdown_handle,
         mcp_manager: app_state.mcp_manager.clone(),
-        _server_task: server_task,
+        server_task,
     })
 }
 
@@ -1545,9 +1545,67 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 /// Convenience wrapper around [`start_kernel`] for standalone CLI usage.
 pub async fn run_kernel() -> anyhow::Result<()> {
     let handle = start_kernel().await?;
-    // Block until the shutdown signal is received.
-    handle.shutdown.notified().await;
+    // Block until either the HTTP shutdown endpoint fires or the process is
+    // asked to stop by its supervisor. A service manager (systemd, launchd,
+    // a container runtime) stops a daemon with SIGTERM and has no API key to
+    // call `/api/system/shutdown`; without this arm the signal killed the
+    // process outright and left every MCP child orphaned (the same leak the
+    // HTTP path and the desktop app-exit path already drain against).
+    tokio::select! {
+        () = handle.shutdown.notified() => {}
+        () = stop_signal() => {
+            tracing::info!("🛑 Stop signal received from the OS. Draining MCP servers before exit...");
+            handle
+                .mcp_manager
+                .drain_all("kernel shutdown (signal)", 5000, 10)
+                .await;
+            tracing::info!("👋 Kernel shutting down gracefully.");
+            handle.shutdown.notify_waiters();
+        }
+    }
+    // Let the HTTP server finish its graceful shutdown (and release the run
+    // lock) before the process exits.
+    let _ = handle.server_task.await;
     Ok(())
+}
+
+/// Resolve when the process receives a stop request from the OS: SIGTERM or
+/// SIGINT on Unix, Ctrl-C / console close on Windows. Never resolves if the
+/// signal handlers cannot be installed, so the HTTP shutdown path keeps working.
+async fn stop_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{signal, SignalKind};
+        let mut term = match signal(SignalKind::terminate()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!(
+                    "SIGTERM handler not installed ({e}); stop via /api/system/shutdown"
+                );
+                std::future::pending::<()>().await;
+                unreachable!()
+            }
+        };
+        let mut int = match signal(SignalKind::interrupt()) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("SIGINT handler not installed ({e}); stop via /api/system/shutdown");
+                std::future::pending::<()>().await;
+                unreachable!()
+            }
+        };
+        tokio::select! {
+            _ = term.recv() => {}
+            _ = int.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        if let Err(e) = tokio::signal::ctrl_c().await {
+            tracing::warn!("Ctrl-C handler not installed ({e}); stop via /api/system/shutdown");
+            std::future::pending::<()>().await;
+        }
+    }
 }
 
 /// Bind a TCP listener with retry logic for port conflicts (e.g., previous process
