@@ -270,13 +270,20 @@ pub async fn delete_messages(
 }
 
 /// GET /api/chat/attachments/:attachment_id
-/// Serve an attachment file
+/// Serve an attachment file.
+///
+/// Accepts the admin API key in `X-API-Key` or as `?token=`: the dashboard
+/// renders attachments through `<img src>` / `<audio src>`, which cannot set a
+/// header, so a header-only check left every stored attachment a 403 in the
+/// browser.
+#[allow(clippy::implicit_hasher)]
 pub async fn get_attachment(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Query(query): Query<std::collections::HashMap<String, String>>,
     Path(attachment_id): Path<String>,
 ) -> AppResult<impl IntoResponse> {
-    super::check_auth(&state, &headers)?;
+    super::check_auth_with_query(&state, &headers, &query)?;
 
     let att = db::get_attachment_by_id(&state.pool, &attachment_id)
         .await?

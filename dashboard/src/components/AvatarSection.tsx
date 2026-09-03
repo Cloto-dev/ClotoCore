@@ -1,7 +1,7 @@
 import { Box, Camera, Upload, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { useApi } from '../hooks/useApi';
 import { AgentIcon } from '../lib/agentIdentity';
-import { api } from '../services/api';
 import type { AgentMetadata } from '../types';
 
 interface Props {
@@ -30,7 +30,8 @@ export function AvatarSection({
   onVrmDelete,
 }: Props) {
   const { t } = useTranslation('agents');
-  const displayUrl = previewUrl ?? (hasAvatar ? `${api.getAvatarUrl(agent.id)}?v=${avatarKey}` : null);
+  const api = useApi();
+  const displayUrl = previewUrl ?? (hasAvatar ? api.getAvatarUrl(agent.id, avatarKey) : null);
 
   return (
     <section>

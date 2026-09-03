@@ -1,6 +1,6 @@
 use axum::{
     body::Bytes,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     Json,
@@ -592,11 +592,18 @@ async fn analyze_avatar(state: &AppState, agent_id: &str, avatar_path: &str) -> 
 ///
 /// **Route:** `GET /api/agents/:id/avatar`
 ///
-/// No authentication required (read-only).
+/// Requires the admin API key, in `X-API-Key` or as `?token=` — the latter
+/// because the dashboard loads this through `<img src>`, which cannot carry a
+/// header. The image is user content; a headless deployment must not hand it
+/// to whoever can reach the listener.
+#[allow(clippy::implicit_hasher)]
 pub async fn get_avatar(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
+    super::check_auth_with_query(&state, &headers, &query)?;
     let avatar_path = state
         .agent_manager
         .get_avatar_path(&id)
@@ -619,7 +626,7 @@ pub async fn get_avatar(
             ),
             (
                 axum::http::header::CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=3600"),
+                HeaderValue::from_static("private, max-age=3600"),
             ),
         ],
         data,
@@ -673,11 +680,16 @@ pub async fn upload_vrm(
 ///
 /// **Route:** `GET /api/agents/:id/vrm`
 ///
-/// No authentication required (read-only).
+/// Requires the admin API key, in `X-API-Key` or as `?token=` (the VRM viewer
+/// fetches it by URL). Same reasoning as [`get_avatar`].
+#[allow(clippy::implicit_hasher)]
 pub async fn get_vrm(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(query): Query<HashMap<String, String>>,
     Path(id): Path<String>,
 ) -> Result<impl IntoResponse, AppError> {
+    super::check_auth_with_query(&state, &headers, &query)?;
     let vrm_path = state
         .agent_manager
         .get_vrm_path(&id)
@@ -697,7 +709,7 @@ pub async fn get_vrm(
             ),
             (
                 axum::http::header::CACHE_CONTROL,
-                HeaderValue::from_static("public, max-age=3600"),
+                HeaderValue::from_static("private, max-age=3600"),
             ),
         ],
         data,

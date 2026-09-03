@@ -29,6 +29,27 @@ const API_URL =
 export const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 export const EVENTS_URL = `${API_BASE}/events`;
 
+/**
+ * Append the admin key (and any extra query params) to an asset URL.
+ *
+ * Images, audio and the VRM model are fetched by the browser from a `src`/URL,
+ * so no `X-API-Key` header can be attached — the kernel accepts the key as a
+ * `token=` query param on those read routes, the same channel the SSE stream
+ * uses. An empty key yields the bare URL (a valid but unauthenticated request)
+ * rather than an empty `token=`.
+ */
+function withToken(url: string, apiKey: string, extra?: Record<string, string | number>): string {
+  let out = url;
+  const append = (pair: string) => {
+    out += `${out.includes('?') ? '&' : '?'}${pair}`;
+  };
+  if (apiKey) append(`token=${encodeURIComponent(apiKey)}`);
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    append(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
+  }
+  return out;
+}
+
 const HEALTH_CHECK_TIMEOUT_MS = 3000;
 const API_TIMEOUT_MS = 15_000;
 /** Purge enumeration stats and size-walks real directories (models, venvs). */
@@ -451,8 +472,8 @@ export const api = {
     };
   },
 
-  getAttachmentUrl(attachmentId: string): string {
-    return `${API_BASE}/chat/attachments/${attachmentId}`;
+  getAttachmentUrl(attachmentId: string, apiKey: string): string {
+    return withToken(`${API_BASE}/chat/attachments/${attachmentId}`, apiKey);
   },
 
   // MCP Server Management (MCP_SERVER_UI_DESIGN.md §4)
@@ -746,8 +767,12 @@ export const api = {
       'X-API-Key': apiKey,
     }).then(() => {}),
 
-  getAvatarUrl(agentId: string): string {
-    return `${API_BASE}/agents/${encodeURIComponent(agentId)}/avatar`;
+  getAvatarUrl(agentId: string, apiKey: string, version?: string | number): string {
+    return withToken(
+      `${API_BASE}/agents/${encodeURIComponent(agentId)}/avatar`,
+      apiKey,
+      version === undefined ? undefined : { v: version },
+    );
   },
 
   // VRM Model Management
@@ -766,8 +791,8 @@ export const api = {
       'X-API-Key': apiKey,
     }).then(() => {}),
 
-  getVrmUrl(agentId: string): string {
-    return `${API_BASE}/agents/${encodeURIComponent(agentId)}/vrm`;
+  getVrmUrl(agentId: string, apiKey: string): string {
+    return withToken(`${API_BASE}/agents/${encodeURIComponent(agentId)}/vrm`, apiKey);
   },
 
   // Viseme Generation
@@ -944,8 +969,9 @@ export function createAuthenticatedApi(apiKey: string) {
     // Pass-through (no apiKey needed)
     getHealth: () => api.getHealth(),
     getVersion: () => api.getVersion(),
-    getAttachmentUrl: (id: string) => api.getAttachmentUrl(id),
-    getAvatarUrl: (id: string) => api.getAvatarUrl(id),
+    // Asset URLs — the key rides as a query param (see withToken)
+    getAttachmentUrl: (id: string) => api.getAttachmentUrl(id, k),
+    getAvatarUrl: (id: string, version?: string | number) => api.getAvatarUrl(id, k, version),
     // Read
     getAgents: () => api.getAgents(k),
     getPendingPermissions: () => api.getPendingPermissions(k),
@@ -1030,7 +1056,7 @@ export function createAuthenticatedApi(apiKey: string) {
     // VRM
     uploadVrm: (agentId: string, file: File) => api.uploadVrm(agentId, file, k),
     deleteVrm: (agentId: string) => api.deleteVrm(agentId, k),
-    getVrmUrl: (agentId: string) => api.getVrmUrl(agentId),
+    getVrmUrl: (agentId: string) => api.getVrmUrl(agentId, k),
     // Memory
     deleteMemory: (memoryId: number) => api.deleteMemory(memoryId, k),
     updateMemory: (memoryId: number, content: string) => api.updateMemory(memoryId, content, k),

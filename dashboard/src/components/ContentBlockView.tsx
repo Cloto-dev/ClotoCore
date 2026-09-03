@@ -1,9 +1,9 @@
 import { Download, FileAudio, Image, X } from 'lucide-react';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useApi } from '../hooks/useApi';
 import { tryParseJsonObject } from '../lib/json';
 import { isTauri } from '../lib/tauri';
-import { api } from '../services/api';
 import type { ContentBlock } from '../types';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
@@ -66,6 +66,8 @@ const AUDIO_EXT = /\.(wav|mp3|ogg|flac|m4a)$/i;
 
 /** Render a single ContentBlock */
 export function ContentBlockView({ block }: { block: ContentBlock }) {
+  const api = useApi();
+
   switch (block.type) {
     case 'text':
       return <MarkdownRenderer content={block.text || ''} />;

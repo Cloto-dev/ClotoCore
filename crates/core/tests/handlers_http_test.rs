@@ -26,7 +26,15 @@ fn create_test_router(state: Arc<AppState>) -> axum::Router {
             "/permissions/{id}/approve",
             post(handlers::approve_permission),
         )
-        .route("/permissions/{id}/deny", post(handlers::deny_permission));
+        .route("/permissions/{id}/deny", post(handlers::deny_permission))
+        // Asset reads: authenticated by header or `?token=` (the browser
+        // loads them through `<img src>`), never public.
+        .route("/agents/{id}/avatar", get(handlers::get_avatar))
+        .route("/agents/{id}/vrm", get(handlers::get_vrm))
+        .route(
+            "/chat/attachments/{attachment_id}",
+            get(handlers::chat::get_attachment),
+        );
 
     let api_routes = axum::Router::new()
         .route("/chat", post(handlers::chat_handler))
@@ -913,4 +921,94 @@ async fn test_upsert_llm_provider_meta_preserves_user_columns() {
         .expect("get newengine");
     assert_eq!(fresh.model_id, "seeded-default");
     assert_eq!(fresh.api_key, "");
+}
+
+/// Every asset read (avatar, VRM, chat attachment) is denied without a key:
+/// a headless kernel must not hand user content to whoever reaches the port.
+#[tokio::test]
+async fn asset_reads_require_auth() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    for uri in [
+        "/api/agents/agent.any/avatar",
+        "/api/agents/agent.any/vrm",
+        "/api/chat/attachments/att-any",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(uri)
+                    // No X-API-Key header, no ?token=.
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("send request");
+        assert_eq!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "{uri} must be denied without a key"
+        );
+    }
+}
+
+/// The same reads accept the key as `?token=`, which is the only way an
+/// `<img src>` / `<audio src>` / VRM loader can present it. With a valid
+/// token the request gets past auth and fails on the missing asset instead.
+#[tokio::test]
+async fn asset_reads_accept_query_token() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    for uri in [
+        "/api/agents/agent.any/avatar?token=test-key",
+        "/api/agents/agent.any/vrm?token=test-key",
+        "/api/chat/attachments/att-any?token=test-key",
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(uri)
+                    .body(Body::empty())
+                    .expect("build request"),
+            )
+            .await
+            .expect("send request");
+        assert_ne!(
+            response.status(),
+            StatusCode::FORBIDDEN,
+            "{uri} must pass auth with a query token"
+        );
+        // The asset does not exist, so anything past auth is an error for
+        // the asset itself (the exact code is the handler's business).
+        assert!(
+            !response.status().is_success(),
+            "{uri}: expected a missing-asset error after auth, got {}",
+            response.status()
+        );
+    }
+}
+
+/// A wrong query token is not a bypass.
+#[tokio::test]
+async fn asset_reads_reject_wrong_query_token() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/agents/agent.any/avatar?token=not-the-key")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
