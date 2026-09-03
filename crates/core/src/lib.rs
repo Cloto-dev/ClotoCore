@@ -151,10 +151,6 @@ impl EnvelopedEvent {
     }
 }
 
-pub struct DynamicRouter {
-    pub router: RwLock<axum::Router<Arc<dyn std::any::Any + Send + Sync>>>,
-}
-
 pub struct AppState {
     pub tx: broadcast::Sender<events::SequencedEvent>,
     pub registry: Arc<managers::PluginRegistry>,
@@ -163,7 +159,6 @@ pub struct AppState {
     pub agent_manager: managers::AgentManager,
     pub plugin_manager: Arc<managers::PluginManager>,
     pub mcp_manager: Arc<managers::McpClientManager>,
-    pub dynamic_router: Arc<DynamicRouter>,
     pub config: config::AppConfig,
     pub data_dir: std::path::PathBuf,
     pub event_history: Arc<RwLock<VecDeque<events::SequencedEvent>>>,
@@ -487,7 +482,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     use crate::handlers::{self, system::SystemHandler};
     use crate::managers::{AgentManager, PluginManager};
     use axum::{
-        routing::{any, delete, get, post},
+        routing::{delete, get, post},
         Router,
     };
     use tower_http::cors::CorsLayer;
@@ -705,10 +700,6 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     let agent_manager = AgentManager::new(pool.clone(), config.heartbeat_threshold_ms);
     let (tx, _rx) = tokio::sync::broadcast::channel::<events::SequencedEvent>(100);
 
-    let dynamic_router = Arc::new(DynamicRouter {
-        router: tokio::sync::RwLock::new(Router::new()),
-    });
-
     let metrics = Arc::new(managers::SystemMetrics::new());
     let event_history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
@@ -869,7 +860,6 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         agent_manager: agent_manager.clone(),
         plugin_manager: plugin_manager.clone(),
         mcp_manager: mcp_manager.clone(),
-        dynamic_router: dynamic_router.clone(),
         admin_api_key: std::sync::RwLock::new(config.admin_api_key.clone()),
         config: config.clone(),
         data_dir: data_dir.clone(),
@@ -1498,6 +1488,17 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             get(handlers::get_agent_access),
         )
         .merge(admin_routes)
+        // Authentication is a property of the router, not of each handler:
+        // every route under /api requires the admin key unless it is on the
+        // explicit public allowlist (`middleware::PUBLIC_API_PATHS`). The
+        // per-handler `check_auth` calls remain as defence in depth; this
+        // layer is what makes a forgotten call harmless. Rate limiting sits
+        // outside it so an unauthenticated flood is throttled before it is
+        // authenticated.
+        .layer(axum::middleware::from_fn_with_state(
+            app_state.clone(),
+            middleware::auth_middleware,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             app_state.clone(),
             middleware::rate_limit_middleware,
@@ -1506,7 +1507,6 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 
     let app = Router::new()
         .nest("/api", api_routes.with_state(app_state.clone()))
-        .route("/api/plugin/{*path}", any(dynamic_proxy_handler))
         .with_state(app_state.clone())
         .fallback(handlers::assets::static_handler)
         .layer(
@@ -1696,26 +1696,4 @@ async fn bind_with_retry(
         }
     }
     unreachable!()
-}
-
-use axum::extract::State;
-use axum::http::Request;
-use axum::response::IntoResponse;
-use tower::ServiceExt;
-
-async fn dynamic_proxy_handler(
-    State(state): State<Arc<AppState>>,
-    request: Request<axum::body::Body>,
-) -> impl IntoResponse {
-    let router = {
-        let router_lock = state.dynamic_router.router.read().await;
-        router_lock.clone()
-    };
-
-    let any_state = state.clone() as Arc<dyn std::any::Any + Send + Sync>;
-    router
-        .with_state(any_state)
-        .oneshot(request)
-        .await
-        .into_response()
 }

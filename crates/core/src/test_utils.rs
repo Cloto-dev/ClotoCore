@@ -1,6 +1,5 @@
 use crate::config::AppConfig;
 use crate::managers::{AgentManager, PluginManager, PluginRegistry, SystemMetrics};
-use crate::DynamicRouter;
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -27,10 +26,6 @@ pub async fn create_test_app_state_in(
     let registry = Arc::new(PluginRegistry::new(5, 10, 50));
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap());
-
-    let dynamic_router = Arc::new(DynamicRouter {
-        router: RwLock::new(axum::Router::new()),
-    });
 
     let metrics = Arc::new(SystemMetrics::new());
     let event_history = Arc::new(RwLock::new(VecDeque::new()));
@@ -60,7 +55,6 @@ pub async fn create_test_app_state_in(
         agent_manager,
         plugin_manager,
         mcp_manager,
-        dynamic_router,
         config,
         data_dir,
         event_history,
