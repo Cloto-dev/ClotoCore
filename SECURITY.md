@@ -10,7 +10,7 @@ line inside its 30-day grace window.
 | --- | --- |
 | Stable (none certified yet — see SUPPORT.md) | ✅ |
 | Current (0.6.x) | ✅ |
-| Experimental (pre-releases, e.g. 0.6.8-beta.5 <!-- docs-facts: latest-prerelease -->) | ✅ shipped in the next release / pre-release |
+| Experimental (pre-releases, e.g. 0.6.8-beta.6 <!-- docs-facts: latest-prerelease -->) | ✅ shipped in the next release / pre-release |
 | Lines in the 30-day grace window | ✅ |
 | EOL lines | ❌ maintainer discretion only |
 
