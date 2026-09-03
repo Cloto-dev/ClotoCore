@@ -28,11 +28,9 @@ _METHOD_RE = re.compile(r"\b(get|post|put|delete|any)\s*\(")
 _PARAM_RE = re.compile(r"\{[^}]*\}")
 
 # Routes that are intentionally NOT operation-catalog targets: static/asset
-# serving, raw SSE streams, binary file GETs, and the dynamic plugin proxy.
+# serving, raw SSE streams, and binary file GETs.
 # (Kept small and explicit — everything else must be covered.)
 DEFAULT_IGNORE: Set[Route] = {
-    ("GET", "/api/plugin/{}"),  # dynamic proxy passthrough
-    ("ANY", "/api/plugin/{}"),
     ("GET", "/api/events"),  # raw SSE stream (publish+history is covered instead)
     ("GET", "/api/marketplace/progress"),  # SSE progress stream
     ("GET", "/api/setup/progress"),  # SSE progress stream

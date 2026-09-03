@@ -5,7 +5,7 @@
 use cloto_core::{
     config::AppConfig,
     managers::{AgentManager, McpClientManager, PluginManager, PluginRegistry, SystemMetrics},
-    AppState, DynamicRouter,
+    AppState,
 };
 use cloto_shared::{ClotoEvent, ClotoEventData, ClotoMessage, MessageSource};
 use sqlx::SqlitePool;
@@ -28,10 +28,6 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
     let agent_manager = AgentManager::new(pool.clone(), 30_000);
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap());
 
-    let dynamic_router = Arc::new(DynamicRouter {
-        router: RwLock::new(axum::Router::new()),
-    });
-
     let metrics = Arc::new(SystemMetrics::new());
     let event_history = Arc::new(RwLock::new(VecDeque::new()));
 
@@ -51,7 +47,6 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         agent_manager,
         plugin_manager,
         mcp_manager,
-        dynamic_router,
         config,
         // Seeded from the config the same way the real boot path does
         // (`lib.rs`), so a bench authenticates with the key it just set.
