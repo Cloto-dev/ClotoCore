@@ -6,13 +6,22 @@ use tracing::info;
 const SERVICE_NAME: &str = "cloto";
 const SERVICE_FILE: &str = "/etc/systemd/system/cloto.service";
 
-/// Generate systemd service unit file content
+/// Generate systemd service unit file content.
+///
+/// Written for an unattended daemon: it waits for the network to be up (the
+/// kernel reaches upstream providers and the marketplace), stops with SIGTERM
+/// and enough time to drain MCP children (`run_kernel` handles the signal;
+/// the drain is bounded at ~10s per shutdown), logs to the journal, gives the
+/// children an explicit PATH (`python3`, `node`, `git` are looked up there),
+/// and keeps the system tree read-only — everything the kernel writes lives
+/// under the prefix or the service user's data directory.
 fn service_unit(prefix: &Path, user: &str) -> String {
     let exec_start = prefix.join("clotocore");
     format!(
         r"[Unit]
 Description=ClotoCore
-After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
@@ -22,6 +31,16 @@ ExecStart={exec_start}
 Restart=on-failure
 RestartSec=5
 EnvironmentFile={prefix}/.env
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+LimitNOFILE=65536
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
@@ -32,7 +51,12 @@ WantedBy=multi-user.target
     )
 }
 
-/// Register Cloto as a systemd service
+/// Register Cloto as a systemd service.
+///
+/// The unit runs as `user`, or as root when none is given: the installer
+/// itself runs as root (it writes under `/opt` and `/etc`), and a different
+/// service user must also own the prefix — `installer::install` chowns it
+/// when `--user` is passed.
 pub fn install_service(prefix: &Path, user: Option<&str>) -> anyhow::Result<()> {
     let user = user.unwrap_or("root");
 
@@ -211,4 +235,31 @@ pub fn spawn_detached(exe: &Path, args: &[String]) -> anyhow::Result<()> {
         .spawn()
         .with_context(|| format!("Failed to spawn {}", exe.display()))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn service_unit_is_written_for_an_unattended_daemon() {
+        let unit = service_unit(Path::new("/opt/cloto"), "cloto");
+        for line in [
+            "User=cloto",
+            "WorkingDirectory=/opt/cloto",
+            "ExecStart=/opt/cloto/clotocore",
+            "EnvironmentFile=/opt/cloto/.env",
+            "After=network-online.target",
+            "Wants=network-online.target",
+            "KillSignal=SIGTERM",
+            "TimeoutStopSec=30",
+            "StandardOutput=journal",
+            "StandardError=journal",
+            "Environment=PATH=",
+            "ProtectSystem=full",
+            "Restart=on-failure",
+        ] {
+            assert!(unit.contains(line), "unit lacks `{line}`:\n{unit}");
+        }
+    }
 }

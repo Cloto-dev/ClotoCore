@@ -11,6 +11,50 @@ fn binary_name() -> &'static str {
     }
 }
 
+/// Copy the marketplace install engine that ships beside the kernel binary
+/// into the install prefix, so the installed kernel can find it next to
+/// itself (`managers::installer` looks in the executable's directory).
+///
+/// Returns the installed path, or `None` when no engine was found beside
+/// the source binary — an installation made from a bare `clotocore` file
+/// rather than the release archive. That is reported, not fatal: the kernel
+/// boots without the engine and refuses marketplace installs with a clear
+/// error instead of failing silently.
+pub(crate) fn stage_engine(src_dir: &Path, prefix: &Path) -> anyhow::Result<Option<PathBuf>> {
+    let name = crate::managers::installer::binary_name();
+    let src = src_dir.join(name);
+    if !src.is_file() {
+        return Ok(None);
+    }
+    let dst = prefix.join(name);
+    if src == dst {
+        return Ok(Some(dst));
+    }
+    std::fs::copy(&src, &dst)
+        .with_context(|| format!("Failed to copy {} to {}", src.display(), dst.display()))?;
+    crate::platform::set_executable_permission(&dst)?;
+    Ok(Some(dst))
+}
+
+/// Hand the whole install prefix to the service user. The unit runs as that
+/// user and must be able to read `.env` (0600) and write under `data/`.
+#[cfg(unix)]
+fn chown_recursive(prefix: &Path, user: &str) -> anyhow::Result<()> {
+    let status = std::process::Command::new("chown")
+        .args(["-R", user])
+        .arg(prefix)
+        .status()
+        .with_context(|| format!("Failed to run chown -R {user} {}", prefix.display()))?;
+    if !status.success() {
+        anyhow::bail!(
+            "chown -R {user} {} failed with exit code {:?}",
+            prefix.display(),
+            status.code()
+        );
+    }
+    Ok(())
+}
+
 /// Generate .env file content
 fn env_template(prefix: &Path, api_key: &str) -> String {
     let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
@@ -114,6 +158,23 @@ pub async fn install(prefix: PathBuf, service: bool, user: Option<String>) -> an
         info!("📦 Installed binary: {}", dst_exe.display());
     }
 
+    // 2b. Marketplace install engine: ships beside the kernel in the release
+    //     archive and must end up beside it in the prefix too.
+    let engine_src_dir = src_exe
+        .parent()
+        .map_or_else(|| prefix.clone(), Path::to_path_buf);
+    let engine = stage_engine(&engine_src_dir, &prefix)?;
+    if let Some(p) = &engine {
+        info!("📦 Installed marketplace engine: {}", p.display());
+    } else {
+        tracing::warn!(
+            "marketplace install engine ({}) not found beside {}; marketplace installs will be refused until it is placed in {}",
+            crate::managers::installer::binary_name(),
+            engine_src_dir.display(),
+            prefix.display()
+        );
+    }
+
     // 3. Generate .env (skip if exists)
     let env_path = prefix.join(".env");
     if env_path.exists() {
@@ -155,6 +216,13 @@ pub async fn install(prefix: PathBuf, service: bool, user: Option<String>) -> an
         println!("  {}", api_key);
     }
 
+    // 3b. A service user other than the installer's must own what it runs.
+    #[cfg(unix)]
+    if let Some(u) = user.as_deref() {
+        chown_recursive(&prefix, u)?;
+        info!("👤 Prefix owned by {u}");
+    }
+
     // 4. Register service (optional)
     if service {
         crate::platform::install_service(&prefix, user.as_deref())?;
@@ -164,13 +232,16 @@ pub async fn install(prefix: PathBuf, service: bool, user: Option<String>) -> an
     // path this install created. Best-effort — never fails the install.
     {
         use crate::defender::footprint::ReceiptEntry;
-        let mut entries = vec![
-            ReceiptEntry::file("binary", &dst_exe),
+        let mut entries = vec![ReceiptEntry::file("binary", &dst_exe)];
+        if let Some(p) = &engine {
+            entries.push(ReceiptEntry::file("engine", p));
+        }
+        entries.extend([
             ReceiptEntry::dir("install_prefix", &prefix),
             ReceiptEntry::dir("install_scripts", &scripts_dir),
             ReceiptEntry::dir("install_data", &data_dir),
             ReceiptEntry::file("env", &env_path).secret(),
-        ];
+        ]);
         if service {
             entries.push(ReceiptEntry::service("service", service_name()));
         }
@@ -239,4 +310,53 @@ pub async fn uninstall(prefix: PathBuf) -> anyhow::Result<()> {
 
     println!("Cloto uninstalled.");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn engine_name() -> &'static str {
+        crate::managers::installer::binary_name()
+    }
+
+    #[test]
+    fn stage_engine_copies_the_engine_beside_the_kernel() {
+        let src = tempfile::tempdir().unwrap();
+        let prefix = tempfile::tempdir().unwrap();
+        std::fs::write(src.path().join(engine_name()), b"engine").unwrap();
+
+        let staged = stage_engine(src.path(), prefix.path()).unwrap();
+        let dst = prefix.path().join(engine_name());
+        assert_eq!(staged.as_deref(), Some(dst.as_path()));
+        assert_eq!(std::fs::read(&dst).unwrap(), b"engine");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_ne!(
+                std::fs::metadata(&dst).unwrap().permissions().mode() & 0o111,
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn stage_engine_reports_a_missing_engine_instead_of_failing() {
+        let src = tempfile::tempdir().unwrap();
+        let prefix = tempfile::tempdir().unwrap();
+        assert!(stage_engine(src.path(), prefix.path()).unwrap().is_none());
+        assert!(!prefix.path().join(engine_name()).exists());
+    }
+
+    #[test]
+    fn stage_engine_is_a_no_op_when_already_in_place() {
+        let prefix = tempfile::tempdir().unwrap();
+        std::fs::write(prefix.path().join(engine_name()), b"engine").unwrap();
+        let staged = stage_engine(prefix.path(), prefix.path()).unwrap();
+        assert!(staged.is_some());
+        assert_eq!(
+            std::fs::read(prefix.path().join(engine_name())).unwrap(),
+            b"engine"
+        );
+    }
 }

@@ -175,10 +175,23 @@ echo -e "${CYAN}Installing to ${INSTALL_DIR}...${NC}"
 # M-20: Use array to prevent word-splitting issues with paths containing spaces
 INSTALL_ARGS=(install --prefix "${INSTALL_DIR}")
 [[ "$SETUP_SERVICE" == "true" ]] && INSTALL_ARGS+=("--service")
+# CLOTO_SERVICE_USER: run the systemd unit as this user (the prefix is chowned to it).
+[[ -n "${CLOTO_SERVICE_USER:-}" ]] && INSTALL_ARGS+=("--user" "${CLOTO_SERVICE_USER}")
 
-# The binary's install command handles: file placement, .env generation,
-# Python setup, and optional systemd service registration.
-sudo "${EXTRACTED_DIR}/clotocore" "${INSTALL_ARGS[@]}"
+# Privilege: nothing when already root; interactive sudo when a terminal can
+# answer the password prompt; `sudo -n` otherwise, so an unattended run fails
+# loudly instead of hanging on a prompt nobody will see.
+if [[ $EUID -eq 0 ]]; then
+    SUDO=()
+elif [[ -t 0 ]]; then
+    SUDO=(sudo)
+else
+    SUDO=(sudo -n)
+fi
+
+# The binary's install command handles: file placement (kernel + marketplace
+# engine), .env generation, and optional systemd service registration.
+"${SUDO[@]}" "${EXTRACTED_DIR}/clotocore" "${INSTALL_ARGS[@]}"
 
 echo ""
 echo -e "${GREEN}ClotoCore v${VERSION_NUM} installed successfully.${NC}"
