@@ -354,7 +354,13 @@ async fn get_disk_attachment_paths(
         placeholders.join(",")
     );
 
-    let mut query = sqlx::query_as::<_, (String,)>(&sql);
+    // The audit `AssertSqlSafe` asks for: nothing derived from `message_ids`
+    // reaches the SQL text. The only thing interpolated above is
+    // `placeholders`, which is `message_ids.len()` copies of the literal `?`,
+    // so the statement's shape varies with the *count* of ids and never with
+    // their contents. Every id is then `bind`ed below and travels as a
+    // parameter. `QueryBuilder` would express the same thing at more cost.
+    let mut query = sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(sql));
     for id in message_ids {
         query = query.bind(id);
     }
@@ -362,4 +368,79 @@ async fn get_disk_attachment_paths(
     let rows = db_timeout(query.fetch_all(pool)).await?;
 
     Ok(rows.into_iter().map(|(path,)| path).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The one place in the workspace that hands sqlx a SQL string it built at
+    /// runtime, which sqlx 0.9 makes you assert is safe. The assertion rests on
+    /// ids never reaching the SQL text, so this pins exactly that: ids that
+    /// would break the statement if they were interpolated (a quote, a `?`, a
+    /// comment marker) still match their own rows and nothing else.
+    #[tokio::test]
+    async fn disk_paths_bind_ids_rather_than_interpolating_them() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE chat_attachments (
+                 id TEXT PRIMARY KEY,
+                 message_id TEXT NOT NULL,
+                 filename TEXT NOT NULL,
+                 mime_type TEXT NOT NULL,
+                 size_bytes INTEGER NOT NULL,
+                 storage_type TEXT NOT NULL,
+                 inline_data BLOB,
+                 disk_path TEXT,
+                 created_at INTEGER NOT NULL
+             );
+             INSERT INTO chat_attachments VALUES
+                 ('a1', 'plain',      'a', 'text/plain', 1, 'disk',   NULL, '/data/a', 0),
+                 ('a2', 'o''brien',   'b', 'text/plain', 1, 'disk',   NULL, '/data/b', 0),
+                 ('a3', '?; DROP--',  'c', 'text/plain', 1, 'disk',   NULL, '/data/c', 0),
+                 ('a4', 'inline-one', 'd', 'text/plain', 1, 'inline', NULL, NULL,      0),
+                 ('a5', 'no-path',    'e', 'text/plain', 1, 'disk',   NULL, NULL,      0),
+                 ('a6', 'not-asked',  'f', 'text/plain', 1, 'disk',   NULL, '/data/f', 0);",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let ids = [
+            "plain".to_string(),
+            "o'brien".to_string(),
+            "?; DROP--".to_string(),
+            "inline-one".to_string(),
+            "no-path".to_string(),
+        ];
+        let mut got = get_disk_attachment_paths(&pool, &ids).await.unwrap();
+        got.sort();
+
+        // The three disk rows whose ids were asked for. `inline-one` is filtered
+        // by storage_type, `no-path` by the NULL disk_path, and `not-asked` was
+        // never in the IN list -- if an id had leaked into the SQL text as
+        // anything but a placeholder, `o'brien` and `?; DROP--` would have
+        // changed the statement rather than matched a row.
+        assert_eq!(got, vec!["/data/a", "/data/b", "/data/c"]);
+
+        // Every row is still there: this query reads, and a mangled statement
+        // could have deleted.
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM chat_attachments")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 6, "the query must not have mutated the table");
+    }
+
+    /// The empty case returns before building any SQL -- an IN () clause is a
+    /// syntax error in SQLite, so this is load-bearing, not a fast path.
+    #[tokio::test]
+    async fn no_message_ids_asks_the_database_nothing() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        // No table exists, so a query reaching the database would error.
+        assert!(get_disk_attachment_paths(&pool, &[])
+            .await
+            .unwrap()
+            .is_empty());
+    }
 }
