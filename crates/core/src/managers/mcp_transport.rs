@@ -573,8 +573,6 @@ impl StdioTransport {
 /// Connects to a remote MCP server via HTTP POST requests and SSE responses.
 /// Presents the same channel-based interface as StdioTransport.
 pub struct HttpTransport {
-    #[allow(dead_code)]
-    url: String,
     request_tx: mpsc::Sender<String>,
     response_rx: mpsc::Receiver<String>,
     alive: Arc<AtomicBool>,
@@ -793,7 +791,6 @@ impl HttpTransport {
         });
 
         Ok(Self {
-            url: url.to_string(),
             request_tx: req_tx,
             response_rx: res_rx,
             alive,

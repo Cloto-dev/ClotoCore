@@ -150,8 +150,6 @@ impl ToolKind {
 struct CapabilityMapping {
     server_id: String,
     tool_name: String,
-    #[allow(dead_code)]
-    priority: u8,
 }
 
 /// Routes kernel capability requests to the appropriate MCP server.
@@ -193,7 +191,6 @@ impl CapabilityDispatcher {
                     entries.push(CapabilityMapping {
                         server_id: server_id.to_string(),
                         tool_name: tool.name.clone(),
-                        priority: 0,
                     });
                 }
             }
@@ -236,7 +233,6 @@ impl CapabilityDispatcher {
                     entries.push(CapabilityMapping {
                         server_id: server_id.to_string(),
                         tool_name: tool_name.clone(),
-                        priority: 0,
                     });
                 }
             }
@@ -270,7 +266,7 @@ impl CapabilityDispatcher {
         None
     }
 
-    /// Resolve any server providing this capability (returns highest-priority match).
+    /// Resolve any server providing this capability (returns the first registered match).
     pub async fn resolve_server(&self, capability: CapabilityType) -> Option<String> {
         let mappings = self.mappings.read().await;
         mappings

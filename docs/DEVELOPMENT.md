@@ -142,7 +142,6 @@ Always review this list before making code changes and adhere to the constraints
 | Security | cosign keyless signing (release artifacts) | Done |
 | Quality | Unit Tests: handlers, db, capabilities, middleware, validation, config | Done |
 | Quality | Input validation module (agent creation and config updates) | Done |
-| Quality | Atomic file writes (.maintenance file) | Done |
 | Feature | Self-Healing Python Bridge (auto-restart, max 3 attempts) | Done (archived — Python Bridge removed in MCP migration) |
 | Feature | Build Optimization (`CLOTO_SKIP_ICON_EMBED=1`) | Done |
 | Feature | All comments converted to English (international accessibility) | Done |
