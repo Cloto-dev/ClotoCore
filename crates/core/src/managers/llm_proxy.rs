@@ -14,6 +14,22 @@
 //!   with MCP servers, which is strictly worse for security.
 //! - Upstream LLM providers enforce their own rate limits (429 → structured error).
 //!
+//! ## Proxy token (the proxy's own authenticator)
+//!
+//! Not holding the *admin* key is not the same as holding nothing. The kernel
+//! generates a per-boot `llm_proxy_token` (`AppConfig`) and hands it to every
+//! MCP child it spawns as `CLOTO_LLM_PROXY_TOKEN`; callers present it as
+//! `Authorization: Bearer <token>` or `X-Proxy-Token: <token>`, and the
+//! comparison here is constant-time. The token is scoped to this proxy only —
+//! it grants no kernel API access — so P5 is preserved.
+//!
+//! Enforcement is staged. `llm_proxy_require_token`
+//! (`CLOTO_LLM_PROXY_REQUIRE_TOKEN=1`) makes a missing/wrong token a `401`;
+//! with it off — the current default — the request is served and a
+//! rate-limited warning is logged instead, so connectors that do not yet send
+//! the header keep working. The default flips once the engine library ships
+//! the header.
+//!
 //! ## The bind address is NOT a security boundary
 //!
 //! This proxy binds `127.0.0.1` (hard-coded, unlike the kernel API, which honours
@@ -33,9 +49,10 @@
 //! By Design, and one of the four stated grounds was the loopback claim corrected
 //! above. Removing it leaves the P5 argument and the upstream rate limits — and
 //! both of those justify *not sharing admin credentials*, which is a different
-//! claim from *this proxy needs no authentication of its own*. That closure is
-//! therefore pending re-evaluation; this comment records the gap rather than
-//! re-deciding it. Do not read this module as settled.
+//! claim from *this proxy needs no authentication of its own*. The proxy token
+//! above answers that second claim; until enforcement is the default, the gap is
+//! narrowed rather than closed, because an unauthenticated request is still
+//! served (loudly). Do not read this module as settled.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -62,9 +79,24 @@ const LLM_PROXY_ENDPOINT: &str = "/v1/chat/completions";
 /// Required API version header for Anthropic requests (used when auth_type = "x-api-key").
 const ANTHROPIC_API_VERSION: &str = "2023-06-01";
 
+/// Header the proxy token may be presented on, besides `Authorization: Bearer`.
+const PROXY_TOKEN_HEADER: &str = "X-Proxy-Token";
+
+/// Minimum gap between two "caller sent no valid proxy token" warnings. Without
+/// it a single unauthenticated connector floods the log at request rate.
+const TOKEN_WARN_INTERVAL: Duration = Duration::from_secs(60);
+
+/// When the last untrusted-caller warning was emitted (process-wide).
+static LAST_TOKEN_WARN: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
 struct ProxyState {
     pool: SqlitePool,
     http_client: reqwest::Client,
+    /// Expected proxy token (see module doc). Empty means no caller can match,
+    /// which is the fail-closed direction.
+    token: String,
+    /// Whether a token mismatch is fatal (401) or merely logged.
+    require_token: bool,
 }
 
 /// Spawn the internal LLM proxy on `127.0.0.1:{port}`.
@@ -73,11 +105,16 @@ struct ProxyState {
 /// indicating which provider to route to. The proxy looks up the API key from
 /// the database and forwards the request with proper authentication.
 ///
+/// `token` is the per-boot secret callers must present (module doc §Proxy
+/// token); `require_token` decides whether a mismatch is a 401 or a warning.
+///
 /// Returns a oneshot receiver that resolves to `Ok(())` when the proxy binds
 /// successfully, or `Err(message)` on failure.
 pub fn spawn_llm_proxy(
     pool: SqlitePool,
     port: u16,
+    token: String,
+    require_token: bool,
     timeout_secs: u64,
     shutdown: Arc<Notify>,
 ) -> tokio::sync::oneshot::Receiver<Result<(), String>> {
@@ -95,7 +132,12 @@ pub fn spawn_llm_proxy(
             return ready_rx;
         }
     };
-    let state = Arc::new(ProxyState { pool, http_client });
+    let state = Arc::new(ProxyState {
+        pool,
+        http_client,
+        token,
+        require_token,
+    });
 
     let app = Router::new()
         .route(LLM_PROXY_ENDPOINT, post(proxy_handler))
@@ -171,12 +213,95 @@ fn json_error(status: StatusCode, body: Value) -> Response {
     (status, Json(body)).into_response()
 }
 
+/// Extract the proxy token the caller presented, if any.
+///
+/// `Authorization: Bearer <t>` wins over `X-Proxy-Token: <t>` so a caller that
+/// sets both cannot get a second guess. The `Bearer` scheme is matched
+/// case-insensitively (RFC 7235 §2.1 auth-scheme is case-insensitive).
+fn token_presented(headers: &HeaderMap) -> Option<&str> {
+    if let Some(value) = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+    {
+        const BEARER: &str = "bearer ";
+        if value
+            .get(..BEARER.len())
+            .is_some_and(|scheme| scheme.eq_ignore_ascii_case(BEARER))
+        {
+            return Some(value[BEARER.len()..].trim());
+        }
+    }
+    headers
+        .get(PROXY_TOKEN_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+}
+
+/// Constant-time comparison of the presented token against the expected one.
+///
+/// An absent token is a mismatch, never a pass — the caller decides what a
+/// mismatch costs, but it is never silently treated as authenticated here.
+fn token_matches(presented: Option<&str>, expected: &str) -> bool {
+    use subtle::ConstantTimeEq;
+    match presented {
+        // `ct_eq` on slices of different lengths returns 0 without leaking
+        // which byte diverged.
+        Some(p) => p.as_bytes().ct_eq(expected.as_bytes()).into(),
+        None => false,
+    }
+}
+
+/// Log an unauthenticated caller at most once per [`TOKEN_WARN_INTERVAL`].
+fn warn_untrusted_caller(had_token: bool) {
+    let Ok(mut last) = LAST_TOKEN_WARN.lock() else {
+        return;
+    };
+    let now = std::time::Instant::now();
+    let due = match *last {
+        Some(previous) => now.duration_since(previous) >= TOKEN_WARN_INTERVAL,
+        None => true,
+    };
+    if !due {
+        return;
+    }
+    *last = Some(now);
+    drop(last);
+    warn!(
+        had_token,
+        "LLM proxy request carried {} proxy token — served anyway because \
+         CLOTO_LLM_PROXY_REQUIRE_TOKEN is off. Callers must send \
+         `Authorization: Bearer $CLOTO_LLM_PROXY_TOKEN` (or X-Proxy-Token); \
+         enforcement will become the default and unauthenticated calls will \
+         then be rejected with 401.",
+        if had_token { "an invalid" } else { "no" }
+    );
+}
+
 #[allow(clippy::too_many_lines)]
 async fn proxy_handler(
     State(state): State<Arc<ProxyState>>,
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Response {
+    // Authenticate BEFORE the provider lookup: everything past this point can
+    // spend stored provider credit, and the DB read itself is work done on
+    // behalf of a caller we have not identified yet.
+    let presented = token_presented(&headers);
+    if !token_matches(presented, &state.token) {
+        if state.require_token {
+            return json_error(
+                StatusCode::UNAUTHORIZED,
+                serde_json::json!({
+                    "error": {
+                        "message": "Missing or invalid proxy token. Send `Authorization: Bearer $CLOTO_LLM_PROXY_TOKEN` or `X-Proxy-Token`.",
+                        "code": "proxy_unauthorized"
+                    }
+                }),
+            );
+        }
+        warn_untrusted_caller(presented.is_some());
+    }
+
     // Determine provider from header or body
     let provider_id = headers
         .get("X-LLM-Provider")
@@ -417,5 +542,142 @@ async fn proxy_handler(
                 }),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    fn headers_with(name: &'static str, value: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(name, HeaderValue::from_str(value).unwrap());
+        headers
+    }
+
+    #[test]
+    fn token_presented_reads_bearer_authorization() {
+        let headers = headers_with("authorization", "Bearer abc123");
+        assert_eq!(token_presented(&headers), Some("abc123"));
+        // The auth-scheme is case-insensitive (RFC 7235 §2.1).
+        let headers = headers_with("authorization", "bearer abc123");
+        assert_eq!(token_presented(&headers), Some("abc123"));
+    }
+
+    #[test]
+    fn token_presented_reads_x_proxy_token() {
+        let headers = headers_with(PROXY_TOKEN_HEADER, "abc123");
+        assert_eq!(token_presented(&headers), Some("abc123"));
+    }
+
+    #[test]
+    fn token_presented_is_none_when_absent() {
+        assert_eq!(token_presented(&HeaderMap::new()), None);
+        // A non-Bearer Authorization scheme is not a proxy token either.
+        let headers = headers_with("authorization", "Basic dXNlcjpwdw==");
+        assert_eq!(token_presented(&headers), None);
+    }
+
+    #[test]
+    fn token_matches_only_on_exact_token() {
+        assert!(token_matches(Some("abc123"), "abc123"));
+        assert!(!token_matches(Some("abc124"), "abc123"));
+        // A prefix must not pass: ct_eq is length-aware.
+        assert!(!token_matches(Some("abc"), "abc123"));
+        assert!(!token_matches(None, "abc123"));
+        // Fail-closed when no token was configured at all.
+        assert!(!token_matches(None, ""));
+    }
+
+    /// Reserve a port, then release it so the proxy can bind it.
+    fn free_port() -> u16 {
+        std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    /// Start a proxy on a free port and wait for the bind to succeed.
+    async fn spawn_test_proxy(token: &str, require_token: bool) -> (u16, Arc<Notify>) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let port = free_port();
+        let shutdown = Arc::new(Notify::new());
+        let ready = spawn_llm_proxy(
+            pool,
+            port,
+            token.to_string(),
+            require_token,
+            5,
+            shutdown.clone(),
+        );
+        ready
+            .await
+            .expect("proxy task dropped the ready channel")
+            .expect("proxy failed to bind");
+        (port, shutdown)
+    }
+
+    /// POST an empty body, optionally presenting `header: token`.
+    async fn post_empty(port: u16, auth: Option<(&str, &str)>) -> reqwest::Response {
+        let url = format!("http://127.0.0.1:{port}{LLM_PROXY_ENDPOINT}");
+        let mut req = reqwest::Client::new()
+            .post(url)
+            .json(&serde_json::json!({}));
+        if let Some((name, value)) = auth {
+            req = req.header(name, value);
+        }
+        req.send().await.expect("request to local proxy failed")
+    }
+
+    /// With enforcement on, an unauthenticated call is rejected before the
+    /// provider lookup, and an authenticated one gets through to it.
+    #[tokio::test]
+    async fn require_token_rejects_unauthenticated_callers() {
+        const TOKEN: &str = "proxy-token-under-test";
+        let (port, shutdown) = spawn_test_proxy(TOKEN, true).await;
+
+        // (a) No token at all → 401 with the standard error envelope.
+        let resp = post_empty(port, None).await;
+        assert_eq!(resp.status().as_u16(), 401);
+        let body: Value = resp.json().await.unwrap();
+        assert!(
+            body["error"]["message"].is_string(),
+            "expected the {{error:{{message}}}} envelope, got {body}"
+        );
+
+        // A wrong token is no better than none.
+        let resp = post_empty(port, Some(("Authorization", "Bearer wrong-token"))).await;
+        assert_eq!(resp.status().as_u16(), 401);
+
+        // (b) Correct token → auth passes, and the request fails later, on the
+        // missing provider (400). That 400 is what proves the token check ran
+        // *before* the provider lookup and accepted this caller.
+        let auth = format!("Bearer {TOKEN}");
+        let resp = post_empty(port, Some(("Authorization", &auth))).await;
+        assert_eq!(resp.status().as_u16(), 400);
+
+        // The same token on X-Proxy-Token is equally accepted.
+        let resp = post_empty(port, Some((PROXY_TOKEN_HEADER, TOKEN))).await;
+        assert_eq!(resp.status().as_u16(), 400);
+
+        shutdown.notify_waiters();
+    }
+
+    /// With enforcement off (the rollout default), the same unauthenticated
+    /// call is served: it reaches the provider lookup and fails there (400),
+    /// not at the auth check (401).
+    #[tokio::test]
+    async fn without_require_token_unauthenticated_callers_proceed() {
+        let (port, shutdown) = spawn_test_proxy("proxy-token-under-test", false).await;
+
+        let resp = post_empty(port, None).await;
+        assert_eq!(resp.status().as_u16(), 400);
+
+        shutdown.notify_waiters();
     }
 }

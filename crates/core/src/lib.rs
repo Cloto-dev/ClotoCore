@@ -1184,6 +1184,8 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     let llm_proxy_rx = managers::llm_proxy::spawn_llm_proxy(
         pool.clone(),
         config.llm_proxy_port,
+        config.llm_proxy_token.clone(),
+        config.llm_proxy_require_token,
         config.llm_proxy_timeout_secs,
         app_state.shutdown.clone(),
     );

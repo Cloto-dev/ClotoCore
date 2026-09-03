@@ -86,6 +86,8 @@ pub struct McpClientManager {
     pub(crate) dispatcher: super::capability_dispatcher::CapabilityDispatcher,
     /// LLM proxy port for isolation NetworkScope::ProxyOnly (MGP §8-10).
     llm_proxy_port: u16,
+    /// Per-boot token children present to the LLM proxy (llm_proxy.rs module doc).
+    llm_proxy_token: String,
     /// Env var keys that contain LLM API secrets — stripped from child process env.
     sensitive_env_keys: Vec<String>,
     /// Master switch for OS-level isolation (MGP §8-10).
@@ -134,6 +136,7 @@ impl McpClientManager {
             dispatcher: super::capability_dispatcher::CapabilityDispatcher::new(),
             kernel_event_tx: Mutex::new(None),
             llm_proxy_port: 8082,
+            llm_proxy_token: String::new(),
             sensitive_env_keys: Vec::new(),
             yolo_exceptions: Vec::new(),
             isolation_enabled: true,
@@ -159,6 +162,7 @@ impl McpClientManager {
     /// Configure isolation settings from AppConfig (called once at startup).
     pub fn configure_isolation(&mut self, config: &crate::config::AppConfig) {
         self.llm_proxy_port = config.llm_proxy_port;
+        self.llm_proxy_token = config.llm_proxy_token.clone();
         self.isolation_enabled = config.isolation_enabled;
         self.allow_unsigned = config.allow_unsigned;
         self.sandbox_base_dir = config.sandbox_base_dir.clone();
@@ -1187,6 +1191,7 @@ impl McpClientManager {
                         self.mcp_stream_idle_timeout_secs,
                         isolation_profile.as_ref(),
                         self.llm_proxy_port,
+                        &self.llm_proxy_token,
                         &self.sensitive_env_keys,
                         &self.mcp_default_log_level,
                         config.protocol_era.as_deref(),
@@ -4157,6 +4162,7 @@ while True:\n\
             5,
             None,
             0,
+            "",
             &[],
             crate::managers::mcp_client::DEFAULT_MCP_LOG_LEVEL,
             None,
@@ -4274,6 +4280,7 @@ while True:\n\
             5,
             None,
             0,
+            "",
             &[],
             crate::managers::mcp_client::DEFAULT_MCP_LOG_LEVEL,
             None,

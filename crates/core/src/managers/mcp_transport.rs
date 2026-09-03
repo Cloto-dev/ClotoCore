@@ -270,13 +270,19 @@ impl StdioTransport {
     /// Start a new MCP server process with environment variable injection
     /// and optional OS-level isolation.
     ///
+    /// Always injected, regardless of `isolation`:
+    /// - `PYTHONUNBUFFERED`.
+    /// - `CLOTO_LLM_PROXY_PORT` and `CLOTO_LLM_PROXY_TOKEN` — the kernel LLM
+    ///   proxy's port and the per-boot token the child must present to it.
+    /// - `CLOTO_SEAL_KEY` is *removed* (never handed to a child).
+    ///
     /// When `isolation` is provided:
     /// - Working directory is set to the sandbox dir (created if needed).
     /// - `CLOTO_SANDBOX_DIR`, `HOME`/`TMPDIR`/`TMP`/`TEMP` point into the sandbox.
     /// - For `NetworkScope::ProxyOnly`: `CLOTO_LLM_PROXY`, `HTTP_PROXY`, `HTTPS_PROXY`
     ///   are set to the kernel LLM proxy.
     /// - Sensitive env vars (LLM API keys) are stripped from the child environment.
-    #[allow(clippy::too_many_lines)]
+    #[allow(clippy::too_many_lines, clippy::too_many_arguments)]
     // clippy: the body has no `.await`, but the `async` is not decoration. It
     // calls `tokio::spawn`, which panics outside a runtime. Being an `async fn`
     // is what makes running it outside one structurally impossible; the
@@ -291,6 +297,7 @@ impl StdioTransport {
         env: &HashMap<String, String>,
         isolation: Option<&IsolationProfile>,
         llm_proxy_port: u16,
+        llm_proxy_token: &str,
         sensitive_env_keys: &[String],
         stderr_tx: Option<mpsc::Sender<String>>,
     ) -> Result<Self> {
@@ -348,6 +355,13 @@ impl StdioTransport {
         // Always inject the actual LLM proxy port so MCP servers can
         // discover it at runtime (supplements config-level env vars).
         cmd.env("CLOTO_LLM_PROXY_PORT", llm_proxy_port.to_string());
+
+        // The proxy token goes to every child, not just ProxyOnly ones: any
+        // server may call the proxy (the port is injected unconditionally
+        // above), and a child that is handed the port but not the token would
+        // be rejected once enforcement becomes the default. The token is
+        // per-boot and grants nothing but this proxy (llm_proxy.rs module doc).
+        cmd.env("CLOTO_LLM_PROXY_TOKEN", llm_proxy_token);
 
         // Never hand a child the Magic Seal key. There is no
         // `env_clear` here — a child inherits the kernel's environment — so
@@ -1062,6 +1076,7 @@ mod tests {
             &HashMap::new(),
             None,
             0,
+            "",
             &[],
             Some(tx),
         )

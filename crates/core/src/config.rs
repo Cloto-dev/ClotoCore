@@ -115,6 +115,15 @@ pub struct AppConfig {
     pub cron_check_interval_secs: u64,
     /// Port for internal LLM proxy (MGP §13.4).
     pub llm_proxy_port: u16,
+    /// Shared secret that authenticates callers of the internal LLM proxy.
+    /// Generated fresh on every boot unless pinned via `CLOTO_LLM_PROXY_TOKEN`,
+    /// and handed to kernel-spawned MCP children in their environment. A token
+    /// that leaks out of a child therefore dies with the kernel process.
+    pub llm_proxy_token: String,
+    /// Whether the LLM proxy *rejects* callers that present no/wrong token.
+    /// Default false: during the rollout a bad token is logged and the request
+    /// proceeds, so connectors that do not yet send the header keep working.
+    pub llm_proxy_require_token: bool,
     /// Database operation timeout in seconds.
     pub db_timeout_secs: u64,
     /// Memory retrieval timeout in seconds.
@@ -415,6 +424,22 @@ impl AppConfig {
             .parse::<u16>()
             .unwrap_or(8082);
 
+        // Per-boot credential for the internal LLM proxy. Reaching that port
+        // means spending someone else's provider credit, so the proxy needs an
+        // authenticator of its own — the loopback bind is not one. Pinnable via
+        // env for deployments that start the kernel and its connectors
+        // separately; otherwise a fresh 64-hex secret per process.
+        let llm_proxy_token = env::var("CLOTO_LLM_PROXY_TOKEN")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(crate::apikey::generate);
+        // Rollout switch: enforcement is opt-in until the engine library ships
+        // the header on every request (then this default flips to true).
+        let llm_proxy_require_token = env::var("CLOTO_LLM_PROXY_REQUIRE_TOKEN").is_ok_and(|v| {
+            let v = v.trim().to_ascii_lowercase();
+            v == "1" || v == "true"
+        });
+
         let db_timeout_secs = env::var("CLOTO_DB_TIMEOUT_SECS")
             .unwrap_or_else(|_| "10".to_string())
             .parse::<u64>()
@@ -682,6 +707,8 @@ impl AppConfig {
             cron_enabled,
             cron_check_interval_secs,
             llm_proxy_port,
+            llm_proxy_token,
+            llm_proxy_require_token,
             db_timeout_secs,
             memory_timeout_secs,
             heartbeat_threshold_ms,
