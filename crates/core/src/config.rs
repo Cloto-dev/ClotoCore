@@ -193,6 +193,21 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
+    /// Whether the kernel listener binds a loopback address only.
+    ///
+    /// Loopback narrows who can open a TCP connection to this host's own
+    /// processes. It is *not* a security boundary — a tunnel or reverse proxy
+    /// forwarding to loopback reaches the listener regardless — but a
+    /// non-loopback bind is reachable from other hosts with no such helper,
+    /// so the kernel treats it as the point where a missing API key stops
+    /// being a warning and becomes a refusal to start.
+    #[must_use]
+    pub fn bind_is_loopback(&self) -> bool {
+        self.bind_address
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback())
+    }
+
     #[allow(clippy::too_many_lines)]
     pub fn load() -> anyhow::Result<Self> {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {

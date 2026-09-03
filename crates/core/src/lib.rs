@@ -527,10 +527,37 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     tracing::debug!("📍 DB full path: {}", config.database_url);
     tracing::debug!("📍 exe_dir resolved to: {}", config::exe_dir().display());
 
-    // Principle #5: Warn if admin API key is missing in release builds
-    if config.admin_api_key.is_none() && !cfg!(debug_assertions) {
-        tracing::warn!("⚠️  CLOTO_API_KEY is not set. All admin endpoints will reject requests.");
-        tracing::warn!("    Set CLOTO_API_KEY in .env or environment to enable admin operations.");
+    // Principle #5: a missing admin API key is a warning on loopback and a
+    // refusal to start anywhere else. On a non-loopback bind the key is the
+    // only boundary between the admin API and every host that can reach this
+    // address; starting without one would answer 403 to everything while
+    // looking, from the outside, like a live unauthenticated kernel.
+    let bind_is_loopback = config.bind_is_loopback();
+    if config.admin_api_key.is_none() {
+        if !bind_is_loopback && !unauthenticated_http_allowed() {
+            anyhow::bail!(
+                "CLOTO_API_KEY is not set and BIND_ADDRESS={} is reachable from other hosts. \
+                 Refusing to start. Set CLOTO_API_KEY (the installer writes one into .env), \
+                 or set CLOTO_ALLOW_UNAUTHENTICATED_HTTP=1 to start a listener that rejects \
+                 every admin request.",
+                config.bind_address
+            );
+        }
+        if !cfg!(debug_assertions) {
+            tracing::warn!(
+                "⚠️  CLOTO_API_KEY is not set. All admin endpoints will reject requests."
+            );
+            tracing::warn!(
+                "    Set CLOTO_API_KEY in .env or environment to enable admin operations."
+            );
+        }
+    }
+    if !bind_is_loopback {
+        tracing::warn!(
+            "⚠️  BIND_ADDRESS={} is reachable from other hosts. The admin API key is the only \
+             boundary on this listener; keep it secret and rotate it if it leaks.",
+            config.bind_address
+        );
     }
 
     // 0. Ensure parent directory of DB file exists (for deployed layout)
@@ -1497,8 +1524,15 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
                 ]),
         );
 
-    let bind_addr: std::net::SocketAddr =
-        format!("{}:{}", config.bind_address, config.port).parse()?;
+    // Build the address from its parts: formatting "{ip}:{port}" would turn an
+    // IPv6 bind such as `::1` into `::1:8081`, which is not a socket address.
+    let bind_ip: std::net::IpAddr = config.bind_address.parse().map_err(|e| {
+        anyhow::anyhow!(
+            "BIND_ADDRESS '{}' is not an IP address: {e}",
+            config.bind_address
+        )
+    })?;
+    let bind_addr = std::net::SocketAddr::new(bind_ip, config.port);
     let listener = bind_with_retry(bind_addr, 5, std::time::Duration::from_secs(2)).await?;
     // Signal deferred MCP boot that the HTTP server is now ready for callbacks.
     http_ready.notify_waiters();
@@ -1608,6 +1642,15 @@ async fn stop_signal() {
     }
 }
 
+/// `CLOTO_ALLOW_UNAUTHENTICATED_HTTP=1` opts out of the refusal to start a
+/// keyless kernel on a non-loopback bind. The opt-out exists so an operator
+/// who has put another boundary in front of the listener can say so
+/// explicitly; it is never the default.
+fn unauthenticated_http_allowed() -> bool {
+    std::env::var("CLOTO_ALLOW_UNAUTHENTICATED_HTTP")
+        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+}
+
 /// Bind a TCP listener with retry logic for port conflicts (e.g., previous process
 /// still holding the port in CLOSE_WAIT/TIME_WAIT state during `tauri dev` restarts).
 async fn bind_with_retry(
@@ -1616,7 +1659,11 @@ async fn bind_with_retry(
     delay: std::time::Duration,
 ) -> anyhow::Result<tokio::net::TcpListener> {
     for attempt in 0..=max_retries {
-        let socket = tokio::net::TcpSocket::new_v4()?;
+        let socket = if addr.is_ipv4() {
+            tokio::net::TcpSocket::new_v4()?
+        } else {
+            tokio::net::TcpSocket::new_v6()?
+        };
         socket.set_reuseaddr(true)?;
         match socket.bind(addr) {
             Ok(()) => match socket.listen(1024) {
