@@ -32,6 +32,17 @@ jobs:
         with:
           shared-key: ci-lint
 
+      # MUST stay the first cargo invocation in this job. Every other cargo
+      # command silently rewrites Cargo.lock when it is inconsistent, so once
+      # one has run, --locked has nothing left to find. That is not
+      # hypothetical: the sqlx 0.9 bump arrived with the lock naming
+      # `windows-sys 0.48.0` as a dependency of winapi-util while carrying no
+      # package entry for that version, and all five failing jobs reported the
+      # unrelated trait-bound error instead. `npm ci` already refuses an
+      # inconsistent lock on the dashboard side; this is the Rust half.
+      - name: Verify Cargo.lock is self-consistent
+        run: cargo metadata --locked --format-version 1 > /dev/null
+
       - name: Create dashboard dist placeholder
         run: |
           mkdir -p dashboard/dist
