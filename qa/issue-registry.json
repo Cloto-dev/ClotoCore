@@ -4170,10 +4170,11 @@
       "version": "0.6.8-beta.2",
       "file": "dashboard/src-tauri/src/lib.rs",
       "pattern": "fn capture_screen\\(\\) -> Result<String, String> \\{",
-      "expected": "present",
-      "status": "open",
+      "expected": "absent",
+      "status": "fixed",
       "notes": "Discovered by ClotoCore comprehensive code-quality audit 2026-07-12 (Sonnet-5 Workflow wf_3a2b40c2-649 resume: 26 finders -> dedup 63 -> severity-tiered adversarial verify (all 160 agents, 0 error); final verdict CONFIRMED; finder(s): tauri-shell). Failure scenario: `capture_screen` is registered in `invoke_handler` (line ~599) and captures the primary monitor to a base64 PNG with zero consent prompt, rate limit, or capability gating; it is not called anywhere in dashboard/src (confirmed via repo-wide search — no `captureScreen`/`capture_screen` call site exists in the frontend). Because it, like the other custom commands, is not represented in capabilities/default.json, any script with IPC access in the 'main' or 'vrm-viewer' webview can invoke it directly today and silently exfiltrate a screenshot of the user's desktop back into the webview, with no legitimate current feature relying on it. Fix direction: Remove capture_screen from invoke_handler until a concrete feature needs it, or gate it behind an explicit user-consent flow and a capability permission scoped to the specific window/feature that uses it.",
-      "github_issue": 323
+      "github_issue": 323,
+      "fix_note": "FIXED 2026-09-04: capture_screen removed from the Tauri command surface along with its invoke_handler entry and the xcap/image/base64 crates it alone pulled in (the fix direction the finding named). No frontend caller existed; the IPC surface no longer exposes silent screen capture."
     },
     {
       "id": "bug-480",
@@ -4236,8 +4237,8 @@
       "file": "dashboard/src/vrm/VrmContext.tsx",
       "pattern": "\\}, \\[vrmEnabled\\]\\);",
       "expected": "present",
-      "status": "fixed",
-      "notes": "Discovered by ClotoCore comprehensive code-quality audit 2026-07-12 (Sonnet-5 Workflow wf_3a2b40c2-649 resume: 26 finders -> dedup 63 -> severity-tiered adversarial verify (all 160 agents, 0 error); final verdict CONFIRMED; finder(s): dash-vrm-avatar). Failure scenario: If `VrmProvider` were mounted around a component whose `vrmEnabled` prop toggles across an agent switch (as the comment explicitly describes), `agentState` would never reset to 'idle' on that transition, because the `useEffect` on lines 39-41 has dependency array `[]` and therefore only fires once on initial mount. A stale 'thinking'/'responding' state from the previous agent would carry over into the newly selected agent's avatar rendering. Fix direction: Change the dependency array to `[vrmEnabled]`, or remove/correct the misleading comment if mount-only reset is actually intended. — FIXED 2026-07-16 (branch fix/audit-a1-frontend): Tier A1 audit remediation; verify-issues confirms.",
+      "status": "obsolete",
+      "notes": "Discovered by ClotoCore comprehensive code-quality audit 2026-07-12 (Sonnet-5 Workflow wf_3a2b40c2-649 resume: 26 finders -> dedup 63 -> severity-tiered adversarial verify (all 160 agents, 0 error); final verdict CONFIRMED; finder(s): dash-vrm-avatar). Failure scenario: If `VrmProvider` were mounted around a component whose `vrmEnabled` prop toggles across an agent switch (as the comment explicitly describes), `agentState` would never reset to 'idle' on that transition, because the `useEffect` on lines 39-41 has dependency array `[]` and therefore only fires once on initial mount. A stale 'thinking'/'responding' state from the previous agent would carry over into the newly selected agent's avatar rendering. Fix direction: Change the dependency array to `[vrmEnabled]`, or remove/correct the misleading comment if mount-only reset is actually intended. — FIXED 2026-07-16 (branch fix/audit-a1-frontend): Tier A1 audit remediation; verify-issues confirms. — OBSOLETE 2026-09-04: VrmContext.tsx (and its only consumer useVrmAvatar.ts) were removed as unreachable dead code; the file no longer exists, so the fix is moot.",
       "github_issue": 328
     },
     {

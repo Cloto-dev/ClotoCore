@@ -22,7 +22,6 @@ log = "0.4"
 tauri = { version = "2.10.0", features = ["tray-icon"] }
 tauri-plugin-log = "2"
 tauri-plugin-notification = "2"
-tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-window-state = "2"
 tauri-plugin-dialog = "2"
@@ -32,11 +31,6 @@ tauri-plugin-process = "2"
 # Rfc3339 formatting of the updater's release date (same `time` the updater
 # plugin already pulls in — this only turns on the `formatting` feature).
 time = { version = "0.3", features = ["formatting"] }
-
-# Screen capture
-xcap = "0.9"
-image = "0.25"
-base64 = "0.21"
 
 # ClotoCore Kernel (provides axum, tower-http, tokio, tracing, etc.)
 cloto_core = { path = "../../crates/core" }
