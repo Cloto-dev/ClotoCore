@@ -1503,6 +1503,22 @@ while True:\n\
         true
     }
 
+    /// Request timeout the mock connects ask for.
+    ///
+    /// This is not a round-trip budget — it sizes the `server/discover` probe
+    /// window, which is `min(request_timeout, DISCOVER_PROBE_TIMEOUT_SECS)`, and
+    /// that window has to cover **interpreter startup** because the transport
+    /// returns as soon as the child is spawned, not when it is ready to read.
+    ///
+    /// Measured on the `windows-latest` runner (job 99374988960 vs. its green
+    /// re-run 99376530822, same commit): the python-mock cohort takes ~4 s to
+    /// answer, against the 5 s window the old value bought. Losing that race is
+    /// silent — a timed-out probe is a legitimate handshake fallback (policy 4),
+    /// so the connect still completes, just down the era the test was not
+    /// grading. Ask for the widest window the probe honours instead of one that
+    /// sits ~1 s from the measured cost.
+    const MOCK_REQUEST_TIMEOUT_SECS: u64 = DISCOVER_PROBE_TIMEOUT_SECS;
+
     /// Connect the given mock (era preference `auto`) and return the client +
     /// negotiation outcome.
     async fn connect_mock(server_id: &str, mock: &str) -> Result<(McpClient, NegotiatedProtocol)> {
@@ -1513,7 +1529,7 @@ while True:\n\
             &["-c".to_string(), mock.to_string()],
             &HashMap::new(),
             notif_tx,
-            5,
+            MOCK_REQUEST_TIMEOUT_SECS,
             5,
             None,
             0,
@@ -1686,7 +1702,11 @@ while True:\n\
         };
         assert!(
             err.to_string().contains("protocol version mismatch"),
-            "unexpected error: {err:#}"
+            "the connect failed, but not on the disjoint-version policy: {err:#}\n\
+             `-32600 no handshake here` means the mock answered `initialize`, i.e. the \
+             `server/discover` probe timed out before the child was ready and negotiation \
+             fell back to the handshake (policy 4). Policy (3) was never exercised — this \
+             is an environment result, not a regression. See MOCK_REQUEST_TIMEOUT_SECS."
         );
     }
 
