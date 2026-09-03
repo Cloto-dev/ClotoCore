@@ -511,10 +511,11 @@ pub async fn system_uninstall_plan_handler(
 
 /// Server-Sent Events (SSE) stream for real-time event delivery.
 ///
-/// **Route:** `GET /api/events/stream`
+/// **Route:** `GET /api/events`
 ///
 /// # Authentication
-/// No authentication required (subscriber-only).
+/// Requires the admin API key, in `X-API-Key` or as `?token=` (the browser's
+/// `EventSource` cannot set headers).
 ///
 /// # Behavior
 /// 1. Sends initial `handshake` event with data `"connected"`
@@ -591,7 +592,7 @@ pub async fn sse_handler(
 /// **Route:** `GET /api/history`
 ///
 /// # Authentication
-/// No authentication required (read-only).
+/// Requires the admin API key (`X-API-Key`).
 ///
 /// # Response
 /// Returns a JSON array of recent events (most recent first),
@@ -620,7 +621,7 @@ pub async fn get_history(
 /// **Route:** `GET /api/metrics`
 ///
 /// # Authentication
-/// No authentication required (read-only).
+/// Requires the admin API key (`X-API-Key`).
 ///
 /// # Response
 /// ```json

@@ -1,6 +1,6 @@
 import { User } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { api } from '../services/api';
+import { useApi } from '../hooks/useApi';
 import type { AgentMetadata } from '../types';
 
 /** Get current brand hex from CSS variable */
@@ -15,6 +15,7 @@ export function agentColor(_agent: AgentMetadata): string {
 
 /** Render the appropriate icon for an agent (avatar image or fallback icon) */
 export function AgentIcon({ agent, size = 20 }: { agent: AgentMetadata; size?: number }) {
+  const api = useApi();
   const [imgError, setImgError] = useState(false);
   // Cache-bust using avatar_updated_at (set by backend on every upload).
   // For legacy avatars without the timestamp, use a mount-time value so
@@ -25,7 +26,7 @@ export function AgentIcon({ agent, size = 20 }: { agent: AgentMetadata; size?: n
   if (agent.metadata?.has_avatar === 'true' && !imgError) {
     return (
       <img
-        src={`${api.getAvatarUrl(agent.id)}?v=${avatarVersion}`}
+        src={api.getAvatarUrl(agent.id, avatarVersion)}
         alt={agent.name}
         className="rounded-md object-cover"
         style={{ width: size, height: size }}

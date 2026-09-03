@@ -261,7 +261,7 @@ export function VrmViewerPage() {
     setLoading(true);
     setError(null);
 
-    const vrmUrl = `${api.getAvatarUrl(agentId).replace('/avatar', '/vrm')}`;
+    const vrmUrl = api.getVrmUrl(agentId, apiKey ?? '');
 
     loader
       .load(vrmUrl)
@@ -306,7 +306,7 @@ export function VrmViewerPage() {
       scene.dispose();
       controllerRef.current = null;
     };
-  }, [agentId]);
+  }, [agentId, apiKey]);
 
   // Enable window dragging in Tauri (decorations: false) — upper half only
   useEffect(() => {
