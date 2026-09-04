@@ -12,6 +12,10 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+#[path = "common/kernel_spawn.rs"]
+mod kernel_spawn;
+use kernel_spawn::spawn_retrying_busy;
+
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 fn free_port(host: &str) -> u16 {
@@ -130,10 +134,8 @@ fn health_ok(host: &str, port: u16) -> bool {
 #[test]
 fn keyless_kernel_refuses_to_start_on_a_non_loopback_bind() {
     let scratch = Scratch::new();
-    let mut child = scratch
-        .command("0.0.0.0", free_port("127.0.0.1"), None)
-        .spawn()
-        .expect("spawn kernel");
+    let mut cmd = scratch.command("0.0.0.0", free_port("127.0.0.1"), None);
+    let mut child = spawn_retrying_busy(&mut cmd);
     let status = wait_exit(&mut child, Duration::from_secs(60)).unwrap_or_else(|| {
         let _ = child.kill();
         panic!("keyless kernel on 0.0.0.0 kept running instead of refusing to start");
@@ -153,10 +155,8 @@ fn keyless_kernel_refuses_to_start_on_a_non_loopback_bind() {
 fn keyless_kernel_still_starts_on_loopback() {
     let scratch = Scratch::new();
     let port = free_port("127.0.0.1");
-    let mut child = scratch
-        .command("127.0.0.1", port, None)
-        .spawn()
-        .expect("spawn kernel");
+    let mut cmd = scratch.command("127.0.0.1", port, None);
+    let mut child = spawn_retrying_busy(&mut cmd);
     let boot = Instant::now();
     while !health_ok("127.0.0.1", port) {
         if let Some(status) = child.try_wait().unwrap() {
@@ -181,10 +181,8 @@ fn kernel_binds_an_ipv6_loopback_address() {
     }
     let scratch = Scratch::new();
     let port = free_port("::1");
-    let mut child = scratch
-        .command("::1", port, Some(KEY))
-        .spawn()
-        .expect("spawn kernel");
+    let mut cmd = scratch.command("::1", port, Some(KEY));
+    let mut child = spawn_retrying_busy(&mut cmd);
     let boot = Instant::now();
     while !health_ok("::1", port) {
         if let Some(status) = child.try_wait().unwrap() {
@@ -213,4 +211,54 @@ fn kernel_binds_an_ipv6_loopback_address() {
         let _ = child.kill();
         panic!("kernel did not exit after /api/system/shutdown");
     }
+}
+
+/// The retry in `spawn_retrying_busy` is all that stands between a parallel
+/// `fs::copy` and a red build, and the race it waits out is too narrow to
+/// provoke by running tests. So stage the refusal directly: an image held open
+/// for writing is exactly the state an inherited copy descriptor leaves it in.
+/// Linux only — this asserts the refusal happens, and other systems are free
+/// not to refuse.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_busy_executable_is_waited_out_rather_than_failed() {
+    let source = Path::new("/bin/echo");
+    if !source.exists() {
+        eprintln!("skipping: this host has no /bin/echo to copy");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("tempdir");
+    let exe = dir.path().join("busy");
+    std::fs::copy(source, &exe).expect("copy /bin/echo");
+
+    let writer = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&exe)
+        .expect("hold the image open for writing");
+
+    // Precondition: while that descriptor is open, a plain spawn is refused.
+    // Without it the rest of this test proves nothing.
+    let refusal = Command::new(&exe)
+        .stdout(Stdio::null())
+        .spawn()
+        .expect_err("a busy image must not exec");
+    assert_eq!(
+        refusal.kind(),
+        std::io::ErrorKind::ExecutableFileBusy,
+        "staged the wrong refusal: {refusal}"
+    );
+
+    let releaser = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        drop(writer);
+    });
+
+    let mut cmd = Command::new(&exe);
+    cmd.stdout(Stdio::null());
+    let mut child = spawn_retrying_busy(&mut cmd);
+    releaser.join().expect("releaser thread");
+    assert!(
+        child.wait().expect("wait for the spawned image").success(),
+        "the image spawned by the retry did not run"
+    );
 }
