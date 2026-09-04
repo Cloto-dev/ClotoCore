@@ -1,6 +1,7 @@
 {
-  "rust_test_count": 666,
-  "dashboard_test_count": 65,
-  "updated_at": "2026-08-31",
-  "updated_by": "check-test-count.sh --update"
+  "rust_test_count": 752,
+  "dashboard_test_count": 70,
+  "updated_at": "2026-09-05",
+  "updated_by": "measured runs (macOS local + ubuntu CI); see note",
+  "note": "rust_test_count is the LOWEST count across the platforms that run this ratchet, not the highest. ubuntu CI measures 758 and macOS 752: the difference is tests gated behind cfg(target_os = \"linux\"), which do not compile elsewhere. Holding the ubuntu number would fail this gate on every macOS run forever, and a ratchet the developer always sees fail is one nobody reads. Raise this only from a count measured on the lowest platform."
 }
