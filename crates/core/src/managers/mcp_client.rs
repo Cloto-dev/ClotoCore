@@ -1212,6 +1212,7 @@ impl McpClient {
 
 #[cfg(test)]
 mod tests {
+    use super::super::mcp_test_support::{connect_mock, python3_available, MOCK_READY_SENTINEL};
     use super::*;
 
     /// bug-411: when the server process dies (transport EOF) while idle, the
@@ -1224,6 +1225,12 @@ mod tests {
         // Mock MCP server: answer `initialize`, then exit (EOF on stdout).
         // readline() (not `for line in sys.stdin`) avoids stdin read-ahead
         // buffering so the response is emitted immediately.
+        //
+        // `server/discover` is answered with -32601 rather than ignored: a
+        // handshake-era server that never answers costs the connect a full
+        // probe window before it falls back, and that path has its own test
+        // (`silent_probe_times_out_and_falls_back_to_the_handshake`) instead of
+        // being paid for here.
         const MOCK: &str = "import sys, json\n\
 while True:\n\
 \x20   line = sys.stdin.readline()\n\
@@ -1236,45 +1243,29 @@ while True:\n\
 \x20       req = json.loads(line)\n\
 \x20   except Exception:\n\
 \x20       continue\n\
-\x20   if req.get('method') == 'initialize':\n\
+\x20   m = req.get('method')\n\
+\x20   if m == 'server/discover':\n\
+\x20       sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': req.get('id'), 'error': {'code': -32601, 'message': 'Method not found'}}) + '\\n')\n\
+\x20       sys.stdout.flush()\n\
+\x20   elif m == 'initialize':\n\
 \x20       sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {}}) + '\\n')\n\
 \x20       sys.stdout.flush()\n\
 \x20       break\n";
 
         // Skip cleanly if python3 is unavailable (keeps minimal envs green).
-        if std::process::Command::new("python3")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            eprintln!("skipping is_alive_flips_false_when_server_exits_idle: python3 not found");
+        if !python3_available("is_alive_flips_false_when_server_exits_idle") {
             return;
         }
 
-        let (notif_tx, _notif_rx) = mpsc::channel(8);
-        let (client, _negotiated) = McpClient::connect(
-            "mock-bug411",
-            "python3",
-            &["-c".to_string(), MOCK.to_string()],
-            &HashMap::new(),
-            notif_tx,
-            5,
-            5,
-            None,
-            0,
-            "",
-            &[],
-            DEFAULT_MCP_LOG_LEVEL,
-            None,
-        )
-        .await
-        .expect("mock server should complete the initialize handshake");
+        let server = connect_mock("mock-bug411", MOCK)
+            .await
+            .expect("mock server should complete the initialize handshake");
 
         // The mock exits right after responding, so the transport reaches EOF
         // and the response loop sets alive=false. Poll briefly for the flip.
         let mut became_dead = false;
         for _ in 0..50 {
-            if !client.is_alive() {
+            if !server.client.is_alive() {
                 became_dead = true;
                 break;
             }
@@ -1324,46 +1315,38 @@ while True:\n\
 \x20       req = json.loads(line)\n\
 \x20   except Exception:\n\
 \x20       continue\n\
-\x20   if req.get('method') == 'initialize':\n\
+\x20   m = req.get('method')\n\
+\x20   if m == 'server/discover':\n\
+\x20       sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': req.get('id'), 'error': {'code': -32601, 'message': 'Method not found'}}) + '\\n')\n\
+\x20       sys.stdout.flush()\n\
+\x20   elif m == 'initialize':\n\
 \x20       sys.stdout.write(json.dumps({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {}}) + '\\n')\n\
 \x20       sys.stdout.flush()\n";
 
-        if std::process::Command::new("python3")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            eprintln!(
-                "skipping stderr_lines_are_forwarded_as_pseudo_notifications: python3 not found"
-            );
+        if !python3_available("stderr_lines_are_forwarded_as_pseudo_notifications") {
             return;
         }
 
-        let (notif_tx, mut notif_rx) = mpsc::channel(8);
-        let (_client, _negotiated) = McpClient::connect(
-            "mock-stderr",
-            "python3",
-            &["-c".to_string(), MOCK.to_string()],
-            &HashMap::new(),
-            notif_tx,
-            5,
-            5,
-            None,
-            0,
-            "",
-            &[],
-            DEFAULT_MCP_LOG_LEVEL,
-            None,
-        )
-        .await
-        .expect("mock server should complete the initialize handshake");
+        let mut server = connect_mock("mock-stderr", MOCK)
+            .await
+            .expect("mock server should complete the initialize handshake");
 
         // Poll for the stderr bridge notification (ignore any others).
         let mut got = None;
         for _ in 0..50 {
-            match tokio::time::timeout(std::time::Duration::from_millis(100), notif_rx.recv()).await
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                server.notifications.recv(),
+            )
+            .await
             {
                 Ok(Some(n)) if n.method == CLOTO_STDERR_LOG_METHOD => {
+                    // The readiness sentinel is a stderr line like any other and
+                    // arrives first (mcp_test_support). It proves the bridge is
+                    // live, but the mock's own line is what this test grades.
+                    if stderr_line_from_params(n.params.as_ref()) == MOCK_READY_SENTINEL {
+                        continue;
+                    }
                     got = Some(n);
                     break;
                 }
@@ -1432,47 +1415,31 @@ while True:\n\
 \x20   except Exception:\n\
 \x20       continue\n\
 \x20   m = req.get('method')\n\
-\x20   if m == 'initialize':\n\
+\x20   if m == 'server/discover':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': req.get('id'), 'error': {'code': -32601, 'message': 'Method not found'}})\n\
+\x20   elif m == 'initialize':\n\
 \x20       emit({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {'capabilities': {'logging': {}}}})\n\
 \x20   elif m == 'logging/setLevel':\n\
 \x20       lvl = req.get('params', {}).get('level')\n\
 \x20       emit({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {}})\n\
 \x20       emit({'jsonrpc': '2.0', 'method': 'notifications/message', 'params': {'level': 'warning', 'logger': 'test', 'data': 'setlevel=' + str(lvl)}})\n";
 
-        if std::process::Command::new("python3")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            eprintln!(
-                "skipping logging_capability_gets_setlevel_and_forwards_message: python3 not found"
-            );
+        if !python3_available("logging_capability_gets_setlevel_and_forwards_message") {
             return;
         }
 
-        let (notif_tx, mut notif_rx) = mpsc::channel(8);
-        let (_client, _negotiated) = McpClient::connect(
-            "mock-logging",
-            "python3",
-            &["-c".to_string(), MOCK.to_string()],
-            &HashMap::new(),
-            notif_tx,
-            5,
-            5,
-            None,
-            0,
-            "",
-            &[],
-            DEFAULT_MCP_LOG_LEVEL,
-            None,
-        )
-        .await
-        .expect("mock server should complete the initialize handshake");
+        let mut server = connect_mock("mock-logging", MOCK)
+            .await
+            .expect("mock server should complete the initialize handshake");
 
         // Poll for the notifications/message triggered by our setLevel.
         let mut got = None;
         for _ in 0..50 {
-            match tokio::time::timeout(std::time::Duration::from_millis(100), notif_rx.recv()).await
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(100),
+                server.notifications.recv(),
+            )
+            .await
             {
                 Ok(Some(n)) if n.method == "notifications/message" => {
                     got = Some(n);
@@ -1494,56 +1461,6 @@ while True:\n\
             message, "setlevel=info",
             "kernel must send logging/setLevel with the default level"
         );
-    }
-
-    fn python3_available(test_name: &str) -> bool {
-        if std::process::Command::new("python3")
-            .arg("--version")
-            .output()
-            .is_err()
-        {
-            eprintln!("skipping {test_name}: python3 not found");
-            return false;
-        }
-        true
-    }
-
-    /// Request timeout the mock connects ask for.
-    ///
-    /// This is not a round-trip budget — it sizes the `server/discover` probe
-    /// window, which is `min(request_timeout, DISCOVER_PROBE_TIMEOUT_SECS)`, and
-    /// that window has to cover **interpreter startup** because the transport
-    /// returns as soon as the child is spawned, not when it is ready to read.
-    ///
-    /// Measured on the `windows-latest` runner (job 99374988960 vs. its green
-    /// re-run 99376530822, same commit): the python-mock cohort takes ~4 s to
-    /// answer, against the 5 s window the old value bought. Losing that race is
-    /// silent — a timed-out probe is a legitimate handshake fallback (policy 4),
-    /// so the connect still completes, just down the era the test was not
-    /// grading. Ask for the widest window the probe honours instead of one that
-    /// sits ~1 s from the measured cost.
-    const MOCK_REQUEST_TIMEOUT_SECS: u64 = DISCOVER_PROBE_TIMEOUT_SECS;
-
-    /// Connect the given mock (era preference `auto`) and return the client +
-    /// negotiation outcome.
-    async fn connect_mock(server_id: &str, mock: &str) -> Result<(McpClient, NegotiatedProtocol)> {
-        let (notif_tx, _notif_rx) = mpsc::channel(8);
-        McpClient::connect(
-            server_id,
-            "python3",
-            &["-c".to_string(), mock.to_string()],
-            &HashMap::new(),
-            notif_tx,
-            MOCK_REQUEST_TIMEOUT_SECS,
-            5,
-            None,
-            0,
-            "",
-            &[],
-            DEFAULT_MCP_LOG_LEVEL,
-            None,
-        )
-        .await
     }
 
     /// Modern-era end-to-end (dual-era): a server that answers
@@ -1598,34 +1515,37 @@ while True:\n\
             return;
         }
 
-        let (client, negotiated) = connect_mock("mock-modern", MOCK)
+        let server = connect_mock("mock-modern", MOCK)
             .await
             .expect("modern mock must negotiate via server/discover alone");
 
-        assert_eq!(negotiated.era, ProtocolEra::Modern);
-        assert_eq!(client.protocol_era(), Some(ProtocolEra::Modern));
+        assert_eq!(server.negotiated.era, ProtocolEra::Modern);
+        assert_eq!(server.client.protocol_era(), Some(ProtocolEra::Modern));
         assert_eq!(
-            negotiated.instructions.as_deref(),
+            server.negotiated.instructions.as_deref(),
             Some("probe ok"),
             "DiscoverResult.instructions must be surfaced"
         );
-        let mgp = negotiated
+        let mgp = server
+            .negotiated
             .mgp
+            .clone()
             .expect("MGP advertisement must be read from capabilities.extensions");
         assert_eq!(mgp.version, "0.6.0");
         assert!(mgp.extensions.iter().any(|e| e == "permissions"));
 
         // The mock rejects any tools/list whose _meta misses one of the four
         // modern keys, so a plain success pins the per-request stamping.
-        let tools = client.list_tools().await.expect("modern tools/list");
+        let tools = server.client.list_tools().await.expect("modern tools/list");
         assert_eq!(tools.tools.len(), 1);
         assert_eq!(tools.tools[0].name, "meta_ok");
 
         // Approved grants ride tools/call _meta (mgp-spec 0.8.0-draft §3.8).
-        client.set_mgp_grants(serde_json::json!({
+        server.client.set_mgp_grants(serde_json::json!({
             "network.outbound": { "decision": "approved" }
         }));
-        let result = client
+        let result = server
+            .client
             .call_tool("anything", serde_json::json!({}))
             .await
             .expect("tools/call with grants attached");
@@ -1664,13 +1584,57 @@ while True:\n\
             return;
         }
 
-        let (client, negotiated) = connect_mock("mock-legacy-fallback", MOCK)
+        let server = connect_mock("mock-legacy-fallback", MOCK)
             .await
             .expect("a -32601 probe answer must fall back to the handshake");
-        assert_eq!(negotiated.era, ProtocolEra::Legacy);
-        assert_eq!(client.protocol_era(), Some(ProtocolEra::Legacy));
-        assert!(negotiated.mgp.is_none());
-        assert!(negotiated.instructions.is_none());
+        assert_eq!(server.negotiated.era, ProtocolEra::Legacy);
+        assert_eq!(server.client.protocol_era(), Some(ProtocolEra::Legacy));
+        assert!(server.negotiated.mgp.is_none());
+        assert!(server.negotiated.instructions.is_none());
+    }
+
+    /// Era policy (4), the other way in: a server that never answers the probe
+    /// at all. `classify_probe_error` maps the request timeout onto the same
+    /// fallback, and the connect completes down the handshake era.
+    ///
+    /// Every other mock here answers `server/discover` explicitly, so without
+    /// this test nothing would exercise the timeout arm — it used to be covered
+    /// only by accident, by mocks that ignored the probe because it was not
+    /// what they were about.
+    ///
+    /// The wait is the point, and it cannot race: the probe window
+    /// (`min(request_timeout, DISCOVER_PROBE_TIMEOUT_SECS)` = 10 s) expires no
+    /// matter how fast or slow the interpreter starts, because there is no
+    /// answer to be had, and the `initialize` that follows has the full
+    /// mock request timeout to itself.
+    #[tokio::test]
+    async fn silent_probe_times_out_and_falls_back_to_the_handshake() {
+        const MOCK: &str = "import sys, json\n\
+def emit(o):\n\
+\x20   sys.stdout.write(json.dumps(o) + '\\n'); sys.stdout.flush()\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   if req.get('method') == 'initialize':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': req.get('id'), 'result': {'capabilities': {}}})\n";
+
+        if !python3_available("silent_probe_times_out_and_falls_back_to_the_handshake") {
+            return;
+        }
+
+        let server = connect_mock("mock-silent-probe", MOCK)
+            .await
+            .expect("an unanswered probe must fall back to the handshake, not fail the connect");
+        assert_eq!(server.negotiated.era, ProtocolEra::Legacy);
+        assert_eq!(server.client.protocol_era(), Some(ProtocolEra::Legacy));
     }
 
     /// Era policy (3): `-32022` naming only versions this kernel knows neither
@@ -1712,7 +1676,8 @@ while True:\n\
              `-32600 no handshake here` means the mock answered `initialize`, i.e. the \
              `server/discover` probe timed out before the child was ready and negotiation \
              fell back to the handshake (policy 4). Policy (3) was never exercised — this \
-             is an environment result, not a regression. See MOCK_REQUEST_TIMEOUT_SECS."
+             is an environment result, not a regression. The readiness gate in \
+             mcp_test_support exists to keep that from happening; read its module docs."
         );
     }
 
@@ -1746,12 +1711,13 @@ while True:\n\
             return;
         }
 
-        let (client, negotiated) = connect_mock("mock-mrtr", MOCK)
+        let server = connect_mock("mock-mrtr", MOCK)
             .await
             .expect("modern mock must negotiate");
-        assert_eq!(negotiated.era, ProtocolEra::Modern);
+        assert_eq!(server.negotiated.era, ProtocolEra::Modern);
 
-        let err = client
+        let err = server
+            .client
             .call_tool("ask", serde_json::json!({}))
             .await
             .expect_err("input_required must not parse as a final result");
