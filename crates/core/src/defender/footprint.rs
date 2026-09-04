@@ -245,8 +245,14 @@ pub fn remove(data_dir: &Path, id: &str) {
 fn write_receipt(data_dir: &Path, receipt: &Receipt) {
     let path = receipt_path(data_dir);
     let tmp = path.with_extension("json.tmp");
-    let result = serde_json::to_string_pretty(receipt)
-        .map_err(std::io::Error::other)
+    // The kernel creates its data directory on boot, but `install` runs before
+    // any kernel has started and writes the receipt into a directory that need
+    // not exist yet: on a stock Debian the installing root account has no
+    // `~/.local/share`, so every install receipt was lost to `NotFound` — with
+    // it the entries only `install` knows (the prefix, the scripts, the .env,
+    // the service) never reached the ledger the defender calls canonical.
+    let result = std::fs::create_dir_all(data_dir)
+        .and_then(|()| serde_json::to_string_pretty(receipt).map_err(std::io::Error::other))
         .and_then(|json| std::fs::write(&tmp, json))
         .and_then(|()| std::fs::rename(&tmp, &path));
     if let Err(e) = result {
@@ -345,6 +351,23 @@ pub fn boot_entries(data_dir: &Path) -> Vec<ReceiptEntry> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `install` writes the receipt before any kernel has created the data
+    /// directory, and the installing account need not own one already.
+    #[test]
+    fn record_creates_the_directory_it_writes_into() {
+        let dir = tempfile::tempdir().unwrap();
+        let absent = dir.path().join(".local/share/cloto-system");
+        assert!(!absent.exists());
+
+        record(
+            &absent,
+            vec![ReceiptEntry::dir("install_prefix", dir.path())],
+        );
+
+        let receipt = load(&absent).expect("receipt must survive an absent data dir");
+        assert!(receipt.entries.iter().any(|e| e.id == "install_prefix"));
+    }
 
     #[test]
     fn record_creates_upserts_and_lists_itself() {

@@ -414,15 +414,40 @@ fn c_db_file_integrity(ctx: &CheckCtx) -> CheckFuture<'_> {
 
 // ── Legacy data-dir drift ──
 
+/// True when two paths name the same file on disk. A path that does not exist
+/// has no canonical form, so either side failing to canonicalize falls back to
+/// comparing the paths as written.
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (std::fs::canonicalize(a), std::fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
+    }
+}
+
 /// Pure core of the drift check: which `candidates` (≠ the resolved dir)
 /// contain a database the running binary would not read?
 ///
+/// `live_db` is the database the binary actually opens — `DATABASE_URL` when
+/// set, otherwise `<data_dir>/cloto_memories.db`. A prefix install points it
+/// outside the data directory, so a candidate can hold the live database while
+/// still differing from the resolved data dir. Without this the check reports
+/// that directory as stray and says the binary does not read a file it reads
+/// on every query.
+///
 /// Shared with `defender::purge` so the doctor and the uninstall plan can
-/// never disagree about what counts as a stray data directory.
-pub(crate) fn drift_hits(resolved: &Path, candidates: &[PathBuf]) -> Vec<PathBuf> {
+/// never disagree about what counts as a stray data directory. The two resolve
+/// `live_db` the same way, but only the kernel process loads `.env`; a CLI
+/// purge whose environment carries no override therefore still offers the
+/// directory for removal. That asymmetry is the safe one — purge stays a
+/// superset, and the failure §1 exists to prevent is health knowing about
+/// something uninstall forgets, not the other way round.
+pub(crate) fn drift_hits(resolved: &Path, live_db: &Path, candidates: &[PathBuf]) -> Vec<PathBuf> {
     candidates
         .iter()
-        .filter(|c| c.as_path() != resolved && c.join("cloto_memories.db").exists())
+        .filter(|c| {
+            let db = c.join("cloto_memories.db");
+            c.as_path() != resolved && db.exists() && !same_file(&db, live_db)
+        })
         .cloned()
         .collect()
 }
@@ -433,7 +458,7 @@ fn c_legacy_data_dir_drift(ctx: &CheckCtx) -> CheckFuture<'_> {
         if let Some(d) = dirs::data_dir() {
             candidates.push(d.join(crate::config::APP_DATA_DIR_NAME));
         }
-        let hits = drift_hits(&ctx.data_dir, &candidates);
+        let hits = drift_hits(&ctx.data_dir, &resolve_db_path(&ctx.data_dir), &candidates);
         Some(if hits.is_empty() {
             HealthCheck {
                 name: "legacy_data_dir_drift".into(),
@@ -964,9 +989,43 @@ mod tests {
 
         let hits = drift_hits(
             &active,
+            &active.join("cloto_memories.db"),
             &[active.clone(), stray_with_db.clone(), stray_empty],
         );
         assert_eq!(hits, vec![stray_with_db]);
+    }
+
+    /// A prefix install puts the live database outside the data directory, so
+    /// the directory holding it is not the resolved data dir and used to be
+    /// reported as stray — with a message saying the binary does not read the
+    /// very file every query goes to.
+    #[test]
+    fn drift_hits_spares_the_directory_holding_the_live_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let data_dir = dir.path().join("home/.local/share/cloto-system");
+        let prefix_data = dir.path().join("opt/cloto/data");
+        for d in [&data_dir, &prefix_data] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let live_db = prefix_data.join("cloto_memories.db");
+        std::fs::write(&live_db, b"x").unwrap();
+
+        assert!(
+            drift_hits(&data_dir, &live_db, std::slice::from_ref(&prefix_data)).is_empty(),
+            "the directory holding the database the binary opens is not drift"
+        );
+
+        // The same directory is drift once the binary reads a database
+        // somewhere else — otherwise the assertion above would hold for a
+        // check that had simply stopped reporting anything.
+        assert_eq!(
+            drift_hits(
+                &data_dir,
+                &data_dir.join("cloto_memories.db"),
+                std::slice::from_ref(&prefix_data)
+            ),
+            vec![prefix_data]
+        );
     }
 
     #[test]

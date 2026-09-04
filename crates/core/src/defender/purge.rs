@@ -901,20 +901,27 @@ fn legacy_candidates(data_dir: &Path, roots: &ProbeRoots) -> Vec<Candidate> {
 
     // Shared with the doctor check so the two can never disagree about what
     // counts as drift (§1: health knowing about something uninstall forgets
-    // is the failure this subsystem exists to prevent).
-    crate::defender::checks::drift_hits(data_dir, &candidates)
-        .into_iter()
-        .enumerate()
-        .map(|(idx, hit)| {
-            Candidate::path_entry(
-                format!("legacy_data_dir_{idx}"),
-                PurgeKind::Dir,
-                hit,
-                PurgeTier::Everything,
-                PurgeSource::Legacy,
-            )
-        })
-        .collect()
+    // is the failure this subsystem exists to prevent). Both exclude the
+    // directory holding the database the binary opens; where this process has
+    // no override in its environment that resolves back to `data_dir`, which
+    // is excluded anyway, so purge can only ever offer more than health flags.
+    crate::defender::checks::drift_hits(
+        data_dir,
+        &crate::defender::checks::resolve_db_path(data_dir),
+        &candidates,
+    )
+    .into_iter()
+    .enumerate()
+    .map(|(idx, hit)| {
+        Candidate::path_entry(
+            format!("legacy_data_dir_{idx}"),
+            PurgeKind::Dir,
+            hit,
+            PurgeTier::Everything,
+            PurgeSource::Legacy,
+        )
+    })
+    .collect()
 }
 
 fn finish_plan(
