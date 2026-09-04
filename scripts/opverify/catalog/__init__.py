@@ -31,6 +31,7 @@ _MODULES = [
     "cron",
     "marketplace",
     "system",
+    "settings",
     "plugins",
     "permissions",
     "setup",
@@ -67,6 +68,21 @@ class Operation:
     # Included in the phase-0 "spine" slice (a small, LLM-free subset used to
     # prove the harness end-to-end before the full catalog exists).
     phase0: bool = False
+    # Execution rank. Operations run in registration order within a rank, and
+    # ranks run ascending, so an operation that changes state every *later*
+    # operation depends on (the admin key rotation) can declare that it must
+    # run after the rest without the catalog's module order encoding it.
+    # Default 0 = "no ordering opinion", which is every other operation.
+    order: int = 0
+    # True when the operation cannot run against a fresh empty DB because it
+    # needs state only the operator's seeded DB carries (a real provider key, a
+    # reasoning engine row). The runner uses this to decide whether to boot
+    # from a rewired *copy* of the dev DB. It is declared per operation rather
+    # than inferred from the domain: `chat.messages` is a chat operation that
+    # only exercises persistence and must see an empty transcript, so a
+    # domain-level guess would seed a run that needs no seed — and hand every
+    # other phase-0 operation a DB full of the operator's real state.
+    needs_seed: bool = False
 
     @property
     def key(self) -> str:
@@ -95,6 +111,11 @@ def load_all() -> List[Operation]:
 
 
 def select(operations: List[Operation], phase0_only: bool = False) -> List[Operation]:
-    if phase0_only:
-        return [op for op in operations if op.phase0]
-    return list(operations)
+    """Filter to the requested slice and put the result in execution order.
+
+    ``sorted`` is stable, so operations that share a rank keep their
+    registration order — the ordering attribute only moves the few operations
+    that genuinely have to run late, and changes nothing else.
+    """
+    selected = [op for op in operations if op.phase0] if phase0_only else list(operations)
+    return sorted(selected, key=lambda op: op.order)

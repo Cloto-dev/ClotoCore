@@ -1,13 +1,22 @@
 """Local deployment backend — boot an isolated ``clotocore`` child process
 on this machine and drive it over loopback HTTP (phase 0 / 1).
 
-Isolation model: the throwaway SQLite DB (``DATABASE_URL``) and MCP sandbox
-(``CLOTO_SANDBOX_DIR``) are redirected into a fresh temp dir, which is what
-matters for the state-corruption oracles. Note the kernel's ``data_dir()``
-is anchored to the binary location (no env override), so log files / the
-MCP venv still resolve next to the binary in a dev checkout — acceptable for
-the local tier, where fast catalog iteration is the goal; true per-run
-isolation is provided by the VM tiers' pristine snapshots.
+Isolation model: the throwaway SQLite DB (``DATABASE_URL``), MCP sandbox
+(``CLOTO_SANDBOX_DIR``) and admin-key ``.env`` target (``CLOTO_ENV_PATH``) are
+redirected into a fresh temp dir, which is what matters for the
+state-corruption oracles. Note the kernel's ``data_dir()`` is anchored to the
+binary location (no env override), so log files / the MCP venv still resolve
+next to the binary in a dev checkout — acceptable for the local tier, where
+fast catalog iteration is the goal; true per-run isolation is provided by the
+VM tiers' pristine snapshots.
+
+``CLOTO_ENV_PATH`` is not cosmetic. ``POST /api/system/regenerate-key``
+persists the rotated key through ``apikey::resolve_env_target()``, which
+without the override walks cwd → exe dir → data dir and *creates* a ``.env``
+where none exists. Rotating a key in a verification run would then rewrite the
+``CLOTO_API_KEY`` of the checkout that built the binary — the operator's own
+install — which is precisely the class of collateral this deployment exists to
+avoid.
 
 Teardown is via the authenticated ``POST /api/system/shutdown`` route (the
 kernel installs no SIGTERM handler), with a SIGKILL fallback.
@@ -143,6 +152,8 @@ class LocalDeployment:
                 "BIND_ADDRESS": "127.0.0.1",
                 "DATABASE_URL": f"sqlite:{db_path}",
                 "CLOTO_SANDBOX_DIR": sandbox,
+                # Key rotation writes here instead of the checkout's .env.
+                "CLOTO_ENV_PATH": os.path.join(self._dir, ".env"),
                 "CLOTO_LLM_PROXY_PORT": str(proxy_port),
                 "RUST_LOG": env.get("RUST_LOG", "info"),
             }
