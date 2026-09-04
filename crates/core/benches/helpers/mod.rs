@@ -12,7 +12,7 @@ use sqlx::SqlitePool;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU8};
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, Notify, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 
 #[allow(dead_code)]
 pub async fn create_bench_app_state() -> Arc<AppState> {
@@ -56,7 +56,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         event_history,
         metrics,
         rate_limiter,
-        shutdown: Arc::new(Notify::new()),
+        shutdown: cloto_core::shutdown::ShutdownSignal::new(),
         revoked_keys: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
         pending_command_approvals: Arc::new(dashmap::DashMap::new()),
         session_trusted_commands: Arc::new(dashmap::DashMap::new()),

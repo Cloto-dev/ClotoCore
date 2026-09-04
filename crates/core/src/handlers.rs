@@ -242,7 +242,7 @@ pub async fn shutdown_handler(
 
     // P9 / bug-305: Drain all MCP servers before shutting down. The drain runs in a
     // bounded task — each server gets 5s, the whole join is capped at 10s — and only
-    // after it completes (or times out) do we notify shutdown waiters below, so the
+    // after it completes (or times out) do we raise the shutdown signal below, so the
     // kernel never exits while servers are still being drained.
     let mcp = state.mcp_manager.clone();
     let shutdown = state.shutdown.clone();
@@ -265,7 +265,7 @@ pub async fn shutdown_handler(
         setup_flag.store(false, std::sync::atomic::Ordering::SeqCst);
 
         info!("👋 Kernel shutting down gracefully.");
-        shutdown.notify_waiters();
+        shutdown.raise();
     });
 
     ok_data(serde_json::json!({}))
@@ -377,7 +377,7 @@ pub async fn system_uninstall_handler(
     );
 
     // Same exit sequence as the shutdown endpoint: drain MCP servers, close the
-    // pool, then release the shutdown waiters. The helper is already running
+    // pool, then raise the shutdown signal. The helper is already running
     // and blocked on this pid.
     let mcp = state.mcp_manager.clone();
     let shutdown = state.shutdown.clone();
@@ -404,7 +404,7 @@ pub async fn system_uninstall_handler(
         }
         crate::defender::runlock::release(&data_dir);
         info!("👋 Kernel exiting so the uninstall helper can take over.");
-        shutdown.notify_waiters();
+        shutdown.raise();
     });
 
     ok_data(serde_json::json!({

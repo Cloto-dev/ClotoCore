@@ -3,7 +3,7 @@ use crate::managers::{AgentManager, PluginManager, PluginRegistry, SystemMetrics
 use sqlx::SqlitePool;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, Notify, RwLock};
+use tokio::sync::{broadcast, mpsc, RwLock};
 
 pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::AppState> {
     create_test_app_state_in(std::path::PathBuf::from("data"), admin_api_key).await
@@ -39,7 +39,7 @@ pub async fn create_test_app_state_in(
         config.rate_limit_burst,
     ));
 
-    let shutdown = Arc::new(Notify::new());
+    let shutdown = crate::shutdown::ShutdownSignal::new();
     let mcp_manager = Arc::new(crate::managers::McpClientManager::new(
         pool.clone(),
         false, // yolo_mode disabled in tests

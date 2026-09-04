@@ -3458,7 +3458,7 @@ impl McpClientManager {
     /// and auto-restarts them based on their restart policy.
     pub fn spawn_health_monitor(
         self: Arc<Self>,
-        shutdown: Arc<tokio::sync::Notify>,
+        shutdown: crate::shutdown::ShutdownSignal,
         interval_secs: u64,
         setup_in_progress: Arc<std::sync::atomic::AtomicBool>,
         setup_done: Arc<std::sync::atomic::AtomicBool>,

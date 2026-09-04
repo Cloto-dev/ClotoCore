@@ -107,14 +107,14 @@ impl EventProcessor {
         }
     }
 
-    pub fn spawn_cleanup_task(self: Arc<Self>, shutdown: Arc<tokio::sync::Notify>) {
+    pub fn spawn_cleanup_task(self: Arc<Self>, shutdown: crate::shutdown::ShutdownSignal) {
         let processor = self.clone();
         tokio::spawn(async move {
             let mut interval =
                 tokio::time::interval(std::time::Duration::from_secs(EVENT_CLEANUP_INTERVAL_SECS));
             loop {
                 tokio::select! {
-                    () = shutdown.notified() => {
+                    () = shutdown.raised() => {
                         tracing::info!("Event history cleanup shutting down");
                         break;
                     }
@@ -131,13 +131,13 @@ impl EventProcessor {
     pub fn spawn_heartbeat_task(
         agent_manager: AgentManager,
         interval_secs: u64,
-        shutdown: Arc<tokio::sync::Notify>,
+        shutdown: crate::shutdown::ShutdownSignal,
     ) {
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
             loop {
                 tokio::select! {
-                    () = shutdown.notified() => {
+                    () = shutdown.raised() => {
                         tracing::info!("Active heartbeat task shutting down");
                         break;
                     }

@@ -5,12 +5,13 @@ use std::time::Duration;
 
 use chrono::Utc;
 use sqlx::SqlitePool;
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use cloto_shared::{ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, MessageSource};
 
 use crate::db::{self, CronJobRow};
+use crate::shutdown::ShutdownSignal;
 use crate::EnvelopedEvent;
 
 /// Upper bound for an `interval` cron schedule, in seconds (1 year).
@@ -33,7 +34,7 @@ pub fn spawn_cron_task(
     pool: SqlitePool,
     event_tx: mpsc::Sender<EnvelopedEvent>,
     check_interval_secs: u64,
-    shutdown: Arc<Notify>,
+    shutdown: ShutdownSignal,
 ) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(check_interval_secs));
@@ -44,7 +45,7 @@ pub fn spawn_cron_task(
 
         loop {
             tokio::select! {
-                () = shutdown.notified() => {
+                () = shutdown.raised() => {
                     info!("Cron scheduler shutting down");
                     break;
                 }

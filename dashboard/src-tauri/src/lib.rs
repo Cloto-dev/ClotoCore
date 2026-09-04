@@ -93,7 +93,7 @@ fn begin_shutdown(app: &tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         drain_mcp().await;
         if let Some(handle) = KERNEL_HANDLE.get() {
-            handle.shutdown.notify_waiters();
+            handle.shutdown.raise();
             // Give the kernel's HTTP server and background tasks a beat to wind
             // down (and the overlay a beat to be seen) before the process exits.
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
@@ -249,7 +249,7 @@ mod tests {
         );
 
         // A UI path that started first owns the sequence, and this waiter — which
-        // that path's own notify_waiters() wakes — must stand down.
+        // that path's own shutdown signal wakes — must stand down.
         SHUTDOWN_STARTED.store(true, Ordering::SeqCst);
         MCP_DRAINED.store(false, Ordering::SeqCst);
         assert!(
@@ -637,7 +637,7 @@ fn run_smoke() -> i32 {
             }
         };
         // Best-effort graceful shutdown; process::exit follows regardless.
-        handle.shutdown.notify_one();
+        handle.shutdown.raise();
         code
     });
 
@@ -859,19 +859,14 @@ pub fn run() {
                         //
                         // Give the kernel's shutdown signal somewhere to land
                         // (bug-499): it stops the HTTP server, and this ends the
-                        // process it belongs to. `enable()` registers interest
-                        // before the first await point, so a signal that fires
-                        // between spawning this task and polling it is still
-                        // received — `notify_waiters` only wakes registered
-                        // waiters, and a missed one here is an app that never
-                        // exits.
+                        // process it belongs to. The signal latches, so one
+                        // raised between spawning this task and polling it is
+                        // still seen here — a missed one would be an app that
+                        // never exits.
                         let exit_signal = handle.shutdown.clone();
                         let exit_app = kernel_app_handle.clone();
                         tauri::async_runtime::spawn(async move {
-                            let notified = exit_signal.notified();
-                            tokio::pin!(notified);
-                            notified.as_mut().enable();
-                            notified.await;
+                            exit_signal.raised().await;
                             exit_after_kernel_shutdown(&exit_app);
                         });
                         let _ = KERNEL_HANDLE.set(handle);

@@ -17,6 +17,7 @@ pub mod managers;
 pub mod middleware;
 pub mod platform;
 pub mod plugins;
+pub mod shutdown;
 pub mod test_utils;
 pub mod viseme;
 
@@ -120,6 +121,8 @@ use std::sync::atomic::{AtomicBool, AtomicU8};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Notify, RwLock};
 
+use crate::shutdown::ShutdownSignal;
+
 /// Context for a currently-executing CRON job (tracks generation for recursion depth).
 #[derive(Debug, Clone)]
 pub struct CronExecContext {
@@ -164,7 +167,7 @@ pub struct AppState {
     pub event_history: Arc<RwLock<VecDeque<events::SequencedEvent>>>,
     pub metrics: Arc<managers::SystemMetrics>,
     pub rate_limiter: Arc<middleware::RateLimiter>,
-    pub shutdown: Arc<Notify>,
+    pub shutdown: ShutdownSignal,
     /// In-memory cache of revoked API key hashes (SHA-256 fingerprints).
     /// Loaded from DB at startup; updated on POST /api/system/invalidate-key.
     pub revoked_keys: Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>,
@@ -322,8 +325,8 @@ pub type AppResult<T> = Result<T, AppError>;
 /// Dropping this handle does **not** trigger shutdown; use [`KernelHandle::shutdown`]
 /// or the `/api/system/shutdown` endpoint instead.
 pub struct KernelHandle {
-    /// Notify to trigger graceful shutdown of the HTTP server and background tasks.
-    pub shutdown: Arc<Notify>,
+    /// Signal that triggers graceful shutdown of the HTTP server and background tasks.
+    pub shutdown: ShutdownSignal,
     /// The MCP client manager, exposed so an embedder (e.g. Tauri) can drain and
     /// reap MCP subprocesses on app exit instead of orphaning them
     /// (orphan-leak fix, Step 4). Use `mcp_manager.drain_all(...)` before exit.
@@ -650,7 +653,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     db::sync_env_api_keys(&pool, &config.llm_provider_env_mappings).await;
 
     // 2. Plugin Manager Setup
-    let shutdown = Arc::new(Notify::new());
+    let shutdown = ShutdownSignal::new();
     // P1: Merge network whitelist + API host whitelist for SafeHttpClient
     let mut all_allowed_hosts = config.allowed_hosts.clone();
     all_allowed_hosts.extend(config.default_allowed_api_hosts.clone());
@@ -976,7 +979,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         tokio::spawn(async move {
             loop {
                 tokio::select! {
-                    () = shutdown_clone.notified() => {
+                    () = shutdown_clone.raised() => {
                         tracing::info!("MCP notification listener shutting down");
                         break;
                     }
@@ -1209,7 +1212,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     let shutdown_clone = app_state.shutdown.clone();
     tokio::spawn(async move {
         tokio::select! {
-            () = shutdown_clone.notified() => {
+            () = shutdown_clone.raised() => {
                 tracing::info!("Event processor shutting down");
             }
             () = processor_clone.process_loop(event_rx, event_tx_clone) => {}
@@ -1225,7 +1228,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             tokio::time::interval(std::time::Duration::from_secs(RATE_LIMITER_CLEANUP_SECS));
         loop {
             tokio::select! {
-                () = shutdown_clone.notified() => {
+                () = shutdown_clone.raised() => {
                     tracing::info!("Rate limiter cleanup shutting down");
                     break;
                 }
@@ -1247,7 +1250,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
                 tokio::time::interval(std::time::Duration::from_secs(REVOKED_KEYS_CLEANUP_SECS));
             loop {
                 tokio::select! {
-                    () = shutdown_clone.notified() => {
+                    () = shutdown_clone.raised() => {
                         tracing::info!("Revoked keys cleanup shutting down");
                         break;
                     }
@@ -1559,7 +1562,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
         )
         .with_graceful_shutdown(async move {
-            shutdown_signal.notified().await;
+            shutdown_signal.raised().await;
             info!("🛑 Graceful shutdown signal received. Stopping server...");
         })
         .await
@@ -1588,7 +1591,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
     // process outright and left every MCP child orphaned (the same leak the
     // HTTP path and the desktop app-exit path already drain against).
     tokio::select! {
-        () = handle.shutdown.notified() => {}
+        () = handle.shutdown.raised() => {}
         () = stop_signal() => {
             tracing::info!("🛑 Stop signal received from the OS. Draining MCP servers before exit...");
             handle
@@ -1596,7 +1599,7 @@ pub async fn run_kernel() -> anyhow::Result<()> {
                 .drain_all("kernel shutdown (signal)", 5000, 10)
                 .await;
             tracing::info!("👋 Kernel shutting down gracefully.");
-            handle.shutdown.notify_waiters();
+            handle.shutdown.raise();
         }
     }
     // Let the HTTP server finish its graceful shutdown (and release the run
