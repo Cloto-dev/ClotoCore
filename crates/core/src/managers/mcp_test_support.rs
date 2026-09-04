@@ -137,6 +137,28 @@ fn mock_program(body: &str) -> String {
     )
 }
 
+/// Prefix a mock body with a silence, *then* its readiness announcement.
+///
+/// The mock this builds writes nothing at all — not one byte, on either stream
+/// — for `quiet`, which is what a child resolving a cold venv looks like from
+/// the kernel's side. The `import` line is compiled with the rest of the source
+/// before a statement runs, so the silence is the sleep and nothing else.
+///
+/// Used to drive the readiness path of the era probe. The plain [`mock_program`]
+/// variant announces itself immediately and therefore drives the ordinary
+/// silence-budget path; both are worth having, and a test should say which one
+/// it is exercising.
+fn slow_mock_program(body: &str, quiet: Duration) -> String {
+    format!(
+        "import sys, time\n\
+         time.sleep({:.3})\n\
+         sys.stderr.write('{MOCK_READY_SENTINEL}\\n')\n\
+         sys.stderr.flush()\n\
+         {body}",
+        quiet.as_secs_f64()
+    )
+}
+
 /// Run `program` with stdin closed and wait for it to announce readiness.
 ///
 /// Panics — this is the gate, and a mock that never reaches its read loop is a
@@ -216,7 +238,34 @@ async fn await_mock_ready(server_id: &str, program: &str) {
 pub(crate) async fn connect_mock(server_id: &str, body: &str) -> Result<MockServer> {
     let program = mock_program(body);
     await_mock_ready(server_id, &program).await;
+    connect_program(server_id, program).await
+}
 
+/// Like [`connect_mock`], but the connected mock writes nothing for `quiet`
+/// before it announces itself and starts reading.
+///
+/// This is the shape the era probe has to survive in production: a child that
+/// exists, has been written to, and has not yet run a line of its own program.
+/// `quiet` must exceed the probe's silence budget for the test to mean
+/// anything, and the connect's request timeout must exceed `quiet` — see
+/// [`MOCK_REQUEST_TIMEOUT_SECS`] and the readiness cap it bounds.
+///
+/// The warm-up still runs the *prompt* variant of the same body. The gate is
+/// here to pay for the interpreter and for compiling the body, not to sit
+/// through the silence the test is about; the two programs differ by the sleep
+/// and nothing else.
+pub(crate) async fn connect_slow_mock(
+    server_id: &str,
+    body: &str,
+    quiet: Duration,
+) -> Result<MockServer> {
+    await_mock_ready(server_id, &mock_program(body)).await;
+    connect_program(server_id, slow_mock_program(body, quiet)).await
+}
+
+/// Connect a fresh instance of an already-warmed mock program (era preference
+/// `auto`).
+async fn connect_program(server_id: &str, program: String) -> Result<MockServer> {
     let (notif_tx, notifications) = mpsc::channel(NOTIFICATION_BUFFER);
     let (client, negotiated) = McpClient::connect(
         server_id,

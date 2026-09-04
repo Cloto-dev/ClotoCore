@@ -4487,6 +4487,18 @@
       "status": "fixed",
       "notes": "Found by the opverify catalog work (PR #493): the memory probe server only became able to serve the import after declaring the MGP tools_for_capability manifest, and the shipped CPersona does not declare one (grep of its source: 0 hits) while it does export import_memories. Failure scenario: dashboard Memory Core → import JSONL → POST /api/memories/import → handler calls call_capability_tool(Memory, \"import_memories\") → \"No server provides Memory capability for tool 'import_memories'\" → 500. FIXED 2026-09-04: import_memories added to the Memory arm; unit test pins every REST-dispatched memory tool to Memory.",
       "github_issue": 495
+    },
+    {
+      "id": "bug-507",
+      "summary": "MEDIUM: a slow-starting MCP server is negotiated into the wrong protocol era \u2014 `StdioTransport::start` returns once the child process exists, not once it can read, so the `server/discover` probe's silence budget is charged for interpreter and virtualenv startup; when startup outruns it, `classify_probe_error` maps the request timeout onto the handshake fallback, and a server that speaks both eras is then settled as legacy with no error at all while a modern-only one fails the connect on `-32600`.",
+      "severity": "MEDIUM",
+      "discovered": "2026-09-04T00:00:00Z",
+      "version": "0.6.8-beta.6",
+      "file": "crates/core/src/managers/mcp_client.rs",
+      "pattern": "\\.call_with_readiness_window\\(",
+      "expected": "present",
+      "status": "fixed",
+      "notes": "Failure scenario: on a host with a cold virtualenv the interpreter takes longer to reach its stdin loop than the probe budget (10s). The probe is written into the pipe and is never lost, but nothing on the other side has run a line, so the window closes on a silence the server never sent. FIXED 2026-09-04: the transport now signals the instant the child produces its first byte on either output stream, and the probe's silence budget runs from that instant rather than from the write, with a longer absolute cap applying for as long as the child has written nothing at all. A dead child still resolves immediately, because the response loop drains every pending request when the read side reaches EOF. Regression test connects a mock that stays silent past the budget and then answers server/discover in the modern era; with the budget measured from the write it reports legacy instead."
     }
   ]
 }
