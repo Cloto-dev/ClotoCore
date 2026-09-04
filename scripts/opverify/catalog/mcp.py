@@ -25,6 +25,7 @@ import subprocess
 import time
 
 from . import Operation, RunContext, register
+from ._probe import register_probe, teardown_probe, wait_connected
 
 # The hermetic probe server shipped alongside this module; registered by
 # absolute path so the kernel's entry-point existence check passes.
@@ -63,7 +64,10 @@ class McpAccess(Operation):
     domain = "mcp"
     name = "access"
     covers = ["GET /api/mcp/access/by-agent/{agent_id}"]
-    phase0 = False
+    # Pure read against a table that is empty on a fresh instance; the shape
+    # (agent_id + entries[]) is what the dashboard binds to, and it is
+    # assertable with no server registered.
+    phase0 = True
 
     def drive(self, ctx: RunContext):
         return ctx.client.get(f"/api/mcp/access/by-agent/{_AGENT}")
@@ -244,3 +248,255 @@ class McpLifecycle(Operation):
             ctx.client.delete(f"/api/mcp/servers/{_LIFECYCLE_NAME}", timeout=15.0)
         except Exception:  # noqa: BLE001
             pass
+
+
+_SETTINGS_NAME = "opverify-settings-probe"
+_GRANT_AGENT = "agent.cloto_default"
+
+
+def _entry_keys(access_payload):
+    """(entry_type, agent_id, tool_name) for each entry in a server access
+    payload — enough to tell a grant apart without depending on row ids."""
+    entries = (access_payload or {}).get("entries") or []
+    return {
+        (e.get("entry_type"), e.get("agent_id"), e.get("tool_name"))
+        for e in entries
+        if isinstance(e, dict)
+    }
+
+
+@register
+class McpServerSettings(Operation):
+    """The per-server settings / access-control / lifecycle surface.
+
+    These five routes all key off a *registered* server row, so the operation
+    registers the hermetic probe and drives them against it:
+
+    * ``GET``/``PUT settings`` — flip ``default_policy`` between the only two
+      legal values and read it back through ``GET``; then assert an illegal
+      value is refused and does not change the stored one.
+    * ``GET``/``PUT access``   — replace the access entry set and read it back.
+      Two invariants of the handler are asserted rather than assumed: an entry
+      whose ``server_id`` disagrees with the path is refused (otherwise the
+      route would be a way to write grants for a *different* server), and a
+      ``capability`` entry is refused from the bulk path.
+    * ``POST restart`` / ``POST stop`` + ``POST start`` — the server comes back
+      to ``Connected`` and its tool is callable again afterwards. "Restarted"
+      is not a status message; it is a server that answers.
+
+    ``start`` is deliberately driven from a *stopped* server: the manager
+    refuses to start one that is already ``Connected``, so a start that is
+    asserted while running would be asserting an error path.
+
+    Not phase 0 (needs the kernel's mcp-equipped venv), like ``mcp.lifecycle``.
+    """
+
+    domain = "mcp"
+    name = "server_settings"
+    covers = [
+        "GET /api/mcp/servers/{name}/settings",
+        "PUT /api/mcp/servers/{name}/settings",
+        "GET /api/mcp/servers/{name}/access",
+        "PUT /api/mcp/servers/{name}/access",
+        "POST /api/mcp/servers/{name}/restart",
+        "POST /api/mcp/servers/{name}/start",
+    ]
+    phase0 = False
+
+    def drive(self, ctx: RunContext):
+        c = ctx.client
+        name = _SETTINGS_NAME
+        ctx.scratch["settings_probe"] = name
+        _reg, row = register_probe(
+            c, name, description="opverify settings/lifecycle probe"
+        )
+        if (row or {}).get("status") != "Connected":
+            return {"status": (row or {}).get("status")}
+
+        # -- settings -------------------------------------------------------
+        initial = c.get(f"/api/mcp/servers/{name}/settings")
+        booted_policy = (initial or {}).get("default_policy")
+        flipped = "opt-out" if booted_policy != "opt-out" else "opt-in"
+        c.put(
+            f"/api/mcp/servers/{name}/settings",
+            body={"default_policy": flipped},
+        )
+        after_policy = c.get(f"/api/mcp/servers/{name}/settings")
+        bad_policy_status, _ = c.request_raw(
+            "PUT",
+            f"/api/mcp/servers/{name}/settings",
+            body={"default_policy": "opverify-not-a-policy"},
+        )
+        after_bad_policy = c.get(f"/api/mcp/servers/{name}/settings")
+
+        # -- access ---------------------------------------------------------
+        access_before = c.get(f"/api/mcp/servers/{name}/access")
+        grant = {
+            "entry_type": "server_grant",
+            "agent_id": _GRANT_AGENT,
+            "server_id": name,
+            "tool_name": None,
+            "permission": "allow",
+            "granted_by": "opverify",
+            "granted_at": "2026-01-01T00:00:00Z",
+        }
+        put_access = c.put(
+            f"/api/mcp/servers/{name}/access", body={"entries": [grant]}
+        )
+        access_after = c.get(f"/api/mcp/servers/{name}/access")
+
+        foreign = dict(grant, server_id="opverify-some-other-server")
+        foreign_status, foreign_body = c.request_raw(
+            "PUT", f"/api/mcp/servers/{name}/access", body={"entries": [foreign]}
+        )
+        capability = dict(grant, entry_type="capability")
+        capability_status, _ = c.request_raw(
+            "PUT",
+            f"/api/mcp/servers/{name}/access",
+            body={"entries": [capability]},
+        )
+        access_after_refusals = c.get(f"/api/mcp/servers/{name}/access")
+
+        # -- lifecycle ------------------------------------------------------
+        c.post(f"/api/mcp/servers/{name}/restart", timeout=60.0)
+        after_restart = wait_connected(c, name, timeout=30.0)
+        call_after_restart = c.post(
+            "/api/mcp/call",
+            body={"server_id": name, "tool_name": "ping", "arguments": {}},
+            timeout=30.0,
+        )
+
+        c.post(f"/api/mcp/servers/{name}/stop", timeout=30.0)
+        stopped = _row(c, name)
+        c.post(f"/api/mcp/servers/{name}/start", timeout=60.0)
+        after_start = wait_connected(c, name, timeout=30.0)
+        call_after_start = c.post(
+            "/api/mcp/call",
+            body={"server_id": name, "tool_name": "ping", "arguments": {}},
+            timeout=30.0,
+        )
+
+        # Drop the grant we wrote so nothing outlives the operation.
+        c.put(f"/api/mcp/servers/{name}/access", body={"entries": []})
+
+        return {
+            "status": "Connected",
+            "booted_policy": booted_policy,
+            "flipped": flipped,
+            "after_policy": after_policy,
+            "bad_policy_status": bad_policy_status,
+            "after_bad_policy": after_bad_policy,
+            "access_before": _entry_keys(access_before),
+            "put_access": put_access,
+            "access_after": _entry_keys(access_after),
+            "foreign_status": foreign_status,
+            "foreign_body": foreign_body,
+            "capability_status": capability_status,
+            "access_after_refusals": _entry_keys(access_after_refusals),
+            "after_restart": (after_restart or {}).get("status"),
+            "call_after_restart": _text(call_after_restart),
+            "stopped": (stopped or {}).get("status"),
+            "after_start": (after_start or {}).get("status"),
+            "call_after_start": _text(call_after_start),
+        }
+
+    def assert_success(self, ctx: RunContext, result):
+        assert result["status"] == "Connected", (
+            f"settings probe did not connect: {result['status']!r}"
+        )
+
+        assert result["booted_policy"] in ("opt-in", "opt-out"), (
+            f"settings read returned no usable default_policy: "
+            f"{result['booted_policy']!r}"
+        )
+        assert (result["after_policy"] or {}).get("default_policy") == result[
+            "flipped"
+        ], (
+            f"default_policy did not persist: "
+            f"{(result['after_policy'] or {}).get('default_policy')!r} != "
+            f"{result['flipped']!r}"
+        )
+        assert result["after_policy"].get("command") == "python3", (
+            f"settings lost the registered command: {result['after_policy']!r}"
+        )
+        assert result["bad_policy_status"] == 400, (
+            f"an unknown default_policy was accepted: HTTP "
+            f"{result['bad_policy_status']}"
+        )
+        assert (result["after_bad_policy"] or {}).get("default_policy") == result[
+            "flipped"
+        ], (
+            f"the refused settings write changed the policy anyway: "
+            f"{result['after_bad_policy']!r}"
+        )
+
+        assert result["access_before"] == set(), (
+            f"the freshly registered server already had access entries: "
+            f"{result['access_before']}"
+        )
+        assert (result["put_access"] or {}).get("count") == 1, (
+            f"access PUT reported {result['put_access']!r}, wanted count=1"
+        )
+        assert ("server_grant", _GRANT_AGENT, None) in result["access_after"], (
+            f"the written grant is not readable back: {result['access_after']}"
+        )
+        assert result["foreign_status"] == 400, (
+            f"an entry naming a different server_id was accepted: HTTP "
+            f"{result['foreign_status']} {result['foreign_body'][:200]} — this "
+            f"route would then be a way to write another server's grants"
+        )
+        assert result["capability_status"] == 400, (
+            f"a capability entry was accepted through the bulk path: HTTP "
+            f"{result['capability_status']}"
+        )
+        assert result["access_after_refusals"] == result["access_after"], (
+            f"a refused access PUT still changed the entries: "
+            f"{result['access_after_refusals']} != {result['access_after']}"
+        )
+
+        assert result["after_restart"] == "Connected", (
+            f"the server did not come back after restart: "
+            f"{result['after_restart']!r}"
+        )
+        assert "pong" in result["call_after_restart"], (
+            f"the restarted server does not answer its tool: "
+            f"{result['call_after_restart']!r}"
+        )
+        assert result["stopped"] != "Connected", (
+            f"stop left the server Connected: {result['stopped']!r} — the "
+            f"start below would then be asserting an error path"
+        )
+        assert result["after_start"] == "Connected", (
+            f"the server did not come back after start: "
+            f"{result['after_start']!r}"
+        )
+        assert "pong" in result["call_after_start"], (
+            f"the started server does not answer its tool: "
+            f"{result['call_after_start']!r}"
+        )
+
+    def teardown(self, ctx: RunContext):
+        name = ctx.scratch.pop("settings_probe", None)
+        if not name:
+            return
+        try:
+            ctx.client.put(f"/api/mcp/servers/{name}/access", body={"entries": []})
+        except Exception:  # noqa: BLE001
+            pass
+        teardown_probe(ctx.client, name)
+
+
+def _row(client, name):
+    servers = client.get("/api/mcp/servers")
+    return next((s for s in servers.get("servers", []) if s.get("id") == name), None)
+
+
+def _text(call_result) -> str:
+    """Concatenated text content of a /mcp/call result."""
+    if not isinstance(call_result, dict):
+        return ""
+    out = ""
+    for part in call_result.get("content", []) or []:
+        if isinstance(part, dict) and part.get("type") == "text":
+            out += part.get("text", "")
+    return out

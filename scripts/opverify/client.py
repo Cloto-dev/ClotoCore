@@ -41,10 +41,24 @@ class ClotoClient:
         per-request timeout in seconds.
     """
 
+    # The kernel rate-limits every /api route (bug-157; 10 req/s, burst 50 by
+    # default). A verification run drives far faster than a human, so it will
+    # be throttled — which is the limiter working, not an operation failing.
+    # Rather than raise the limit for the run (that would verify a
+    # configuration nobody ships), the client behaves like any correct client
+    # facing a 429: back off and retry, bounded. 429 is never an expected
+    # status in an assertion, so retrying it can never mask a real result.
+    RETRY_STATUS = 429
+    MAX_RETRIES = 8
+    RETRY_BASE_S = 0.25
+
     def __init__(self, base_url: str, api_key: str, timeout: float = 30.0):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        #: how many times this client had to back off; surfaced so a run that
+        #: spent its time being throttled is visible rather than merely slow.
+        self.throttled_retries = 0
 
     # -- low level -------------------------------------------------------
     def _url(self, path: str, params: Optional[dict] = None) -> str:
@@ -71,14 +85,23 @@ class ClotoClient:
             headers["Content-Type"] = "application/json"
         if auth:
             headers["X-API-Key"] = self.api_key
-        req = urllib.request.Request(
-            self._url(path, params), data=data, headers=headers, method=method
-        )
-        try:
-            with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
-                return resp.status, resp.read().decode("utf-8", "replace")
-        except urllib.error.HTTPError as e:
-            return e.code, e.read().decode("utf-8", "replace")
+        attempt = 0
+        while True:
+            req = urllib.request.Request(
+                self._url(path, params), data=data, headers=headers, method=method
+            )
+            try:
+                with urllib.request.urlopen(
+                    req, timeout=timeout or self.timeout
+                ) as resp:
+                    return resp.status, resp.read().decode("utf-8", "replace")
+            except urllib.error.HTTPError as e:
+                status, body = e.code, e.read().decode("utf-8", "replace")
+            if status != self.RETRY_STATUS or attempt >= self.MAX_RETRIES:
+                return status, body
+            self.throttled_retries += 1
+            time.sleep(self.RETRY_BASE_S * (attempt + 1))
+            attempt += 1
 
     def request(
         self,

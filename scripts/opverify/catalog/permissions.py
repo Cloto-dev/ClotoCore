@@ -41,7 +41,9 @@ class PermissionsPending(Operation):
     domain = "permissions"
     name = "pending"
     covers = ["GET /api/permissions/pending"]
-    phase0 = False
+    # Pure read; the empty pending set on a fresh instance is still a shape
+    # the dashboard binds to.
+    phase0 = True
 
     def drive(self, ctx: RunContext):
         return ctx.client.get("/api/permissions/pending")

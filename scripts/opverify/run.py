@@ -112,17 +112,18 @@ def main(argv=None) -> int:
         print("no operations selected", file=sys.stderr)
         return 1
 
-    # Seed mode: needed only when a chat op (real LLM) is in the selected set.
-    has_chat = any(op.domain == "chat" for op in operations)
+    # Seed mode: needed only when a selected op declares it (a real LLM key,
+    # or a provider row that only a marketplace install creates).
+    has_chat = any(op.needs_seed for op in operations)
     seed_db = None
     if not args.no_seed and has_chat:
         seed_db = args.seed_db or _default_seed_db()
         if seed_db:
-            print(f"seed: chat ops enabled — copying+rewiring {seed_db}")
+            print(f"seed: seed-requiring ops selected — copying+rewiring {seed_db}")
         else:
             print(
-                "seed: chat ops selected but no dev DB found — chat will fail; "
-                "pass --seed-db PATH or --slice phase0",
+                "seed: seed-requiring ops selected but no dev DB found — they "
+                "will fail; pass --seed-db PATH or --slice phase0",
                 file=sys.stderr,
             )
 

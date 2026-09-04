@@ -31,6 +31,9 @@ class SetupStatus(Operation):
     domain = "setup"
     name = "status"
     covers = ["GET /api/setup/status"]
+    # Pure read; a booted instance must report a completed setup regardless of
+    # LLM / network availability.
+    phase0 = True
 
     def drive(self, ctx: RunContext):
         # No auth required on this route (like health), but the client sends
