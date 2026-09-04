@@ -218,10 +218,28 @@ pub async fn delete_mcp_server(pool: &SqlitePool, name: &str) -> anyhow::Result<
 }
 
 /// Check if a server exists in the DB.
-pub async fn server_exists_in_db(pool: &SqlitePool, name: &str) -> anyhow::Result<bool> {
+/// The command stored in a row that exists only so an access grant can name it.
+///
+/// `mcp_access_control.server_id` is a foreign key onto `mcp_servers(name)`, and
+/// grants are written before the servers they name are installed — by the setup
+/// wizard applying a preset, and by the seed migrations that give a fresh
+/// database its default agent. Such a row is not a server: it has no runnable
+/// command, every startup path filters it out, and the one thing that clears it
+/// is a real install upserting a command over it.
+pub const PLACEHOLDER_COMMAND: &str = "config-loaded";
+
+/// Whether a real server is installed under `name`.
+///
+/// A [`PLACEHOLDER_COMMAND`] row does not count. Counting one closes the only
+/// exit a placeholder has: the install that would overwrite it is refused as
+/// "already installed", so the connector can then be neither installed nor
+/// started, and the catalog — which reads installs, not rows — goes on
+/// correctly reporting it as absent. A fresh database seeds six of these.
+pub async fn installed_server_exists(pool: &SqlitePool, name: &str) -> anyhow::Result<bool> {
     let row: (i64,) = db_timeout(
-        sqlx::query_as("SELECT COUNT(*) FROM mcp_servers WHERE name = ?")
+        sqlx::query_as("SELECT COUNT(*) FROM mcp_servers WHERE name = ? AND command != ?")
             .bind(name)
+            .bind(PLACEHOLDER_COMMAND)
             .fetch_one(pool),
     )
     .await?;
@@ -841,6 +859,49 @@ mod tests {
             created_at: 0,
             updated_at: None,
         }
+    }
+
+    /// The seed migrations give a fresh database one placeholder row per default
+    /// connector so the default agent's access grants have something to point at.
+    /// Those rows are not installs: reading them as installs refuses the install
+    /// that would replace them, which left six connectors permanently stuck —
+    /// reported absent by the catalog, rejected as present by the installer.
+    #[tokio::test]
+    async fn a_placeholder_row_is_not_an_installed_server() {
+        let state = crate::test_utils::create_test_app_state(None).await;
+        let pool = &state.pool;
+
+        // Sourced from the schema rather than a hardcoded list, so this test
+        // keeps describing whatever the migrations actually seed.
+        let seeded: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM mcp_servers WHERE command = ? ORDER BY name")
+                .bind(PLACEHOLDER_COMMAND)
+                .fetch_all(pool)
+                .await
+                .unwrap();
+        assert!(
+            !seeded.is_empty(),
+            "the seed migrations must still create the placeholders this test is about"
+        );
+
+        for name in &seeded {
+            assert!(
+                !installed_server_exists(pool, name).await.unwrap(),
+                "placeholder {name} must not read as installed — the install that \
+                 replaces it is refused when it does"
+            );
+        }
+
+        // A real row under one of those very names does count, so the guard is
+        // still a guard: installing twice is still refused.
+        let name = &seeded[0];
+        save_mcp_server(pool, &sample_record(name, None))
+            .await
+            .unwrap();
+        assert!(
+            installed_server_exists(pool, name).await.unwrap(),
+            "a server with a runnable command is installed"
+        );
     }
 
     /// Regression for the "Failed to get server settings: Internal Server Error"

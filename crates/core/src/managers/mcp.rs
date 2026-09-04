@@ -3162,6 +3162,18 @@ impl McpClientManager {
             anyhow::anyhow!("Server '{}' not found in servers map or database", id)
         })?;
 
+        // A placeholder is a foreign-key filler, not a server. Building a config
+        // out of one sends its non-command to the command whitelist, which
+        // refuses it — reporting a whitelist violation for what is really "this
+        // connector was never installed", and naming the internal placeholder in
+        // an error an operator reads.
+        if record.command == crate::db::mcp::PLACEHOLDER_COMMAND {
+            return Err(anyhow::anyhow!(
+                "Server '{}' is not installed — install it before starting it",
+                id
+            ));
+        }
+
         let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
         let mgp = record
             .trust_level
@@ -4329,6 +4341,48 @@ while True:\n\
         assert!(
             wait_pid_gone(child, std::time::Duration::from_secs(5)).await,
             "SIGTERM-immune child {child} survived drain_all — the forced sweep did not kill its process group (bug-426)"
+        );
+    }
+}
+
+#[cfg(test)]
+mod placeholder_start_tests {
+    /// Starting a connector the seed migrations only reserved a name for used to
+    /// reach the command whitelist and fail there, so an operator asking why a
+    /// listed connector will not start was told that `config-loaded` is not an
+    /// allowed command — an internal detail, and the wrong problem. The row is a
+    /// foreign-key filler; the real answer is that nothing is installed yet.
+    #[tokio::test]
+    async fn starting_a_placeholder_says_it_is_not_installed() {
+        let state = crate::test_utils::create_test_app_state(None).await;
+
+        let seeded: Option<String> = sqlx::query_scalar(
+            "SELECT name FROM mcp_servers WHERE command = ? ORDER BY name LIMIT 1",
+        )
+        .bind(crate::db::mcp::PLACEHOLDER_COMMAND)
+        .fetch_optional(&state.pool)
+        .await
+        .unwrap();
+        let name = seeded.expect("the seed migrations must still create a placeholder");
+
+        let err = state
+            .mcp_manager
+            .start_server(&name)
+            .await
+            .expect_err("a placeholder has no runnable command, so starting it must fail");
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("not installed"),
+            "the error must name the actual problem, got: {msg}"
+        );
+        assert!(
+            !msg.contains(crate::db::mcp::PLACEHOLDER_COMMAND),
+            "the error must not surface the internal placeholder, got: {msg}"
+        );
+        assert!(
+            !msg.contains("whitelist"),
+            "the error must not blame the command whitelist, got: {msg}"
         );
     }
 }
