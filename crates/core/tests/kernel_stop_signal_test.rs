@@ -12,6 +12,10 @@ use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
+#[path = "common/kernel_spawn.rs"]
+mod kernel_spawn;
+use kernel_spawn::spawn_retrying_busy;
+
 fn free_port() -> u16 {
     TcpListener::bind("127.0.0.1:0")
         .expect("bind ephemeral port")
@@ -55,8 +59,8 @@ fn sigterm_shuts_the_kernel_down_gracefully() {
     std::fs::create_dir_all(&sandbox).unwrap();
     let db_url = format!("sqlite:{}", root.path().join("kernel.sqlite3").display());
 
-    let mut child = Command::new(&exe)
-        .current_dir(root.path())
+    let mut cmd = Command::new(&exe);
+    cmd.current_dir(root.path())
         .env_clear()
         .env("PATH", std::env::var("PATH").unwrap_or_default())
         .env("HOME", std::env::var("HOME").unwrap_or_default())
@@ -71,9 +75,8 @@ fn sigterm_shuts_the_kernel_down_gracefully() {
         .env("CLOTO_LLM_PROXY_PORT", proxy_port.to_string())
         .env("RUST_LOG", "info")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .expect("spawn kernel");
+        .stderr(Stdio::piped());
+    let mut child = spawn_retrying_busy(&mut cmd);
 
     // Drain stdout/stderr on threads so the child never blocks on a full pipe.
     let mut out = child.stdout.take().unwrap();
