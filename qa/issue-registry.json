@@ -362,7 +362,7 @@
       "version": "0.4.22",
       "commit": "101b803",
       "file": "crates/core/src/handlers/command_approval.rs",
-      "pattern": "YOLO mode: commands auto-approved",
+      "pattern": "YOLO_AUTO_APPROVED",
       "expected": "present",
       "status": "fixed"
     },
