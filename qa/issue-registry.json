@@ -4474,6 +4474,18 @@
       "status": "fixed",
       "notes": "Found while rewriting comments: the delete path's comment said it removes the generated script, and the directory next to it did not match the one the writers use. Nothing pointed at it because the path has no test and a no-op unlink is silent. Fixed by giving the location one definition -- MCP_SCRIPTS_DIR, mcp_script_filename, mcp_script_path and remove_mcp_script in managers/mcp_types.rs -- and routing all four call sites through it, so a future move cannot leave one of them behind; the directory literal now appears once outside its own test. A removal failure is logged with the path instead of discarded. VERIFICATION: pattern 'remove_mcp_script' expected=present pins that the delete path goes through the shared helper rather than deriving a second path of its own. Four unit tests in managers::mcp_types cover the helper; both mutations turn them red -- reporting success without unlinking, and resolving the path without the server name (which would delete a prefix-sharing sibling).",
       "github_issue": 464
+    },
+    {
+      "id": "bug-506",
+      "summary": "HIGH: POST /api/memories/import answers 500 with the shipped memory server — `classify_tool` maps every memory tool the REST handlers dispatch onto CapabilityType::Memory except `import_memories`, and `call_capability_tool` resolves strictly by tool name, so a memory server that relies on name classification (CPersona declares no tools_for_capability manifest) has no route for the import and the dashboard's memory import fails.",
+      "severity": "HIGH",
+      "discovered": "2026-09-04T00:00:00Z",
+      "version": "0.6.8-beta.6",
+      "file": "crates/core/src/managers/capability_dispatcher.rs",
+      "pattern": "\\| \"import_memories\"",
+      "expected": "present",
+      "status": "fixed",
+      "notes": "Found by the opverify catalog work (PR #493): the memory probe server only became able to serve the import after declaring the MGP tools_for_capability manifest, and the shipped CPersona does not declare one (grep of its source: 0 hits) while it does export import_memories. Failure scenario: dashboard Memory Core → import JSONL → POST /api/memories/import → handler calls call_capability_tool(Memory, \"import_memories\") → \"No server provides Memory capability for tool 'import_memories'\" → 500. FIXED 2026-09-04: import_memories added to the Memory arm; unit test pins every REST-dispatched memory tool to Memory."
     }
   ]
 }

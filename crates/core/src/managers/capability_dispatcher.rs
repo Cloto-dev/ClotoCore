@@ -324,6 +324,7 @@ fn classify_tool(_server_id: &str, tool_name: &str) -> Option<CapabilityType> {
         | "delete_agent_data"
         | "update_profile"
         | "update_memory"
+        | "import_memories"
         | "lock_memory"
         | "unlock_memory"
         | "set_recall_precision"
@@ -583,6 +584,34 @@ mod tests {
         let tools = vec![make_tool("get_profile")];
         dispatcher.build_from_tools("memory.cpersona", &tools).await;
         assert!(dispatcher.resolve_kind(&kind).await.is_none());
+    }
+
+    /// Every memory tool the REST handlers dispatch by name must classify as
+    /// Memory, or `call_capability_tool` finds no route and the handler
+    /// answers 500. `import_memories` was missing: a memory server that relies
+    /// on name classification (the shipped CPersona declares no
+    /// `tools_for_capability` manifest) could not serve
+    /// `POST /api/memories/import` at all.
+    #[test]
+    fn every_rest_dispatched_memory_tool_classifies_as_memory() {
+        for tool in [
+            "list_memories",
+            "import_memories",
+            "update_memory",
+            "delete_memory",
+            "lock_memory",
+            "unlock_memory",
+            "list_episodes",
+            "delete_episode",
+            "get_recall_precision",
+            "set_recall_precision",
+        ] {
+            assert_eq!(
+                classify_tool("custom.x", tool),
+                Some(CapabilityType::Memory),
+                "{tool} must classify as Memory"
+            );
+        }
     }
 
     #[tokio::test]
