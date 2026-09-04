@@ -55,6 +55,104 @@ fn chown_recursive(prefix: &Path, user: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Home directory of `user`, as the system records it.
+///
+/// Read out of `getent passwd` rather than the environment: the install runs as
+/// root, so `$HOME` here belongs to root and says nothing about the account the
+/// unit will run as.
+#[cfg(target_os = "linux")]
+fn passwd_home(user: &str) -> anyhow::Result<PathBuf> {
+    let out = std::process::Command::new("getent")
+        .args(["passwd", user])
+        .output()
+        .with_context(|| format!("Failed to run getent passwd {user}"))?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "service user {user} does not exist — create it before installing, \
+             for example `useradd --system --shell /usr/sbin/nologin {user}`"
+        );
+    }
+    let line = String::from_utf8_lossy(&out.stdout);
+    parse_passwd_home(&line).ok_or_else(|| {
+        anyhow::anyhow!(
+            "service user {user} has no home directory of its own; the kernel derives its \
+             data directory from that home, so give the account one (for example \
+             `usermod --home /home/{user} --move-home {user}`) and install again"
+        )
+    })
+}
+
+/// Field 6 of a passwd line: `name:passwd:uid:gid:gecos:home:shell`.
+///
+/// An empty field, or the filesystem root, means the account was created
+/// without a home of its own. Both are refused rather than turned into a
+/// directory tree this install would then populate and chown.
+#[cfg(target_os = "linux")]
+fn parse_passwd_home(entry: &str) -> Option<PathBuf> {
+    let home = entry.lines().next()?.split(':').nth(5)?;
+    if home.is_empty() || home == "/" {
+        return None;
+    }
+    Some(PathBuf::from(home))
+}
+
+/// Where the kernel reads and writes when it runs as the owner of `home`.
+///
+/// Mirrors the production branch of [`crate::config::data_dir`]: on Linux
+/// `dirs::data_dir()` resolves to `$HOME/.local/share` and the application
+/// appends its own directory name. Derived from the passwd home because the
+/// installer cannot ask `dirs` about an account it is not running as — which
+/// also means the two must be changed together.
+#[cfg(target_os = "linux")]
+fn service_user_data_dir(home: &Path) -> PathBuf {
+    home.join(".local")
+        .join("share")
+        .join(crate::config::APP_DATA_DIR_NAME)
+}
+
+/// The service user's data directory, plus the path to hand over once the
+/// install has finished writing into it.
+#[cfg(target_os = "linux")]
+#[derive(Debug)]
+struct ServiceUserData {
+    /// Where the running kernel will keep its data.
+    data_dir: PathBuf,
+    /// What to `chown` at the end: the home when this install created it,
+    /// otherwise only the data directory — an existing home may hold files
+    /// that are not ours to re-own.
+    chown_root: PathBuf,
+}
+
+/// Give the service user a home and a data directory it can write.
+///
+/// The kernel derives its data directory from the home of whoever runs it, so
+/// an account created without one (`useradd -M`) leaves the daemon with nowhere
+/// to write. Nothing later in the lifecycle can repair that: `/home` is
+/// root-owned while the kernel runs as the service user. The install is the
+/// only step that runs as root, so it is the only step that can.
+///
+/// Left undone, the install and the first start both still exit 0 while the
+/// data directory, the install receipt and every marketplace install fail — the
+/// last of them reporting only into a progress stream that an unattended daemon
+/// has nobody to read.
+#[cfg(target_os = "linux")]
+fn prepare_service_user_data(user: &str) -> anyhow::Result<ServiceUserData> {
+    let home = passwd_home(user)?;
+    let home_existed = home.is_dir();
+    let data_dir = service_user_data_dir(&home);
+    std::fs::create_dir_all(&data_dir).with_context(|| {
+        format!(
+            "Failed to create the data directory {} for service user {user}",
+            data_dir.display()
+        )
+    })?;
+    let chown_root = if home_existed { data_dir.clone() } else { home };
+    Ok(ServiceUserData {
+        data_dir,
+        chown_root,
+    })
+}
+
 /// Generate .env file content
 fn env_template(prefix: &Path, api_key: &str) -> String {
     let timestamp = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
@@ -223,6 +321,21 @@ pub async fn install(prefix: PathBuf, service: bool, user: Option<String>) -> an
         info!("👤 Prefix owned by {u}");
     }
 
+    // 3c. That user also needs somewhere of its own to write: the kernel derives
+    //     its data directory from the home of the account it runs as, not from
+    //     the prefix. Linux-only, matching `--user` itself — it is the only
+    //     platform whose service unit runs as another account, and `getent` is
+    //     not portable to the other unixes.
+    #[cfg(target_os = "linux")]
+    let service_user_data = match user.as_deref() {
+        Some(u) => {
+            let prepared = prepare_service_user_data(u)?;
+            info!("📁 Data directory for {u}: {}", prepared.data_dir.display());
+            Some(prepared)
+        }
+        None => None,
+    };
+
     // 4. Register service (optional)
     if service {
         crate::platform::install_service(&prefix, user.as_deref())?;
@@ -245,7 +358,24 @@ pub async fn install(prefix: PathBuf, service: bool, user: Option<String>) -> an
         if service {
             entries.push(ReceiptEntry::service("service", service_name()));
         }
-        crate::defender::footprint::record(&crate::config::data_dir(), entries);
+        // The receipt belongs where the running kernel will look for it. Recorded
+        // against the installer's own data directory instead, it lands in root's
+        // tree — which on a stock Debian does not exist, so the ledger the
+        // defender calls its canonical source is simply never written.
+        #[cfg(target_os = "linux")]
+        let receipt_dir = service_user_data
+            .as_ref()
+            .map_or_else(crate::config::data_dir, |d| d.data_dir.clone());
+        #[cfg(not(target_os = "linux"))]
+        let receipt_dir = crate::config::data_dir();
+        crate::defender::footprint::record(&receipt_dir, entries);
+    }
+
+    // 4c. Hand over the service user's own tree last, so it owns the receipt
+    //     just written into it.
+    #[cfg(target_os = "linux")]
+    if let (Some(d), Some(u)) = (&service_user_data, user.as_deref()) {
+        chown_recursive(&d.chown_root, u)?;
     }
 
     // 5. Summary
@@ -318,6 +448,77 @@ mod tests {
 
     fn engine_name() -> &'static str {
         crate::managers::installer::binary_name()
+    }
+
+    /// The gecos field is empty in a `useradd --system` entry, so an
+    /// off-by-one read lands on it and returns `None` rather than a wrong
+    /// path — which would look like "no home" instead of a misparse. The
+    /// shell in the last field is a real absolute path, so reading one field
+    /// too far yields a plausible-looking directory: both neighbours have to
+    /// be wrong answers for this to have any power.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn passwd_home_reads_the_home_field_not_its_neighbours() {
+        let entry = "cloto:x:999:989:Cloto service:/home/cloto:/usr/sbin/nologin\n";
+        assert_eq!(
+            parse_passwd_home(entry),
+            Some(PathBuf::from("/home/cloto")),
+            "field 6 is the home directory"
+        );
+        // Guard the asymmetry the case above depends on: neither neighbour may
+        // equal the answer, or this fixture would pass a misparse.
+        let fields: Vec<&str> = entry.trim_end().split(':').collect();
+        assert_ne!(fields[4], "/home/cloto");
+        assert_ne!(fields[6], "/home/cloto");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn passwd_home_refuses_an_account_without_one() {
+        // `useradd --system` without `--create-home` leaves the field empty on
+        // some distributions and `/` on others. Accepting either would make the
+        // install populate and chown a directory that is not the account's.
+        assert_eq!(parse_passwd_home("svc:x:1:1:::/usr/sbin/nologin"), None);
+        assert_eq!(parse_passwd_home("svc:x:1:1::/:/usr/sbin/nologin"), None);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn passwd_home_takes_the_first_entry_only() {
+        // getent prints one line per match. A duplicate from a second name
+        // service must not silently redirect the data directory to another
+        // account's home.
+        let two = "cloto:x:999:989::/home/cloto:/usr/sbin/nologin\n\
+                   other:x:1000:1000::/home/other:/bin/sh\n";
+        assert_eq!(parse_passwd_home(two), Some(PathBuf::from("/home/cloto")));
+    }
+
+    /// Pins the path rule this file has to keep in step with
+    /// `config::data_dir`'s production branch. It cannot be compared against
+    /// that function directly: under `cargo test` the running binary sits in a
+    /// Cargo workspace, so `data_dir()` takes its dev-layout branch and never
+    /// evaluates the `$HOME/.local/share` rule this mirrors.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn service_user_data_dir_is_where_the_kernel_will_look() {
+        assert_eq!(
+            service_user_data_dir(Path::new("/home/cloto")),
+            Path::new("/home/cloto/.local/share").join(crate::config::APP_DATA_DIR_NAME)
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prepare_service_user_data_refuses_an_unknown_account() {
+        // Fail closed: inventing a home for an account that does not exist
+        // would create a tree nothing can chown to it.
+        let err = prepare_service_user_data("cloto-nonexistent-test-account")
+            .expect_err("an unknown account must not resolve to a data directory");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("does not exist"),
+            "the error must say the account is missing, got: {msg}"
+        );
     }
 
     #[test]

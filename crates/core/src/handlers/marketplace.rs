@@ -1154,6 +1154,11 @@ async fn ensure_toolchain(state: &AppState, is_rust: bool) -> anyhow::Result<boo
         if !uv.exists() {
             info!("Single install: uv not found, downloading...");
             if let Err(e) = super::setup::download_uv(tx, &state.data_dir).await {
+                // The progress stream is the dashboard's channel. A kernel running
+                // as a daemon has nobody subscribed to it, so a failure reported
+                // only there ends the install with no reason recorded anywhere the
+                // operator can read — the install simply appears to stop.
+                tracing::error!("Single install: failed to download uv: {e}");
                 emit(
                     tx,
                     SetupProgressEvent::StepError {
@@ -3841,6 +3846,9 @@ async fn run_batch_install(
         if !uv.exists() {
             info!("Batch install: uv not found, downloading...");
             if let Err(e) = super::setup::download_uv(tx, &state.data_dir).await {
+                // Same reason as the single-install path: an unattended kernel has
+                // no progress-stream subscriber, so this must reach the log.
+                tracing::error!("Batch install: failed to download uv: {e}");
                 emit(
                     tx,
                     SetupProgressEvent::StepError {
