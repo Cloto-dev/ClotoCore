@@ -527,7 +527,7 @@ pub async fn install_handler(
 
     // An already-installed server is rejected only for a fresh install; an
     // update (the marketplace "Update" button) re-vendors in place instead.
-    let exists = crate::db::mcp::server_exists_in_db(&state.pool, &request.server_id)
+    let exists = crate::db::mcp::installed_server_exists(&state.pool, &request.server_id)
         .await
         .unwrap_or(false);
     let is_update = request.update.unwrap_or(false);
