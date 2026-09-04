@@ -399,3 +399,375 @@ pub(crate) async fn run_approval_gate(
     )
     .await
 }
+
+#[cfg(test)]
+mod tests {
+    //! Characterization tests for the command approval gate.
+    //!
+    //! `execute_command` is the one tool the kernel statically maps to the
+    //! "sandbox" validator, so it is the shortest route into the real gate.
+    //! Decisions are delivered through `pending_approvals` exactly as the
+    //! dashboard's approval endpoint does.
+
+    use super::*;
+    use cloto_shared::ClotoEventData;
+    use sqlx::SqlitePool;
+
+    const AGENT: &str = "agent.test";
+
+    struct Harness {
+        pool: SqlitePool,
+        mcp: Arc<McpClientManager>,
+        pending: PendingApprovals,
+        trusted: SessionTrustedCommands,
+        tx: tokio::sync::mpsc::Sender<crate::EnvelopedEvent>,
+        rx: tokio::sync::mpsc::Receiver<crate::EnvelopedEvent>,
+    }
+
+    async fn harness() -> Harness {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let mcp = Arc::new(McpClientManager::new(pool.clone(), false, 120, 30));
+        let (tx, rx) = tokio::sync::mpsc::channel(64);
+        Harness {
+            pool,
+            mcp,
+            pending: Arc::new(DashMap::new()),
+            trusted: Arc::new(DashMap::new()),
+            tx,
+            rx,
+        }
+    }
+
+    impl Harness {
+        /// Run the gate inline. Only safe when the call cannot block on an
+        /// operator decision (trusted commands, YOLO, cron, paused time).
+        async fn gate(
+            &self,
+            calls: &[ToolCall],
+            yolo_mode: bool,
+            cron_source: bool,
+        ) -> HashSet<String> {
+            run_approval_gate(
+                calls,
+                AGENT,
+                ClotoId::new(),
+                yolo_mode,
+                cron_source,
+                Some(&self.mcp),
+                &self.pending,
+                &self.trusted,
+                &self.pool,
+                &self.tx,
+            )
+            .await
+        }
+
+        /// Run the gate on its own task so the test can answer its request.
+        fn spawn_gate(
+            &self,
+            agent: &str,
+            calls: Vec<ToolCall>,
+        ) -> tokio::task::JoinHandle<HashSet<String>> {
+            let pool = self.pool.clone();
+            let mcp = self.mcp.clone();
+            let pending = self.pending.clone();
+            let trusted = self.trusted.clone();
+            let tx = self.tx.clone();
+            let agent = agent.to_string();
+            tokio::spawn(async move {
+                run_approval_gate(
+                    &calls,
+                    &agent,
+                    ClotoId::new(),
+                    false,
+                    false,
+                    Some(&mcp),
+                    &pending,
+                    &trusted,
+                    &pool,
+                    &tx,
+                )
+                .await
+            })
+        }
+
+        /// Block until the gate emits its request, returning the approval id.
+        async fn next_request(&mut self) -> String {
+            let envelope = tokio::time::timeout(std::time::Duration::from_secs(5), self.rx.recv())
+                .await
+                .expect("the gate must emit an approval request")
+                .expect("channel open");
+            match &envelope.event.data {
+                ClotoEventData::CommandApprovalRequested { approval_id, .. } => approval_id.clone(),
+                other => panic!("expected CommandApprovalRequested, got {other:?}"),
+            }
+        }
+
+        /// Answer the gate's outstanding request.
+        async fn answer(&mut self, decision: CommandApprovalDecision) -> String {
+            let approval_id = self.next_request().await;
+            let (_, sender) = self
+                .pending
+                .remove(&approval_id)
+                .expect("the gate registers its oneshot before emitting the request");
+            sender.send(decision).expect("the gate is still listening");
+            approval_id
+        }
+
+        fn drain(&mut self) -> Vec<ClotoEventData> {
+            let mut out = Vec::new();
+            while let Ok(envelope) = self.rx.try_recv() {
+                out.push(envelope.event.data.clone());
+            }
+            out
+        }
+    }
+
+    fn shell_call(id: &str, command: &str) -> ToolCall {
+        ToolCall {
+            id: id.to_string(),
+            name: "execute_command".to_string(),
+            arguments: serde_json::json!({ "command": command }),
+        }
+    }
+
+    fn was_requested(events: &[ClotoEventData]) -> bool {
+        events
+            .iter()
+            .any(|e| matches!(e, ClotoEventData::CommandApprovalRequested { .. }))
+    }
+
+    fn decisions(events: &[ClotoEventData]) -> Vec<String> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                ClotoEventData::CommandApprovalResult { decision, .. } => Some(decision.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn denying_an_untrusted_command_returns_its_call_id_as_blocked() {
+        let mut h = harness().await;
+        let gate = h.spawn_gate(AGENT, vec![shell_call("call-1", "rm -rf /tmp/x")]);
+
+        let approval_id = h.answer(CommandApprovalDecision::Deny).await;
+        let denied = gate.await.unwrap();
+
+        assert_eq!(
+            denied,
+            HashSet::from(["call-1".to_string()]),
+            "a denied call is reported so the executor skips it"
+        );
+        assert_eq!(decisions(&h.drain()), vec!["denied by user".to_string()]);
+        assert!(
+            !h.pending.contains_key(&approval_id),
+            "the pending entry is cleaned up after the decision"
+        );
+    }
+
+    #[tokio::test]
+    async fn approving_a_command_trusts_that_exact_string_so_the_next_run_is_not_gated() {
+        let mut h = harness().await;
+
+        let gate = h.spawn_gate(AGENT, vec![shell_call("call-1", "ls -la /tmp")]);
+        h.answer(CommandApprovalDecision::Approve).await;
+        assert!(gate.await.unwrap().is_empty());
+        h.drain();
+
+        // The consequence: the identical command no longer asks.
+        assert!(h
+            .gate(&[shell_call("call-2", "ls -la /tmp")], false, false)
+            .await
+            .is_empty());
+        assert!(
+            !was_requested(&h.drain()),
+            "an approved command must not be re-requested"
+        );
+
+        // Approve is exact-string trust, so a different argument asks again.
+        let second = h.spawn_gate(AGENT, vec![shell_call("call-3", "ls -la /etc")]);
+        h.answer(CommandApprovalDecision::Deny).await;
+        assert_eq!(second.await.unwrap(), HashSet::from(["call-3".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn trusting_a_command_trusts_only_its_first_word_for_the_rest_of_the_session() {
+        // Quirk with teeth: Trust keys on `command_name`, the first
+        // whitespace-separated token. Trusting `rm -rf /tmp/x` therefore lets
+        // every later `rm ...` through without asking.
+        let mut h = harness().await;
+
+        let gate = h.spawn_gate(AGENT, vec![shell_call("call-1", "rm -rf /tmp/x")]);
+        h.answer(CommandApprovalDecision::Trust).await;
+        assert!(gate.await.unwrap().is_empty());
+        h.drain();
+
+        assert_eq!(
+            h.trusted.get(AGENT).map(|set| set.contains("rm")),
+            Some(true),
+            "only the binary name is remembered"
+        );
+        assert!(
+            h.gate(&[shell_call("call-2", "rm -rf /var/else")], false, false)
+                .await
+                .is_empty(),
+            "a different argument list to the same binary is no longer gated"
+        );
+        assert!(!was_requested(&h.drain()));
+
+        // Session trust is per agent — another agent is still asked.
+        let other = h.spawn_gate("agent.other", vec![shell_call("call-3", "rm -rf /tmp/x")]);
+        h.answer(CommandApprovalDecision::Deny).await;
+        assert_eq!(other.await.unwrap(), HashSet::from(["call-3".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn the_gate_denies_everything_it_asked_about_when_the_timeout_expires() {
+        let mut h = harness().await;
+        let gate = h.spawn_gate(
+            AGENT,
+            vec![shell_call("call-1", "curl http://host.invalid")],
+        );
+
+        // Wait for the request on the real clock (the gate hits SQLite before
+        // it starts waiting, and a paused clock trips sqlx's acquire timeout),
+        // then freeze time so the runtime fast-forwards to the 60s deadline
+        // instead of the test sleeping for a minute.
+        h.next_request().await;
+        tokio::time::pause();
+
+        let denied = gate.await.unwrap();
+
+        assert_eq!(denied, HashSet::from(["call-1".to_string()]));
+        assert_eq!(
+            decisions(&h.drain()),
+            vec!["timeout (60s)".to_string()],
+            "the emitted decision names the timeout"
+        );
+        assert!(h.pending.is_empty(), "the pending entry is not leaked");
+    }
+
+    #[tokio::test]
+    async fn the_gate_denies_when_the_approval_channel_is_dropped_without_a_decision() {
+        let mut h = harness().await;
+        let gate = h.spawn_gate(AGENT, vec![shell_call("call-1", "cat /etc/passwd")]);
+
+        let approval_id = h.next_request().await;
+        // Drop the responder without answering (what a dashboard reload does).
+        drop(h.pending.remove(&approval_id));
+
+        assert_eq!(gate.await.unwrap(), HashSet::from(["call-1".to_string()]));
+        assert_eq!(decisions(&h.drain()), vec!["channel closed".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn yolo_mode_approves_sandboxed_commands_without_asking_and_records_the_bypass() {
+        let mut h = harness().await;
+
+        let denied = h
+            .gate(&[shell_call("call-1", "rm -rf /tmp/x")], true, false)
+            .await;
+
+        assert!(denied.is_empty(), "YOLO denies nothing");
+        let events = h.drain();
+        assert!(!was_requested(&events), "YOLO must not ask the operator");
+        assert_eq!(decisions(&events), vec!["auto_approved".to_string()]);
+        assert!(
+            h.trusted.is_empty(),
+            "YOLO is a per-run bypass, not a trust grant"
+        );
+    }
+
+    #[tokio::test]
+    async fn yolo_mode_stays_silent_when_no_call_carries_a_command_argument() {
+        // Quirk: `handle_yolo_approval` looks only at `arguments.command`, so a
+        // destructive tool without one is approved with no event and no audit
+        // row at all — that call's bypass leaves no trace.
+        let mut h = harness().await;
+
+        let denied = h
+            .gate(
+                &[ToolCall {
+                    id: "call-1".into(),
+                    name: "delete_everything".into(),
+                    arguments: serde_json::json!({ "scope": "all" }),
+                }],
+                true,
+                false,
+            )
+            .await;
+
+        assert!(denied.is_empty());
+        assert!(
+            h.drain().is_empty(),
+            "neither a request nor a result event is emitted"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cron_dispatched_call_bypasses_the_gate_ahead_of_the_yolo_check() {
+        let mut h = harness().await;
+
+        let denied = h
+            .gate(&[shell_call("call-1", "rm -rf /tmp/x")], false, true)
+            .await;
+
+        assert!(denied.is_empty());
+        let events = h.drain();
+        assert!(!was_requested(&events));
+        assert_eq!(
+            decisions(&events),
+            vec!["cron_auto_approved".to_string()],
+            "the cron branch runs before the YOLO branch and labels itself"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_command_already_trusted_in_the_database_never_reaches_the_gate() {
+        let mut h = harness().await;
+        crate::db::add_trusted_command(&h.pool, AGENT, "git status")
+            .await
+            .unwrap();
+
+        assert!(h
+            .gate(&[shell_call("call-1", "git status")], false, false)
+            .await
+            .is_empty());
+        assert!(h.drain().is_empty(), "no operator interaction at all");
+
+        // DB trust is scoped to the agent that owns it.
+        let other = h.spawn_gate("agent.other", vec![shell_call("call-2", "git status")]);
+        h.answer(CommandApprovalDecision::Deny).await;
+        assert_eq!(other.await.unwrap(), HashSet::from(["call-2".to_string()]));
+    }
+
+    #[tokio::test]
+    async fn without_an_mcp_manager_nothing_is_ever_considered_to_need_approval() {
+        // Worth pinning before a headless rewrite: the gate's entire risk
+        // classification lives behind `mcp_manager`. With `None` — the shape a
+        // stripped-down embedding would naturally produce — even
+        // `execute_command` sails through ungated.
+        let h = harness().await;
+
+        let denied = run_approval_gate(
+            &[shell_call("call-1", "rm -rf /")],
+            AGENT,
+            ClotoId::new(),
+            false,
+            false,
+            None,
+            &h.pending,
+            &h.trusted,
+            &h.pool,
+            &h.tx,
+        )
+        .await;
+
+        assert!(denied.is_empty());
+    }
+}

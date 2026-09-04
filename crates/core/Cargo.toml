@@ -63,6 +63,10 @@ fs4 = { version = "1.1", default-features = false }
 libc = "0.2"
 
 [dev-dependencies]
+# `test-util` unlocks `tokio::time::pause()`, which lets the command-approval
+# timeout test reach the 60s deadline instantly instead of sleeping for a
+# minute. Dev-only: with resolver 2 it is not unified into a plain `cargo build`.
+tokio = { workspace = true, features = ["test-util"] }
 http = "1.0"
 criterion = { workspace = true }
 tempfile = "3"

@@ -664,3 +664,426 @@ impl EventProcessor {
         false
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Characterization tests for the event processor.
+    //!
+    //! These pin the behaviour the loop has today — including its quirks — so a
+    //! later rewrite for headless operation is caught changing it.
+
+    use super::*;
+    use crate::handlers::system::SystemHandler;
+    use cloto_shared::{ClotoEventData, ClotoId};
+    use sqlx::SqlitePool;
+
+    /// Build an `EventProcessor` whose history / registry / metrics are also
+    /// handed back so tests can assert on the state the loop mutates.
+    async fn processor_with(
+        max_history_size: usize,
+        event_retention_hours: u64,
+        max_event_history: usize,
+        hal_rate_limit_per_sec: u32,
+        hal_rate_limit_burst: u32,
+    ) -> (
+        Arc<EventProcessor>,
+        Arc<tokio::sync::RwLock<VecDeque<SequencedEvent>>>,
+        Arc<PluginRegistry>,
+        broadcast::Receiver<SequencedEvent>,
+    ) {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+
+        let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+        let plugin_manager = Arc::new(
+            crate::managers::PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap(),
+        );
+        let agent_manager = AgentManager::new(pool.clone(), 90_000);
+        let (tx, rx) = broadcast::channel::<SequencedEvent>(256);
+        let metrics = Arc::new(crate::managers::SystemMetrics::new());
+        let history = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
+
+        let (sys_tx, _sys_rx) = mpsc::channel(16);
+        let system_handler = Arc::new(SystemHandler::new(
+            registry.clone(),
+            agent_manager.clone(),
+            "agent.test".to_string(),
+            sys_tx,
+            10,
+            metrics.clone(),
+            vec![],
+            "consensus:".to_string(),
+            16,
+            30,
+            Arc::new(dashmap::DashMap::new()),
+            Arc::new(dashmap::DashMap::new()),
+            pool.clone(),
+            Arc::new(dashmap::DashMap::new()),
+            5,
+            false,
+        ));
+
+        let processor = Arc::new(EventProcessor::new(
+            registry.clone(),
+            plugin_manager,
+            agent_manager,
+            tx,
+            history.clone(),
+            metrics,
+            max_history_size,
+            event_retention_hours,
+            system_handler,
+            max_event_history,
+            hal_rate_limit_per_sec,
+            hal_rate_limit_burst,
+        ));
+
+        (processor, history, registry, rx)
+    }
+
+    fn note(text: &str) -> Arc<ClotoEvent> {
+        Arc::new(ClotoEvent::new(ClotoEventData::SystemNotification(
+            text.to_string(),
+        )))
+    }
+
+    fn envelope(event: Arc<ClotoEvent>) -> crate::EnvelopedEvent {
+        crate::EnvelopedEvent {
+            event,
+            issuer: None,
+            correlation_id: None,
+            depth: 0,
+        }
+    }
+
+    /// Snapshot the `SystemNotification` payloads currently in the history.
+    async fn notes_in(history: &Arc<tokio::sync::RwLock<VecDeque<SequencedEvent>>>) -> Vec<String> {
+        history
+            .read()
+            .await
+            .iter()
+            .filter_map(|s| match &s.event.data {
+                ClotoEventData::SystemNotification(msg) => Some(msg.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Poll until `cond` holds or ~2s elapse. Returns whether it held.
+    async fn wait_until<F, Fut>(mut cond: F) -> bool
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        for _ in 0..200 {
+            if cond().await {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        false
+    }
+
+    #[test]
+    fn sequence_ids_are_strictly_increasing_for_every_new_sequenced_event() {
+        // GLOBAL_SEQ is process-wide, so the absolute values depend on what
+        // else ran first; only the monotonicity is a contract.
+        let ids: Vec<u64> = (0..50)
+            .map(|i| SequencedEvent::new(note(&format!("seq-{i}"))).seq_id)
+            .collect();
+        for pair in ids.windows(2) {
+            assert!(
+                pair[1] > pair[0],
+                "sequence ids must strictly increase, got {pair:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn recording_more_events_than_max_history_size_evicts_the_oldest_first() {
+        let (processor, history, _registry, _rx) = processor_with(3, 24, 10_000, 10, 20).await;
+
+        for i in 0..6 {
+            processor
+                .record_event(SequencedEvent::new(note(&format!("e{i}"))))
+                .await;
+        }
+
+        assert_eq!(
+            notes_in(&history).await,
+            vec!["e3".to_string(), "e4".to_string(), "e5".to_string()],
+            "history must hold exactly max_history_size entries, oldest evicted"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_max_history_size_of_zero_keeps_the_history_permanently_empty() {
+        // Quirk worth pinning: the cap is applied after the push, so 0 is a
+        // legal (if useless) configuration rather than a panic or an off-by-one.
+        let (processor, history, _registry, _rx) = processor_with(0, 24, 10_000, 10, 20).await;
+
+        processor
+            .record_event(SequencedEvent::new(note("dropped")))
+            .await;
+
+        assert!(history.read().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn the_process_loop_records_every_event_it_receives_and_honours_the_history_cap() {
+        let (processor, history, _registry, mut rx) = processor_with(3, 24, 10_000, 10, 20).await;
+
+        let (tx, event_rx) = mpsc::channel::<crate::EnvelopedEvent>(32);
+        for i in 0..6 {
+            tx.send(envelope(note(&format!("loop-{i}")))).await.unwrap();
+        }
+
+        let loop_processor = processor.clone();
+        let loop_tx = tx.clone();
+        let handle = tokio::spawn(async move {
+            loop_processor.process_loop(event_rx, loop_tx).await;
+        });
+
+        let history_probe = history.clone();
+        assert!(
+            wait_until(|| {
+                let h = history_probe.clone();
+                async move { h.read().await.len() == 3 }
+            })
+            .await,
+            "the loop should have recorded all six events, capped at three"
+        );
+
+        assert_eq!(
+            notes_in(&history).await,
+            vec![
+                "loop-3".to_string(),
+                "loop-4".to_string(),
+                "loop-5".to_string()
+            ]
+        );
+
+        // Every event was also broadcast to SSE subscribers, with increasing ids.
+        let mut seen = Vec::new();
+        while let Ok(seq) = rx.try_recv() {
+            seen.push(seq.seq_id);
+        }
+        assert_eq!(seen.len(), 6, "all six events should have been broadcast");
+        for pair in seen.windows(2) {
+            assert!(pair[1] > pair[0], "broadcast ids must increase: {pair:?}");
+        }
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn an_event_the_loop_rejects_or_cannot_parse_does_not_stop_later_events() {
+        let (processor, history, _registry, _rx) = processor_with(50, 24, 10_000, 10, 20).await;
+
+        let (tx, event_rx) = mpsc::channel::<crate::EnvelopedEvent>(32);
+
+        // (1) A forged ActionRequested: the issuer does not match the requester,
+        //     so the loop `continue`s past the rest of the body for this event.
+        let forged = Arc::new(ClotoEvent::new(ClotoEventData::ActionRequested {
+            requester: ClotoId::from_name("plugin.victim"),
+            action: cloto_shared::HandAction::Wait { ms: 1 },
+        }));
+        tx.send(crate::EnvelopedEvent {
+            event: forged,
+            issuer: Some(ClotoId::from_name("plugin.attacker")),
+            correlation_id: None,
+            depth: 0,
+        })
+        .await
+        .unwrap();
+
+        // (2) A PermissionGranted whose permission string is not a legacy
+        //     Permission — `serde_json::from_value` fails and the arm is skipped.
+        tx.send(envelope(Arc::new(ClotoEvent::new(
+            ClotoEventData::PermissionGranted {
+                plugin_id: "plugin.ghost".to_string(),
+                permission: "not::a::real::permission".to_string(),
+            },
+        ))))
+        .await
+        .unwrap();
+
+        // (3) A well-formed event that must still be processed afterwards.
+        tx.send(envelope(note("survivor"))).await.unwrap();
+
+        let loop_processor = processor.clone();
+        let loop_tx = tx.clone();
+        let handle = tokio::spawn(async move {
+            loop_processor.process_loop(event_rx, loop_tx).await;
+        });
+
+        let history_probe = history.clone();
+        assert!(
+            wait_until(|| {
+                let h = history_probe.clone();
+                async move { h.read().await.len() == 3 }
+            })
+            .await,
+            "the loop must survive both malformed events and record the third"
+        );
+        assert_eq!(notes_in(&history).await, vec!["survivor".to_string()]);
+
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn cleanup_drops_events_older_than_the_configured_retention_and_keeps_the_rest() {
+        let (processor, history, _registry, _rx) = processor_with(1000, 1, 10_000, 10, 20).await;
+
+        {
+            let mut h = history.write().await;
+            for (label, age_mins) in [("stale-a", 121_i64), ("stale-b", 90), ("fresh", 30)] {
+                let mut event =
+                    ClotoEvent::new(ClotoEventData::SystemNotification(label.to_string()));
+                event.timestamp = chrono::Utc::now() - chrono::Duration::minutes(age_mins);
+                h.push_back(SequencedEvent::new(Arc::new(event)));
+            }
+        }
+
+        processor.cleanup_old_events().await;
+
+        assert_eq!(
+            notes_in(&history).await,
+            vec!["fresh".to_string()],
+            "retention of 1h must drop both events older than an hour"
+        );
+    }
+
+    #[tokio::test]
+    async fn cleanup_trims_to_max_event_history_even_when_every_event_is_recent() {
+        // The count-based cap is a second, independent sweep — nothing here is
+        // old enough for the timestamp sweep to touch.
+        let (processor, history, _registry, _rx) = processor_with(1000, 24, 4, 10, 20).await;
+
+        {
+            let mut h = history.write().await;
+            for i in 0..10 {
+                h.push_back(SequencedEvent::new(note(&format!("recent-{i}"))));
+            }
+        }
+
+        processor.cleanup_old_events().await;
+
+        assert_eq!(
+            notes_in(&history).await,
+            vec![
+                "recent-6".to_string(),
+                "recent-7".to_string(),
+                "recent-8".to_string(),
+                "recent-9".to_string()
+            ],
+            "the count cap keeps the newest max_event_history entries"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_action_rate_limiter_allows_one_burst_per_requester_and_then_refuses() {
+        let (processor, _history, _registry, _rx) = processor_with(10, 24, 10_000, 1, 3).await;
+
+        for attempt in 0..3 {
+            assert!(
+                processor.check_action_rate("plugin.hal"),
+                "burst of 3 must admit attempt {attempt}"
+            );
+        }
+        assert!(
+            !processor.check_action_rate("plugin.hal"),
+            "the fourth action within the same second must be refused"
+        );
+        // The limiter is per requester, so a different plugin is unaffected.
+        assert!(processor.check_action_rate("plugin.other"));
+    }
+
+    #[tokio::test]
+    async fn authorize_only_passes_once_the_permission_is_recorded_in_the_registry() {
+        let (processor, _history, registry, _rx) = processor_with(10, 24, 10_000, 10, 20).await;
+        let plugin = ClotoId::from_name("plugin.hal");
+
+        assert!(
+            !processor.authorize(&plugin, Permission::InputControl).await,
+            "an unknown plugin has no effective permissions"
+        );
+
+        registry
+            .update_effective_permissions(plugin, Permission::MemoryRead)
+            .await;
+        assert!(
+            !processor.authorize(&plugin, Permission::InputControl).await,
+            "holding some other permission must not grant InputControl"
+        );
+
+        registry
+            .update_effective_permissions(plugin, Permission::InputControl)
+            .await;
+        assert!(processor.authorize(&plugin, Permission::InputControl).await);
+    }
+
+    #[tokio::test]
+    async fn an_action_from_a_plugin_without_input_control_is_never_broadcast() {
+        let (processor, history, registry, mut rx) = processor_with(50, 24, 10_000, 10, 20).await;
+        let plugin = ClotoId::from_name("plugin.hal");
+
+        let (tx, event_rx) = mpsc::channel::<crate::EnvelopedEvent>(32);
+        tx.send(envelope(Arc::new(ClotoEvent::new(
+            ClotoEventData::ActionRequested {
+                requester: plugin,
+                action: cloto_shared::HandAction::Wait { ms: 1 },
+            },
+        ))))
+        .await
+        .unwrap();
+
+        let loop_processor = processor.clone();
+        let loop_tx = tx.clone();
+        let handle = tokio::spawn(async move {
+            loop_processor.process_loop(event_rx, loop_tx).await;
+        });
+
+        let history_probe = history.clone();
+        assert!(
+            wait_until(|| {
+                let h = history_probe.clone();
+                async move { h.read().await.len() == 1 }
+            })
+            .await,
+            "the action is still recorded in history even when unauthorized"
+        );
+        // Give the loop a moment in case it were (wrongly) going to broadcast.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(
+            rx.try_recv().is_err(),
+            "ActionRequested must not reach SSE subscribers without InputControl"
+        );
+
+        // Granting the permission makes the next identical action broadcast.
+        registry
+            .update_effective_permissions(plugin, Permission::InputControl)
+            .await;
+        tx.send(envelope(Arc::new(ClotoEvent::new(
+            ClotoEventData::ActionRequested {
+                requester: plugin,
+                action: cloto_shared::HandAction::Wait { ms: 1 },
+            },
+        ))))
+        .await
+        .unwrap();
+
+        assert!(
+            wait_until(|| {
+                let ok = rx.try_recv().is_ok();
+                async move { ok }
+            })
+            .await,
+            "an authorized ActionRequested must be broadcast"
+        );
+
+        handle.abort();
+    }
+}

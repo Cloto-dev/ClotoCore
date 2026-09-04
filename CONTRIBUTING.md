@@ -41,7 +41,7 @@ cd -
 All tests must pass before submitting a pull request:
 
 ```bash
-# Rust (685 tests)
+# Rust (745 tests)
 cargo test --workspace --exclude app
 bash scripts/lint-rust.sh   # the CI Lint job's clippy, read out of ci.yml
 
