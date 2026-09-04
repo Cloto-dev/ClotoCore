@@ -18,16 +18,18 @@ use super::mcp_protocol::{
     CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, ClotoHandshakeParams,
     ClotoHandshakeResult, DiscoverResult, EraHandle, EraPreference, InitializeParams,
     JsonRpcRequest, ListToolsResult, ProtocolEra, RpcError, DISCOVER_METHOD,
-    DISCOVER_PROBE_TIMEOUT_SECS, LEGACY_PROTOCOL_VERSION, META_CLIENT_CAPABILITIES,
-    META_CLIENT_INFO, META_LOG_LEVEL, META_MGP_GRANTS, META_PROTOCOL_VERSION,
-    MODERN_PROTOCOL_VERSION, RESULT_TYPE_INPUT_REQUIRED, UNSUPPORTED_PROTOCOL_VERSION,
+    DISCOVER_PROBE_READINESS_CAP_SECS, DISCOVER_PROBE_TIMEOUT_SECS, LEGACY_PROTOCOL_VERSION,
+    META_CLIENT_CAPABILITIES, META_CLIENT_INFO, META_LOG_LEVEL, META_MGP_GRANTS,
+    META_PROTOCOL_VERSION, MODERN_PROTOCOL_VERSION, RESULT_TYPE_INPUT_REQUIRED,
+    UNSUPPORTED_PROTOCOL_VERSION,
 };
-use super::mcp_transport::{HttpTransport, McpTransport, StdioTransport};
+use super::mcp_transport::{ChildVoice, HttpTransport, McpTransport, StdioTransport};
 use anyhow::{Context, Result};
 use serde_json::{Map, Value};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
+use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, Mutex, Notify};
 use tracing::{debug, error, info, warn};
 
@@ -199,6 +201,11 @@ pub struct McpClient {
     /// via [`McpClient::set_mgp_grants`]; ignored in the legacy era, which
     /// delivers grants through the `mgp/permission/grant` RPC instead.
     mgp_grants: Arc<RwLock<Option<Value>>>,
+    /// "The spawned child has written something." `None` for HTTP transports,
+    /// which have no startup of ours to wait through. Read by the era probe to
+    /// tell startup silence apart from an answerless server; see
+    /// [`McpClient::probe_discover`].
+    child_voice: Option<ChildVoice>,
 }
 
 /// Kernel `clientInfo` for both eras.
@@ -376,6 +383,9 @@ impl McpClient {
         // process group without contending on the transport Mutex (the response
         // loop holds it across recv()).
         let child_pid = stdio.child_id();
+        // Same reason: the probe reads this while the response loop owns the
+        // transport across its recv().
+        let child_voice = Some(stdio.voice());
         let transport = McpTransport::Stdio(Box::new(stdio));
         let mut client = Self {
             transport: Arc::new(Mutex::new(transport)),
@@ -392,6 +402,7 @@ impl McpClient {
             era: EraHandle::new(),
             modern_meta: Arc::new(OnceLock::new()),
             mgp_grants: Arc::new(RwLock::new(None)),
+            child_voice,
         };
 
         client.start_response_loop(server_id);
@@ -436,6 +447,9 @@ impl McpClient {
             era,
             modern_meta: Arc::new(OnceLock::new()),
             mgp_grants: Arc::new(RwLock::new(None)),
+            // No child, no startup of ours to wait through: a remote peer was
+            // already running when we first addressed it.
+            child_voice: None,
         };
 
         client.start_response_loop(server_id);
@@ -608,6 +622,24 @@ impl McpClient {
         params: Option<Value>,
         timeout_secs: u64,
     ) -> Result<Value> {
+        let (id, rx) = self.dispatch(method, params).await?;
+
+        if let Ok(res) = tokio::time::timeout(Duration::from_secs(timeout_secs), rx).await {
+            self.settle(method, res)
+        } else {
+            self.abandon(id).await;
+            Err(anyhow::Error::new(RequestTimeout))
+        }
+    }
+
+    /// Register a pending request and put it on the wire. Returns its id and
+    /// the receiver the response loop will resolve — the wait is the caller's,
+    /// and so is removing the entry if it gives up (see [`Self::abandon`]).
+    async fn dispatch(
+        &self,
+        method: &str,
+        params: Option<Value>,
+    ) -> Result<(i64, oneshot::Receiver<Result<Value>>)> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
 
         let params = self.prepare_params(method, params);
@@ -630,15 +662,93 @@ impl McpClient {
             self.pending_requests.lock().await.remove(&id);
             return Err(e);
         }
+        Ok((id, rx))
+    }
 
-        if let Ok(res) =
-            tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), rx).await
+    /// Drop a pending request we are no longer waiting for. A late answer then
+    /// finds no entry and the response loop discards it.
+    async fn abandon(&self, id: i64) {
+        self.pending_requests.lock().await.remove(&id);
+    }
+
+    /// Turn a resolved oneshot into the call's result.
+    fn settle(
+        &self,
+        method: &str,
+        res: std::result::Result<Result<Value>, oneshot::error::RecvError>,
+    ) -> Result<Value> {
+        let value = res.context("Response channel closed")??;
+        self.check_result_type(method, value)
+    }
+
+    /// Send one request and wait for it the way the era probe must: a silence
+    /// budget that starts when the child is first heard from, and a longer
+    /// absolute cap for as long as it has not been heard from at all.
+    ///
+    /// The distinction is the whole point. A running server that does not
+    /// answer `server/discover` is telling us something — it has no modern era
+    /// — and `window_secs` is how long we listen for that. A child still
+    /// resolving a cold venv is telling us nothing, because it has not yet run
+    /// a line of its program, and reading its silence as an era is how a
+    /// dual-era server ends up negotiated as legacy and a modern-only one
+    /// fails the connect outright.
+    ///
+    /// Falls back to a plain [`Self::call_with_timeout`] when there is no child
+    /// of ours to wait for (HTTP transports), which is byte-identical to the
+    /// behaviour before this existed.
+    async fn call_with_readiness_window(
+        &self,
+        method: &str,
+        params: Option<Value>,
+        window_secs: u64,
+        cap_secs: u64,
+    ) -> Result<Value> {
+        let Some(voice) = self.child_voice.clone() else {
+            return self.call_with_timeout(method, params, window_secs).await;
+        };
+
+        let window = Duration::from_secs(window_secs);
+        // A cap below the window would make the readiness wait the shorter of
+        // the two and silently tighten the ordinary path.
+        let cap = Duration::from_secs(cap_secs).max(window);
+        let started = Instant::now();
+        let (id, mut rx) = self.dispatch(method, params).await?;
+
+        // The budget runs from the child's first byte or from this request,
+        // whichever is later, and never past the cap. A re-probe on an
+        // already-talking child therefore gets the plain window, unchanged.
+        let deadline = |spoke: Option<Instant>| -> Instant {
+            let hard = started + cap;
+            spoke.map_or(hard, |t| (t.max(started) + window).min(hard))
+        };
+
+        if voice.spoken_at().is_none() {
+            tokio::select! {
+                res = &mut rx => return self.settle(method, res),
+                () = voice.spoken() => {}
+                () = tokio::time::sleep_until(deadline(None).into()) => {
+                    self.abandon(id).await;
+                    warn!(
+                        method = %method,
+                        cap_secs = cap.as_secs(),
+                        "MCP child wrote nothing at all before the readiness cap — treating \
+                         it as unreachable rather than as an answer"
+                    );
+                    return Err(anyhow::Error::new(RequestTimeout));
+                }
+            }
+            debug!(
+                method = %method,
+                startup = ?started.elapsed(),
+                "MCP child spoke for the first time — the silence budget starts here"
+            );
+        }
+
+        if let Ok(res) = tokio::time::timeout_at(deadline(voice.spoken_at()).into(), &mut rx).await
         {
-            let value = res.context("Response channel closed")??;
-            self.check_result_type(method, value)
+            self.settle(method, res)
         } else {
-            let mut map = self.pending_requests.lock().await;
-            map.remove(&id);
+            self.abandon(id).await;
             Err(anyhow::Error::new(RequestTimeout))
         }
     }
@@ -806,10 +916,16 @@ impl McpClient {
         });
         // Bounded independently of request_timeout_secs: a silent server must
         // cost one short probe, not a full request window (reference SDK: 10s).
-        let timeout_secs = self.request_timeout_secs.min(DISCOVER_PROBE_TIMEOUT_SECS);
+        // The bound is a silence budget, so it runs from the moment the child
+        // proves it is running; until then the longer readiness cap applies and
+        // startup is not mistaken for an era signal.
+        let window_secs = self.request_timeout_secs.min(DISCOVER_PROBE_TIMEOUT_SECS);
+        let cap_secs = self
+            .request_timeout_secs
+            .min(DISCOVER_PROBE_READINESS_CAP_SECS);
 
         match self
-            .call_with_timeout(DISCOVER_METHOD, Some(params), timeout_secs)
+            .call_with_readiness_window(DISCOVER_METHOD, Some(params), window_secs, cap_secs)
             .await
         {
             Ok(value) => match serde_json::from_value::<DiscoverResult>(value) {
@@ -1212,7 +1328,24 @@ impl McpClient {
 
 #[cfg(test)]
 mod tests {
-    use super::super::mcp_test_support::{connect_mock, python3_available, MOCK_READY_SENTINEL};
+    use super::super::mcp_test_support::{
+        connect_mock, connect_slow_mock, python3_available, MOCK_READY_SENTINEL,
+    };
+
+    /// How long [`a_child_that_has_not_started_yet_is_not_read_as_an_era`] keeps
+    /// its mock silent.
+    ///
+    /// Past [`DISCOVER_PROBE_TIMEOUT_SECS`] — checked below at compile time,
+    /// since a silence inside the budget would exercise nothing and the test
+    /// would still pass — with enough margin that a loaded runner cannot land
+    /// the announcement early. It must also stay inside the connect's request
+    /// timeout, which is what bounds the readiness cap.
+    const SLOW_MOCK_QUIET_SECS: u64 = DISCOVER_PROBE_TIMEOUT_SECS + 3;
+    const _: () = assert!(
+        SLOW_MOCK_QUIET_SECS > DISCOVER_PROBE_TIMEOUT_SECS,
+        "the slow mock's silence must outlast the probe's budget or the readiness test \
+         proves nothing"
+    );
     use super::*;
 
     /// bug-411: when the server process dies (transport EOF) while idle, the
@@ -1630,11 +1763,90 @@ while True:\n\
             return;
         }
 
+        let started = std::time::Instant::now();
         let server = connect_mock("mock-silent-probe", MOCK)
             .await
             .expect("an unanswered probe must fall back to the handshake, not fail the connect");
         assert_eq!(server.negotiated.era, ProtocolEra::Legacy);
         assert_eq!(server.client.protocol_era(), Some(ProtocolEra::Legacy));
+
+        // This mock announces itself on stderr before it reads anything, so the
+        // probe's *silence* budget applies and the readiness cap must not: a
+        // running server that ignores `server/discover` is answering the era
+        // question, and waiting the cap out would be waiting for a signal
+        // already received. Bounds the short budget, not the cap, so a
+        // readiness check that stops distinguishing the two fails here instead
+        // of only making the suite slower.
+        let elapsed = started.elapsed();
+        assert!(
+            elapsed < Duration::from_secs(DISCOVER_PROBE_READINESS_CAP_SECS),
+            "the probe against a mock that had already spoken took {elapsed:?}, which is the \
+             readiness cap ({DISCOVER_PROBE_READINESS_CAP_SECS}s), not the silence budget \
+             ({DISCOVER_PROBE_TIMEOUT_SECS}s). The cap is for a child that has written \
+             nothing at all; this one announced itself on stderr before the probe went out."
+        );
+    }
+
+    /// The readiness path, and the regression that pays for it: a server whose
+    /// program has not started yet.
+    ///
+    /// `StdioTransport::start` returns once the process *exists*. The probe is
+    /// written into the stdin pipe immediately after, and until the interpreter
+    /// reaches the read loop nothing on the other side has run — on a cold
+    /// container resolving a venv that is seconds, not milliseconds. Charging
+    /// that startup to the probe's silence budget expires it, and
+    /// `classify_probe_error` then reads the timeout as era policy (4) and
+    /// settles the handshake.
+    ///
+    /// This mock is modern-only *in what it answers* but still replies to
+    /// `initialize`, so the wrong outcome is not a failure anywhere — it is a
+    /// silent downgrade to an era the server never claimed, exactly what a
+    /// dual-era server would suffer in production. The assertion is therefore
+    /// on the negotiated era, and it is the whole test: remove the readiness
+    /// distinction and this reports `Legacy` while everything else stays green.
+    ///
+    /// The silence is [`SLOW_MOCK_QUIET_SECS`], deliberately past the budget.
+    /// That makes this one of the slower tests in the module; the alternative
+    /// is not testing the path that motivated the mechanism.
+    #[tokio::test]
+    async fn a_child_that_has_not_started_yet_is_not_read_as_an_era() {
+        const MOCK: &str = "import sys, json\n\
+def emit(o):\n\
+\x20   sys.stdout.write(json.dumps(o) + '\\n'); sys.stdout.flush()\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   m = req.get('method'); i = req.get('id')\n\
+\x20   if m == 'server/discover':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': i, 'result': {'supportedVersions': ['2026-07-28'],\n\
+\x20           'resultType': 'complete'}})\n\
+\x20   elif m == 'initialize':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': i, 'result': {'capabilities': {}}})\n";
+
+        if !python3_available("a_child_that_has_not_started_yet_is_not_read_as_an_era") {
+            return;
+        }
+
+        let quiet = Duration::from_secs(SLOW_MOCK_QUIET_SECS);
+        let server = connect_slow_mock("mock-slow-start", MOCK, quiet)
+            .await
+            .expect("a child that starts late must still negotiate, not fail the connect");
+        assert_eq!(
+            server.negotiated.era,
+            ProtocolEra::Modern,
+            "the probe expired on interpreter startup and the handshake was settled from a \
+             silence the server never sent — the mock answers `server/discover` in the modern \
+             era, it was simply not running yet when we asked"
+        );
+        assert_eq!(server.client.protocol_era(), Some(ProtocolEra::Modern));
     }
 
     /// Era policy (3): `-32022` naming only versions this kernel knows neither

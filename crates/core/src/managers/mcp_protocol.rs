@@ -211,7 +211,26 @@ pub const DISCOVER_METHOD: &str = "server/discover";
 
 /// Upper bound for a single `server/discover` probe, matching the reference
 /// SDK. The effective probe timeout is `min(request_timeout, this)`.
+///
+/// It is measured from the point the child is first heard from, not from the
+/// write — see [`DISCOVER_PROBE_READINESS_CAP_SECS`].
 pub const DISCOVER_PROBE_TIMEOUT_SECS: u64 = 10;
+
+/// Absolute bound on a `server/discover` probe against a child that has not
+/// written a single byte yet. The effective cap is `min(request_timeout, this)`.
+///
+/// [`DISCOVER_PROBE_TIMEOUT_SECS`] is a *silence* budget: how long a server
+/// that is running may take to answer before we read the silence as "no modern
+/// era here". A child still resolving a cold venv is not silent in that sense —
+/// it has not run a line of its program — and charging it the same budget makes
+/// the probe expire on startup and settle an era from a signal that was never
+/// sent. So the short budget starts when the child first speaks, and until then
+/// this longer one applies.
+///
+/// Sized for a first-run interpreter on a cold container: well past any startup
+/// worth waiting for, and still bounded so a child that never speaks at all
+/// cannot hold a connect open indefinitely.
+pub const DISCOVER_PROBE_READINESS_CAP_SECS: u64 = 60;
 
 /// JSON-RPC error code for `UNSUPPORTED_PROTOCOL_VERSION`; `error.data.supported`
 /// carries the versions the server does speak.

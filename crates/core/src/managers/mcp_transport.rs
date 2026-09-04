@@ -3,9 +3,10 @@ use std::collections::HashMap;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tracing::{debug, error, info, warn};
 
 use super::mcp_isolation::{FilesystemScope, IsolationProfile, NetworkScope};
@@ -59,6 +60,83 @@ impl McpTransport {
         match self {
             Self::Stdio(t) => t.is_alive(),
             Self::Http(t) => t.is_alive(),
+        }
+    }
+
+    /// The spawned child's readiness signal, or `None` for a remote server.
+    ///
+    /// Only a child we start ourselves has a startup we are charged for; an
+    /// HTTP peer was already running when we first addressed it.
+    #[must_use]
+    pub fn voice(&self) -> Option<ChildVoice> {
+        match self {
+            Self::Stdio(t) => Some(t.voice()),
+            Self::Http(_) => None,
+        }
+    }
+}
+
+/// "The child has produced its first byte" — on stdout or on stderr.
+///
+/// [`StdioTransport::start`] returns once the process *exists*, which is not
+/// once it can *read*: an interpreter resolving a cold venv spends seconds in
+/// startup before it reaches its stdin loop, and the first request written into
+/// the pipe is charged for every one of them. The request is never lost, but a
+/// window that opens at the write can close before the program has run a line.
+///
+/// Nothing a pipe exposes says "ready to read". The first byte the child
+/// *writes* is the next best thing, and it is enough for the one decision that
+/// gets this wrong today: it separates a child that has not started from a
+/// child that is running and simply has no answer for us. The era probe reads
+/// it for exactly that — see `McpClient::probe_discover`.
+///
+/// Cheap by construction: one relaxed read per line already being parsed, and a
+/// send only for the first.
+#[derive(Clone)]
+pub struct ChildVoice {
+    heard: Arc<watch::Sender<Option<Instant>>>,
+}
+
+impl ChildVoice {
+    fn new() -> Self {
+        let (heard, _) = watch::channel(None);
+        Self {
+            heard: Arc::new(heard),
+        }
+    }
+
+    /// Record that the child has written something. Idempotent, and atomic
+    /// against the other reader task marking the same first byte.
+    fn mark(&self) {
+        self.heard.send_if_modified(|first| {
+            if first.is_some() {
+                return false;
+            }
+            *first = Some(Instant::now());
+            true
+        });
+    }
+
+    /// When the child's first byte was read, or `None` while it has written
+    /// nothing at all.
+    #[must_use]
+    pub fn spoken_at(&self) -> Option<Instant> {
+        *self.heard.borrow()
+    }
+
+    /// Resolve once the child has written something, immediately if it already
+    /// has. Never resolves on its own: silence is the state this reports, so a
+    /// caller must bound the wait itself.
+    pub async fn spoken(&self) {
+        let mut rx = self.heard.subscribe();
+        // `borrow_and_update` marks the current value seen, so the `changed()`
+        // below cannot hand back the same `None` we just read and spin.
+        while rx.borrow_and_update().is_none() {
+            if rx.changed().await.is_err() {
+                // Unreachable while `self` holds a sender. Park rather than
+                // return: waking here would report a signal never observed.
+                std::future::pending::<()>().await;
+            }
         }
     }
 }
@@ -174,6 +252,7 @@ pub struct StdioTransport {
     child: Child,
     request_tx: mpsc::Sender<String>,
     response_rx: mpsc::Receiver<String>,
+    voice: ChildVoice,
 }
 
 impl Drop for StdioTransport {
@@ -428,6 +507,14 @@ impl StdioTransport {
         let (req_tx, mut req_rx) = mpsc::channel::<String>(MCP_CHANNEL_BUFFER_SIZE);
         let (res_tx, res_rx) = mpsc::channel::<String>(MCP_CHANNEL_BUFFER_SIZE);
 
+        // Raised by whichever reader below sees the child's first byte. Both
+        // arm it: a server that logs its startup announces itself on stderr
+        // well before it answers anything, and one that logs nothing announces
+        // itself with the answer.
+        let voice = ChildVoice::new();
+        let stdout_voice = voice.clone();
+        let stderr_voice = voice.clone();
+
         // Writer Task
         tokio::spawn(async move {
             let mut writer = stdin;
@@ -485,6 +572,7 @@ impl StdioTransport {
                         break;
                     }
                 };
+                stdout_voice.mark();
                 let mut start = 0;
                 for i in 0..n {
                     if chunk[i] == b'\n' {
@@ -528,6 +616,7 @@ impl StdioTransport {
                     Ok(n) => n,
                     Err(_) => break,
                 };
+                stderr_voice.mark();
                 let mut start = 0;
                 for i in 0..n {
                     if chunk[i] == b'\n' {
@@ -560,7 +649,15 @@ impl StdioTransport {
             child,
             request_tx: req_tx,
             response_rx: res_rx,
+            voice,
         })
+    }
+
+    /// This child's readiness signal. Cloneable and lock-free — the era probe
+    /// reads it while the response loop holds the transport.
+    #[must_use]
+    pub fn voice(&self) -> ChildVoice {
+        self.voice.clone()
     }
 
     pub async fn send(&self, msg: String) -> Result<()> {
@@ -929,6 +1026,64 @@ fn resolve_env_value(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Silence must never resolve [`ChildVoice::spoken`]. The era probe treats
+    /// that future as proof the child is running, so a version that completes
+    /// on its own would hand back the same wrong answer this signal exists to
+    /// prevent — and would do it invisibly, since the probe would simply fall
+    /// through to its ordinary budget.
+    #[tokio::test]
+    async fn an_unheard_child_never_resolves() {
+        let voice = ChildVoice::new();
+        assert!(voice.spoken_at().is_none());
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(150), voice.spoken())
+                .await
+                .is_err(),
+            "spoken() resolved for a child that has written nothing"
+        );
+    }
+
+    /// The signal has to reach a waiter that was already parked — the ordinary
+    /// case, since the probe starts waiting before the child has run — and to
+    /// be readable immediately afterwards.
+    #[tokio::test]
+    async fn a_parked_waiter_is_woken_by_the_first_byte() {
+        let voice = ChildVoice::new();
+        let waiter = voice.clone();
+        let task = tokio::spawn(async move { waiter.spoken().await });
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        voice.mark();
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), task)
+            .await
+            .expect("mark() did not wake a parked waiter")
+            .expect("the waiter task panicked");
+        assert!(voice.spoken_at().is_some());
+    }
+
+    /// Already-marked is not a special case: a waiter arriving late resolves at
+    /// once rather than waiting for a second byte that may never come. Both
+    /// readers call `mark` on every chunk, so this is the common path.
+    #[tokio::test]
+    async fn marking_is_idempotent_and_resolves_a_late_waiter() {
+        let voice = ChildVoice::new();
+        voice.mark();
+        let first = voice.spoken_at().expect("mark() must record an instant");
+
+        voice.mark();
+        assert_eq!(
+            voice.spoken_at(),
+            Some(first),
+            "a later byte moved the recorded first-byte instant, which would slide the \
+             probe's silence budget forward every time the child spoke again"
+        );
+
+        tokio::time::timeout(std::time::Duration::from_secs(5), voice.spoken())
+            .await
+            .expect("spoken() must resolve immediately once the child has been heard");
+    }
 
     #[test]
     fn test_validate_command_allowed() {
