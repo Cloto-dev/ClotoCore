@@ -18,6 +18,9 @@ mod mcp_lifecycle;
 pub mod mcp_mgp;
 pub mod mcp_protocol;
 mod mcp_streaming;
+/// Shared readiness gate for the python-mock MCP servers the `mcp_*` tests spawn.
+#[cfg(test)]
+mod mcp_test_support;
 mod mcp_tool_discovery;
 pub mod mcp_tool_validator;
 pub mod mcp_transport;
