@@ -111,7 +111,7 @@ async fn handle_cron_approval(
     .await;
 }
 
-/// YOLO mode: auto-approve all sandboxed commands with audit logging.
+/// YOLO mode: auto-approve every tool call in the batch, with audit logging.
 async fn handle_yolo_approval(
     calls: &[ToolCall],
     agent_id: &str,
@@ -119,18 +119,29 @@ async fn handle_yolo_approval(
     pool: &SqlitePool,
     sender: &tokio::sync::mpsc::Sender<crate::EnvelopedEvent>,
 ) {
-    let sandboxed_tools: Vec<&str> = calls
-        .iter()
-        .filter_map(|c| c.arguments.get("command").and_then(|v| v.as_str()))
-        .collect();
-    if sandboxed_tools.is_empty() {
+    if calls.is_empty() {
         return;
     }
 
+    // Every call that reaches here skipped the gate, so every call is what the
+    // audit has to name. Reading only `arguments.command` left the tool calls
+    // carrying no shell command — the ones the gate would otherwise classify
+    // from their MCP annotations — with no audit row and no result event, so
+    // their bypass was indistinguishable from a call that never happened.
+    let approved: Vec<String> = calls
+        .iter()
+        .map(|c| {
+            c.arguments
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map_or_else(|| format!("[tool] {}", c.name), ToString::to_string)
+        })
+        .collect();
+
     info!(
         agent_id = %agent_id,
-        commands = ?sandboxed_tools,
-        "⚡ YOLO mode: commands auto-approved"
+        approved = ?approved,
+        "⚡ YOLO mode: tool calls auto-approved"
     );
 
     let approval_id = uuid::Uuid::new_v4().to_string();
@@ -144,9 +155,9 @@ async fn handle_yolo_approval(
             permission: None,
             result: "SUCCESS".to_string(),
             reason: format!(
-                "YOLO auto-approved {} commands: {:?}",
-                sandboxed_tools.len(),
-                sandboxed_tools
+                "YOLO auto-approved {} tool calls: {:?}",
+                approved.len(),
+                approved
             ),
             metadata: None,
             trace_id: Some(trace_id.to_string()),
@@ -683,11 +694,29 @@ mod tests {
         );
     }
 
+    /// `spawn_audit_log` writes from a detached task, so poll for the row
+    /// instead of reading once and calling an empty table a verdict.
+    async fn wait_for_yolo_audit_reason(pool: &SqlitePool) -> String {
+        for _ in 0..100 {
+            let row: Option<(String,)> = sqlx::query_as(
+                "SELECT reason FROM audit_logs WHERE event_type = 'YOLO_AUTO_APPROVED' LIMIT 1",
+            )
+            .fetch_optional(pool)
+            .await
+            .expect("read audit_logs");
+            if let Some((reason,)) = row {
+                return reason;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        panic!("no YOLO_AUTO_APPROVED audit row was written within 2s");
+    }
+
     #[tokio::test]
-    async fn yolo_mode_stays_silent_when_no_call_carries_a_command_argument() {
-        // Quirk: `handle_yolo_approval` looks only at `arguments.command`, so a
-        // destructive tool without one is approved with no event and no audit
-        // row at all — that call's bypass leaves no trace.
+    async fn yolo_mode_records_the_bypass_of_a_call_carrying_no_command_argument() {
+        // A tool call without a `command` argument is still a call that skipped
+        // the gate. It used to emit no event and write no audit row, so its
+        // bypass was indistinguishable from a call that never happened.
         let mut h = harness().await;
 
         let denied = h
@@ -702,10 +731,15 @@ mod tests {
             )
             .await;
 
-        assert!(denied.is_empty());
+        assert!(denied.is_empty(), "YOLO denies nothing");
+        let events = h.drain();
+        assert!(!was_requested(&events), "YOLO must not ask the operator");
+        assert_eq!(decisions(&events), vec!["auto_approved".to_string()]);
+
+        let reason = wait_for_yolo_audit_reason(&h.pool).await;
         assert!(
-            h.drain().is_empty(),
-            "neither a request nor a result event is emitted"
+            reason.contains("delete_everything"),
+            "the audit row must name the call that was waved through: {reason}"
         );
     }
 

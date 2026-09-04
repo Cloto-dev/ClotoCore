@@ -329,7 +329,10 @@ pub async fn delete_agent(
         .and_then(|(meta, _)| meta.metadata.get("preferred_memory").cloned())
         .filter(|s| !s.is_empty());
 
-    state.agent_manager.delete_agent(&id).await?;
+    state
+        .agent_manager
+        .delete_agent(&id, &state.config.default_agent_id)
+        .await?;
 
     // Clean up CPersona memory data (best-effort, don't fail the delete)
     if let Some(ref mem_server) = memory_server_id {
