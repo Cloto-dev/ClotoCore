@@ -438,3 +438,395 @@ impl AgentManager {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Characterization tests for `AgentManager`.
+    //!
+    //! Everything here runs against a real in-memory SQLite with the production
+    //! migrations applied, so the SQL (json_set / json_remove / COALESCE
+    //! re-injection) is exercised rather than mocked.
+
+    use super::*;
+    use sqlx::SqlitePool;
+
+    async fn manager_with_threshold(heartbeat_threshold_ms: i64) -> AgentManager {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        AgentManager::new(pool, heartbeat_threshold_ms)
+    }
+
+    async fn manager() -> AgentManager {
+        manager_with_threshold(90_000).await
+    }
+
+    async fn new_agent(mgr: &AgentManager, name: &str) -> String {
+        mgr.create_agent(name, "desc", "engine.test", HashMap::new(), vec![], None)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn creating_an_agent_derives_its_id_from_the_name_and_the_row_round_trips() {
+        let mgr = manager().await;
+        let id = mgr
+            .create_agent(
+                "Test Agent",
+                "a description",
+                "engine.test",
+                HashMap::from([("k".to_string(), "v".to_string())]),
+                vec![],
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(id, "agent.test_agent", "space becomes an underscore");
+        assert!(mgr.agent_exists(&id).await.unwrap());
+
+        let (meta, engine) = mgr.get_agent_config(&id).await.unwrap();
+        assert_eq!(meta.id, id);
+        assert_eq!(meta.name, "Test Agent", "the display name keeps its case");
+        assert_eq!(meta.description, "a description");
+        assert_eq!(engine, "engine.test");
+        assert_eq!(meta.metadata.get("k").map(String::as_str), Some("v"));
+        assert!(meta.enabled, "a freshly created agent is enabled");
+        assert!(
+            !meta.metadata.contains_key("has_power_password"),
+            "no password was set, so no flag is derived"
+        );
+    }
+
+    #[tokio::test]
+    async fn id_sanitisation_replaces_ascii_punctuation_but_keeps_characters_above_u2e7f() {
+        // Quirk: the `c > '\u{2E7F}'` clause is what lets CJK *punctuation*
+        // through unchanged, while ASCII punctuation becomes '_'. Two names that
+        // differ only in ASCII punctuation therefore collide on one id.
+        let mgr = manager().await;
+
+        let cjk = mgr
+            .create_agent("さくら。Bot", "d", "e", HashMap::new(), vec![], None)
+            .await
+            .unwrap();
+        assert_eq!(cjk, "agent.さくら。bot");
+
+        let first = new_agent(&mgr, "Ops!").await;
+        assert_eq!(first, "agent.ops_");
+        let collision = mgr
+            .create_agent("Ops?", "d", "e", HashMap::new(), vec![], None)
+            .await;
+        assert!(
+            collision.is_err(),
+            "a second name sanitising to the same id must hit the primary key"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_enabled_agent_is_online_inside_the_heartbeat_window_and_degraded_outside_it() {
+        let mgr = manager_with_threshold(90_000).await;
+        let id = new_agent(&mgr, "Heartbeat").await;
+
+        let (fresh, _) = mgr.get_agent_config(&id).await.unwrap();
+        assert_eq!(fresh.status, "online");
+
+        // Push last_seen ten minutes into the past: still enabled, now stale.
+        sqlx::query("UPDATE agents SET last_seen = ? WHERE id = ?")
+            .bind(chrono::Utc::now().timestamp_millis() - 600_000)
+            .bind(&id)
+            .execute(&mgr.pool)
+            .await
+            .unwrap();
+        let (stale, _) = mgr.get_agent_config(&id).await.unwrap();
+        assert_eq!(stale.status, "degraded");
+        assert!(stale.enabled, "staleness does not disable the agent");
+
+        // A heartbeat brings it back.
+        mgr.touch_last_seen(&id).await.unwrap();
+        let (touched, _) = mgr.get_agent_config(&id).await.unwrap();
+        assert_eq!(touched.status, "online");
+
+        // A wider threshold reclassifies the very same row.
+        let wide = AgentManager::new(mgr.pool.clone(), 3_600_000);
+        sqlx::query("UPDATE agents SET last_seen = ? WHERE id = ?")
+            .bind(chrono::Utc::now().timestamp_millis() - 600_000)
+            .bind(&id)
+            .execute(&mgr.pool)
+            .await
+            .unwrap();
+        let (relaxed, _) = wide.get_agent_config(&id).await.unwrap();
+        assert_eq!(
+            relaxed.status, "online",
+            "the threshold, not the row, decides liveness"
+        );
+    }
+
+    #[tokio::test]
+    async fn powering_an_agent_off_zeroes_last_seen_and_reports_offline() {
+        let mgr = manager().await;
+        let id = new_agent(&mgr, "Power").await;
+
+        mgr.set_enabled(&id, false).await.unwrap();
+        let (off, _) = mgr.get_agent_config(&id).await.unwrap();
+        assert!(!off.enabled);
+        assert_eq!(off.last_seen, 0, "power-off clears the heartbeat");
+        assert_eq!(off.status, "offline");
+
+        mgr.set_enabled(&id, true).await.unwrap();
+        let (on, _) = mgr.get_agent_config(&id).await.unwrap();
+        assert!(on.enabled);
+        assert!(on.last_seen > 0, "power-on stamps a fresh heartbeat");
+        assert_eq!(on.status, "online");
+    }
+
+    #[tokio::test]
+    async fn avatar_and_vrm_paths_round_trip_and_clearing_removes_the_derived_flags() {
+        let mgr = manager().await;
+        let id = new_agent(&mgr, "Looks").await;
+
+        mgr.set_avatar(&id, "data/avatars/a.png", Some("a smiling face"))
+            .await
+            .unwrap();
+        mgr.set_vrm(&id, "data/vrm/a.vrm").await.unwrap();
+
+        assert_eq!(
+            mgr.get_avatar_path(&id).await.unwrap().as_deref(),
+            Some("data/avatars/a.png")
+        );
+        assert_eq!(
+            mgr.get_vrm_path(&id).await.unwrap().as_deref(),
+            Some("data/vrm/a.vrm")
+        );
+        let (with_media, _) = mgr.get_agent_config(&id).await.unwrap();
+        assert_eq!(
+            with_media.metadata.get("has_avatar").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            with_media.metadata.get("has_vrm").map(String::as_str),
+            Some("true")
+        );
+        assert_eq!(
+            with_media
+                .metadata
+                .get("avatar_description")
+                .map(String::as_str),
+            Some("a smiling face")
+        );
+        assert!(
+            with_media.metadata.contains_key("avatar_updated_at"),
+            "set_avatar stamps the cache-bust key"
+        );
+
+        mgr.clear_avatar(&id).await.unwrap();
+        mgr.clear_vrm(&id).await.unwrap();
+
+        assert!(mgr.get_avatar_path(&id).await.unwrap().is_none());
+        assert!(mgr.get_vrm_path(&id).await.unwrap().is_none());
+        let (cleared, _) = mgr.get_agent_config(&id).await.unwrap();
+        assert!(!cleared.metadata.contains_key("has_avatar"));
+        assert!(!cleared.metadata.contains_key("has_vrm"));
+        assert!(!cleared.metadata.contains_key("avatar_updated_at"));
+    }
+
+    #[tokio::test]
+    async fn a_metadata_replacing_update_preserves_the_avatar_and_vrm_fields() {
+        let mgr = manager().await;
+        let id = new_agent(&mgr, "Preserve").await;
+        mgr.set_avatar(&id, "data/avatars/p.png", Some("portrait"))
+            .await
+            .unwrap();
+        mgr.set_vrm(&id, "data/vrm/p.vrm").await.unwrap();
+        let (before, _) = mgr.get_agent_config(&id).await.unwrap();
+        let stamp = before.metadata.get("avatar_updated_at").cloned().unwrap();
+
+        mgr.update_agent_config(
+            &id,
+            Some("Renamed"),
+            Some("new description"),
+            Some("engine.other".to_string()),
+            Some(HashMap::from([("persona".to_string(), "calm".to_string())])),
+        )
+        .await
+        .unwrap();
+
+        let (after, engine) = mgr.get_agent_config(&id).await.unwrap();
+        assert_eq!(after.name, "Renamed");
+        assert_eq!(after.description, "new description");
+        assert_eq!(engine, "engine.other");
+        assert_eq!(
+            after.metadata.get("persona").map(String::as_str),
+            Some("calm")
+        );
+        assert_eq!(
+            after.metadata.get("avatar_path").map(String::as_str),
+            Some("data/avatars/p.png")
+        );
+        assert_eq!(
+            after.metadata.get("avatar_description").map(String::as_str),
+            Some("portrait")
+        );
+        assert_eq!(
+            after.metadata.get("vrm_path").map(String::as_str),
+            Some("data/vrm/p.vrm")
+        );
+        assert_eq!(
+            after.metadata.get("avatar_updated_at"),
+            Some(&stamp),
+            "the cache-bust key survives an unrelated update (bug-476)"
+        );
+    }
+
+    #[tokio::test]
+    async fn omitting_a_field_from_an_update_leaves_it_untouched() {
+        let mgr = manager().await;
+        let id = new_agent(&mgr, "Partial").await;
+
+        mgr.update_agent_config(&id, Some("Only Name"), None, None, None)
+            .await
+            .unwrap();
+
+        let (after, engine) = mgr.get_agent_config(&id).await.unwrap();
+        assert_eq!(after.name, "Only Name");
+        assert_eq!(
+            after.description, "desc",
+            "None means COALESCE keeps the old value"
+        );
+        assert_eq!(engine, "engine.test");
+    }
+
+    #[tokio::test]
+    async fn updating_or_deleting_an_agent_that_does_not_exist_is_reported_as_not_found() {
+        let mgr = manager().await;
+
+        let update_err = mgr
+            .update_agent_config("agent.ghost", Some("x"), None, None, None)
+            .await
+            .expect_err("a zero-row update must not read as success");
+        assert!(
+            update_err.to_string().contains("agent.ghost"),
+            "{update_err}"
+        );
+
+        let delete_err = mgr
+            .delete_agent("agent.ghost")
+            .await
+            .expect_err("deleting nothing must not read as success");
+        assert!(
+            delete_err.to_string().contains("agent.ghost"),
+            "{delete_err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn deleting_an_agent_also_removes_its_chat_history_and_trusted_commands() {
+        let mgr = manager().await;
+        let id = new_agent(&mgr, "Doomed").await;
+        let survivor = new_agent(&mgr, "Bystander").await;
+
+        for agent in [&id, &survivor] {
+            crate::db::add_trusted_command(&mgr.pool, agent, "ls -la")
+                .await
+                .unwrap();
+        }
+
+        mgr.delete_agent(&id).await.unwrap();
+
+        assert!(!mgr.agent_exists(&id).await.unwrap());
+        assert!(
+            !crate::db::is_command_trusted(&mgr.pool, &id, "ls -la")
+                .await
+                .unwrap(),
+            "the deleted agent's trust list is gone"
+        );
+        assert!(
+            crate::db::is_command_trusted(&mgr.pool, &survivor, "ls -la")
+                .await
+                .unwrap(),
+            "another agent's trust list is untouched"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_manager_layer_will_delete_the_default_seeded_agent_without_complaint() {
+        // Quirk worth knowing before a headless rewrite: "the default agent
+        // cannot be deleted" is enforced only in the HTTP handler. Any caller
+        // that reaches AgentManager directly bypasses that protection.
+        let mgr = manager().await;
+        let default_id = "agent.cloto_default"; // AppConfig's DEFAULT_AGENT_ID fallback
+        assert!(
+            mgr.agent_exists(default_id).await.unwrap(),
+            "the migrations seed this agent"
+        );
+
+        mgr.delete_agent(default_id).await.unwrap();
+
+        assert!(!mgr.agent_exists(default_id).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn listing_agents_hides_rows_whose_type_is_not_agent_but_getting_them_by_id_does_not() {
+        let mgr = manager().await;
+        let id = new_agent(&mgr, "Typed").await;
+        sqlx::query("UPDATE agents SET agent_type = 'engine' WHERE id = ?")
+            .bind(&id)
+            .execute(&mgr.pool)
+            .await
+            .unwrap();
+
+        let listed: Vec<String> = mgr
+            .list_agents()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|a| a.id)
+            .collect();
+        assert!(
+            !listed.contains(&id),
+            "list_agents filters on agent_type = 'agent'"
+        );
+        assert!(
+            mgr.get_agent_config(&id).await.is_ok(),
+            "get_agent_config applies no such filter"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_power_password_is_stored_hashed_and_surfaces_only_as_a_boolean_flag() {
+        let mgr = manager().await;
+        let id = mgr
+            .create_agent(
+                "Locked",
+                "d",
+                "e",
+                HashMap::new(),
+                vec![],
+                Some("correct horse"),
+            )
+            .await
+            .unwrap();
+
+        let hash = mgr
+            .get_password_hash(&id)
+            .await
+            .unwrap()
+            .expect("a hash was stored");
+        assert!(!hash.contains("correct horse"), "the plaintext is not kept");
+        assert!(AgentManager::verify_password("correct horse", &hash).unwrap());
+        assert!(!AgentManager::verify_password("wrong horse", &hash).unwrap());
+
+        let (meta, _) = mgr.get_agent_config(&id).await.unwrap();
+        assert_eq!(
+            meta.metadata.get("has_power_password").map(String::as_str),
+            Some("true")
+        );
+
+        // An empty password string is treated as "no password at all".
+        let open = mgr
+            .create_agent("Open", "d", "e", HashMap::new(), vec![], Some(""))
+            .await
+            .unwrap();
+        assert!(mgr.get_password_hash(&open).await.unwrap().is_none());
+    }
+}
