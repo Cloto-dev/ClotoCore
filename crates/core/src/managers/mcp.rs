@@ -3823,6 +3823,82 @@ mod tests {
         assert!(!p.exists());
     }
 
+    /// The response-language injection has one job: put the operator's language
+    /// into the agent dict under the key the renderer reads. That renderer lives
+    /// in another repository, and its own tests pass a metadata map in by hand —
+    /// so they stay green whether or not anything on this side still produces
+    /// the key. This test is the half that cannot: it fails to compile if the
+    /// producer is removed, and fails to pass if the key is renamed.
+    #[tokio::test]
+    async fn response_language_reaches_the_agent_dict_only_when_it_is_switched_on() {
+        const KEY: &str = "response_language";
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let manager = McpClientManager::new(pool, false, 120, 30);
+
+        let agent = cloto_shared::AgentMetadata {
+            id: "agent.test".to_string(),
+            name: "Test".to_string(),
+            description: String::new(),
+            enabled: true,
+            last_seen: 0,
+            status: "offline".to_string(),
+            default_engine_id: None,
+            required_capabilities: vec![],
+            metadata: std::collections::HashMap::new(),
+            agent_type: "agent".to_string(),
+        };
+
+        // Off: nothing is added, whatever the language says.
+        manager
+            .configure_response_language(false, "ja".to_string())
+            .await;
+        assert!(
+            !manager
+                .enrich_agent_for_dispatch(&agent)
+                .await
+                .metadata
+                .contains_key(KEY),
+            "the toggle is off, so the dispatch must carry no language"
+        );
+
+        // On, but with nothing to say: an empty code would ask the model to
+        // answer in a language named by the empty string.
+        manager
+            .configure_response_language(true, String::new())
+            .await;
+        assert!(
+            !manager
+                .enrich_agent_for_dispatch(&agent)
+                .await
+                .metadata
+                .contains_key(KEY),
+            "an empty language code is not a language"
+        );
+
+        // On: the key the renderer reads, carrying the operator's code.
+        manager
+            .configure_response_language(true, "ja".to_string())
+            .await;
+        let enriched = manager.enrich_agent_for_dispatch(&agent).await;
+        assert_eq!(
+            enriched.metadata.get(KEY).map(String::as_str),
+            Some("ja"),
+            "build_system_prompt reads metadata[\"response_language\"]"
+        );
+
+        // The enrichment is for this dispatch only. The agent row it was built
+        // from is the operator's data and must come back untouched, or the
+        // language would be persisted into the agent by the act of talking to it.
+        assert!(
+            agent.metadata.is_empty(),
+            "enrichment must not reach back into the agent it was given"
+        );
+    }
+
     #[tokio::test]
     async fn yolo_mode_initializes_correctly() {
         let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
