@@ -1,0 +1,12 @@
+-- Record the archive digest the catalog advertised when a connector was
+-- installed, alongside the version string already kept in installed_version.
+--
+-- The update indicator compares what the catalog offers now against what was
+-- installed. Comparing version strings alone misses a republish that changes
+-- the bytes and leaves the version where it was — exactly the connectors that
+-- need updating then read as up to date.
+--
+-- Existing rows stay NULL and keep the version-string comparison: nothing here
+-- can reconstruct the archive digest of an install that predates this column,
+-- because the extracted tree is not the archive.
+ALTER TABLE mcp_servers ADD COLUMN installed_archive_sha256 TEXT NULL;

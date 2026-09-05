@@ -201,6 +201,7 @@ async fn test_set_marketplace_fields_persists_trust_level() {
         "1.2.3",
         "test.marketplace",
         Some("core"),
+        Some("a".repeat(64).as_str()),
     )
     .await
     .unwrap();
@@ -218,6 +219,41 @@ async fn test_set_marketplace_fields_persists_trust_level() {
     // McpServerInfo.marketplace_id, gating the dashboard's MGP purple card
     // for catalog-originated servers (lib/mgp.ts isMgpServer).
     assert_eq!(row.marketplace_id.as_deref(), Some("test.marketplace"));
+
+    // The archive digest rides the same write, because it is what makes an
+    // update visible when the version string did not move.
+    let marketplace = cloto_core::db::get_marketplace_servers(&pool)
+        .await
+        .unwrap();
+    let mp = marketplace
+        .iter()
+        .find(|r| r.name == "test.marketplace")
+        .unwrap();
+    assert_eq!(
+        mp.installed_archive_sha256.as_deref(),
+        Some("a".repeat(64).as_str())
+    );
+
+    // A re-install from a catalog that carries no digest must clear it rather
+    // than leave the previous install's digest standing in for this one.
+    cloto_core::db::set_marketplace_fields(
+        &pool,
+        "test.marketplace",
+        "1.2.3",
+        "test.marketplace",
+        Some("core"),
+        None,
+    )
+    .await
+    .unwrap();
+    let marketplace = cloto_core::db::get_marketplace_servers(&pool)
+        .await
+        .unwrap();
+    let mp = marketplace
+        .iter()
+        .find(|r| r.name == "test.marketplace")
+        .unwrap();
+    assert_eq!(mp.installed_archive_sha256, None);
 }
 
 /// Manually-registered (non-marketplace) servers must persist `marketplace_id`

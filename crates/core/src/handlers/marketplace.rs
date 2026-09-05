@@ -402,9 +402,11 @@ pub async fn catalog_handler(
                 .is_dir();
             let installed = db_installed || files_installed;
             let installed_version = mp_record.and_then(|r| r.installed_version.clone());
-            let update_available = installed_version
-                .as_deref()
-                .is_some_and(|iv| iv != entry.version);
+            let update_available = catalog_offers_an_update(
+                installed_version.as_deref(),
+                mp_record.and_then(|r| r.installed_archive_sha256.as_deref()),
+                entry,
+            );
             let running = running_servers.iter().any(|s| {
                 s.id == entry.id
                     && matches!(
@@ -1488,6 +1490,53 @@ fn archive_binding(entry: &RegistryEntry) -> ArchiveBinding {
     }
 }
 
+/// The archive digest this catalog entry advertises, lowercase hex, if any.
+///
+/// Prefers the digest the seal signed over the one the catalog serves loose.
+/// Where both are present the install path refuses to proceed when they
+/// disagree, so reading the signed one here keeps this answer consistent with
+/// the archive the installer would actually accept.
+fn catalog_archive_digest(entry: &RegistryEntry) -> Option<String> {
+    if let ArchiveBinding::Bound { sha256, .. } = archive_binding(entry) {
+        return Some(sha256);
+    }
+    let mgp_sdk::adapters::SourceSpec::RawUrl(spec) = &entry.install.as_ref()?.source else {
+        return None;
+    };
+    let digest = spec.sha256.as_deref()?.trim();
+    (digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| digest.to_ascii_lowercase())
+}
+
+/// Whether the catalog is offering something other than what was installed.
+///
+/// The version string stays authoritative on its own: a version that moved is
+/// an update whatever the bytes did. The digest adds the case a version cannot
+/// express — a republish that changed the archive and left the version where it
+/// was. That is precisely the connector that needs updating, and judged on the
+/// version alone it reads as up to date.
+///
+/// Both digests must be present to be compared, because a missing one is not
+/// evidence of sameness: an install predating the record has none, and nothing
+/// can recompute it from the extracted tree. So this only ever adds an update
+/// the version comparison missed; it never withdraws one it found.
+fn catalog_offers_an_update(
+    installed_version: Option<&str>,
+    installed_digest: Option<&str>,
+    entry: &RegistryEntry,
+) -> bool {
+    let Some(installed_version) = installed_version else {
+        return false;
+    };
+    if installed_version != entry.version {
+        return true;
+    }
+    match (installed_digest, catalog_archive_digest(entry)) {
+        (Some(installed), Some(current)) => !installed.eq_ignore_ascii_case(&current),
+        _ => false,
+    }
+}
+
 /// Why an install proceeds without a local seal. The server is registered
 /// unsealed, and MGP §10 invariant 3 forces the untrusted profile at spawn.
 ///
@@ -1875,6 +1924,7 @@ async fn finish_registration(
         &entry.version,
         &entry.id,
         Some(&entry.trust_level),
+        catalog_archive_digest(entry).as_deref(),
     )
     .await
     {
@@ -4458,6 +4508,7 @@ async fn run_batch_install(
             &entry.version,
             &entry.id,
             Some(&entry.trust_level),
+            catalog_archive_digest(entry).as_deref(),
         )
         .await
         {
@@ -5239,6 +5290,125 @@ mod tests {
             );
             let _ = std::fs::remove_dir_all(&work);
         }
+    }
+
+    // ── update detection: version string + archive digest ──
+
+    const ARCHIVE_A: &str = "1111111111111111111111111111111111111111111111111111111111111111";
+    const ARCHIVE_B: &str = "2222222222222222222222222222222222222222222222222222222222222222";
+
+    /// A catalog entry whose only digest is the loose one it serves.
+    fn entry_with_archive(version: &str, sha256: Option<&str>) -> RegistryEntry {
+        let mut e = entry("demo", "demo");
+        e.version = version.into();
+        e.install = Some(InstallShape {
+            source: mgp_sdk::adapters::SourceSpec::RawUrl(mgp_sdk::adapters::RawUrlSpec {
+                url: "https://example.invalid/archive.tar.gz".into(),
+                sha256: sha256.map(str::to_string),
+                subdir: None,
+            }),
+            package_manager: None,
+        });
+        e
+    }
+
+    #[test]
+    fn a_republished_archive_is_an_update_even_though_the_version_did_not_move() {
+        // The case the version comparison cannot see, and the reason this
+        // exists: the bytes changed and the version string did not, so the
+        // connector that most needs updating is the one that reads as current.
+        let catalog = entry_with_archive("0.1.0", Some(ARCHIVE_B));
+        assert!(catalog_offers_an_update(
+            Some("0.1.0"),
+            Some(ARCHIVE_A),
+            &catalog
+        ));
+    }
+
+    #[test]
+    fn the_same_version_and_the_same_archive_is_not_an_update() {
+        let catalog = entry_with_archive("0.1.0", Some(ARCHIVE_A));
+        assert!(!catalog_offers_an_update(
+            Some("0.1.0"),
+            Some(ARCHIVE_A),
+            &catalog
+        ));
+        // Digest comparison is case-insensitive: the same bytes written in
+        // upper hex are the same bytes.
+        assert!(!catalog_offers_an_update(
+            Some("0.1.0"),
+            Some(&ARCHIVE_A.to_ascii_uppercase()),
+            &catalog
+        ));
+    }
+
+    #[test]
+    fn a_moved_version_is_an_update_whatever_the_digest_says() {
+        // The digest may only add updates, never withdraw one. An identical
+        // digest beside a moved version must not turn into "up to date".
+        let catalog = entry_with_archive("0.2.0", Some(ARCHIVE_A));
+        assert!(catalog_offers_an_update(
+            Some("0.1.0"),
+            Some(ARCHIVE_A),
+            &catalog
+        ));
+    }
+
+    #[test]
+    fn without_both_digests_the_version_is_the_whole_answer() {
+        // Installs predating the record carry no digest, and nothing can
+        // recompute one from the extracted tree — so a missing digest is not
+        // evidence that the archive is unchanged, and must not be read as one.
+        let catalog = entry_with_archive("0.1.0", Some(ARCHIVE_B));
+        assert!(!catalog_offers_an_update(Some("0.1.0"), None, &catalog));
+        assert!(catalog_offers_an_update(Some("0.0.9"), None, &catalog));
+
+        // Same in the other direction: a catalog that advertises no digest.
+        let silent = entry_with_archive("0.1.0", None);
+        assert!(!catalog_offers_an_update(
+            Some("0.1.0"),
+            Some(ARCHIVE_A),
+            &silent
+        ));
+
+        // And nothing installed at all is never an update.
+        assert!(!catalog_offers_an_update(None, Some(ARCHIVE_A), &catalog));
+    }
+
+    #[test]
+    fn a_malformed_served_digest_is_no_digest() {
+        // Anything that is not 64 hex characters cannot be compared with a
+        // recorded digest, so it falls back rather than reporting a difference
+        // it cannot substantiate.
+        for bad in ["", "not-hex", ARCHIVE_A.trim_end_matches('1')] {
+            let catalog = entry_with_archive("0.1.0", Some(bad));
+            assert_eq!(catalog_archive_digest(&catalog), None, "{bad:?}");
+            assert!(!catalog_offers_an_update(
+                Some("0.1.0"),
+                Some(ARCHIVE_A),
+                &catalog
+            ));
+        }
+    }
+
+    #[test]
+    fn the_signed_digest_is_preferred_over_the_served_one() {
+        // Where a v2 seal binds an archive, that is the archive the installer
+        // will accept, so it is the one this comparison has to be about.
+        let (mut v2, _pk, _kid) = signed_entry_v2("demo", b"x");
+        v2.install = Some(InstallShape {
+            source: mgp_sdk::adapters::SourceSpec::RawUrl(mgp_sdk::adapters::RawUrlSpec {
+                url: "https://example.invalid/archive.tar.gz".into(),
+                sha256: Some(ARCHIVE_A.to_string()),
+                subdir: None,
+            }),
+            package_manager: None,
+        });
+        assert_eq!(
+            catalog_archive_digest(&v2).as_deref(),
+            Some(V2_ARCHIVE_SHA),
+            "the seal-bound digest wins over the loose one"
+        );
     }
 
     #[test]
