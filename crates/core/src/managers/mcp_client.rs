@@ -124,8 +124,11 @@ pub struct NegotiatedProtocol {
     /// MGP server capabilities — `initialize.capabilities.mgp` (legacy) or
     /// `DiscoverResult.capabilities.extensions["dev.cloto/mgp"]` (modern).
     pub mgp: Option<MgpServerCapabilities>,
-    /// `DiscoverResult.instructions` (modern era only). Stored on the handle for
-    /// a future consumer; nothing acts on it yet.
+    /// The server's own operating guidance, from whichever channel its era
+    /// uses — `initialize.instructions` (legacy) or `DiscoverResult.instructions`
+    /// (modern). Empty and whitespace-only are normalised to `None` at capture,
+    /// so a consumer never has to tell "absent" from "blank". Stored on the
+    /// handle for a future consumer; nothing acts on it yet.
     pub instructions: Option<String>,
 }
 
@@ -1013,12 +1016,12 @@ impl McpClient {
         probed: bool,
     ) -> Result<NegotiatedProtocol> {
         match self.initialize(default_log_level).await {
-            Ok(mgp) => {
+            Ok((mgp, instructions)) => {
                 self.era.set_legacy();
                 Ok(NegotiatedProtocol {
                     era: ProtocolEra::Legacy,
                     mgp,
-                    instructions: None,
+                    instructions,
                 })
             }
             Err(e) => {
@@ -1050,7 +1053,17 @@ impl McpClient {
         }
     }
 
-    async fn initialize(&self, default_log_level: &str) -> Result<Option<MgpServerCapabilities>> {
+    /// Run the legacy handshake, returning what it advertised: the MGP server
+    /// capabilities and the server's `instructions`.
+    ///
+    /// `instructions` is the legacy era's carrier for the same operating
+    /// guidance the modern era puts on `DiscoverResult`. Reading it here is what
+    /// keeps [`NegotiatedProtocol`] era-agnostic — a legacy server that ships
+    /// instructions must not lose them for having answered on the older channel.
+    async fn initialize(
+        &self,
+        default_log_level: &str,
+    ) -> Result<(Option<MgpServerCapabilities>, Option<String>)> {
         let params = InitializeParams {
             protocol_version: LEGACY_PROTOCOL_VERSION.to_string(),
             capabilities: ClientCapabilities {
@@ -1077,6 +1090,16 @@ impl McpClient {
             })
             .and_then(|mgp| serde_json::from_value::<MgpServerCapabilities>(mgp.clone()).ok());
 
+        // Free-form operating guidance the server wants its callers to have.
+        // Whitespace-only is nothing to say: normalising it to None here means
+        // the injection side never has to distinguish "absent" from "blank".
+        let instructions = result
+            .get("instructions")
+            .and_then(serde_json::Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+
         // MCP logging capability (design §7): a server that advertises
         // `capabilities.logging` only emits `notifications/message` after the
         // client sets a minimum severity. Send `logging/setLevel` once, right
@@ -1094,7 +1117,7 @@ impl McpClient {
             }
         }
 
-        Ok(mgp_server_caps)
+        Ok((mgp_server_caps, instructions))
     }
 
     /// Send `notifications/initialized` to the server.
@@ -1723,7 +1746,84 @@ while True:\n\
         assert_eq!(server.negotiated.era, ProtocolEra::Legacy);
         assert_eq!(server.client.protocol_era(), Some(ProtocolEra::Legacy));
         assert!(server.negotiated.mgp.is_none());
-        assert!(server.negotiated.instructions.is_none());
+        assert!(
+            server.negotiated.instructions.is_none(),
+            "a handshake carrying no instructions must not invent any"
+        );
+    }
+
+    /// The legacy era carries `instructions` on the `initialize` result, and it
+    /// has to survive the handshake the same way the modern era's does. Before
+    /// this, `negotiate_legacy` hard-coded `None`, so a handshake-era server's
+    /// guidance was read off the wire and dropped on the floor.
+    ///
+    /// Two connects: one server with padded instructions (captured, trimmed),
+    /// one whose instructions are only whitespace (nothing to say -> `None`, so
+    /// no consumer has to tell an empty string from an absent field).
+    #[tokio::test]
+    async fn legacy_instructions_are_captured_and_blank_is_nothing_to_say() {
+        const SPEAKS: &str = "import sys, json\n\
+def emit(o):\n\
+\x20   sys.stdout.write(json.dumps(o) + '\\n'); sys.stdout.flush()\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   m = req.get('method'); i = req.get('id')\n\
+\x20   if m == 'server/discover':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': i, 'error': {'code': -32601, 'message': 'Method not found'}})\n\
+\x20   elif m == 'initialize':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': i, 'result': {'capabilities': {}, 'instructions': '  store before you recall  '}})\n";
+
+        const BLANK: &str = "import sys, json\n\
+def emit(o):\n\
+\x20   sys.stdout.write(json.dumps(o) + '\\n'); sys.stdout.flush()\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   m = req.get('method'); i = req.get('id')\n\
+\x20   if m == 'server/discover':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': i, 'error': {'code': -32601, 'message': 'Method not found'}})\n\
+\x20   elif m == 'initialize':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': i, 'result': {'capabilities': {}, 'instructions': '   \\n  '}})\n";
+
+        if !python3_available("legacy_instructions_are_captured_and_blank_is_nothing_to_say") {
+            return;
+        }
+
+        let speaks = connect_mock("mock-legacy-instructions", SPEAKS)
+            .await
+            .expect("a handshake-era server must connect");
+        assert_eq!(speaks.negotiated.era, ProtocolEra::Legacy);
+        assert_eq!(
+            speaks.negotiated.instructions.as_deref(),
+            Some("store before you recall"),
+            "initialize.instructions must be captured, and trimmed"
+        );
+
+        let blank = connect_mock("mock-legacy-blank-instructions", BLANK)
+            .await
+            .expect("a handshake-era server must connect");
+        assert_eq!(blank.negotiated.era, ProtocolEra::Legacy);
+        assert!(
+            blank.negotiated.instructions.is_none(),
+            "whitespace-only instructions are nothing to say, not an empty string"
+        );
     }
 
     /// Era policy (4), the other way in: a server that never answers the probe
