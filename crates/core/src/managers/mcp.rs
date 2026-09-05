@@ -64,6 +64,13 @@ pub struct McpClientManager {
     /// YOLO mode: auto-approve all MCP server permissions (ARCHITECTURE.md §5.7).
     /// Arc<AtomicBool> allows runtime toggle via API without restart.
     pub yolo_mode: Arc<AtomicBool>,
+    /// When true, kernel injects `metadata["response_language"]` into every
+    /// agent dict sent to MCP think tools so the system prompt asks the LLM
+    /// to reply in the operator's language. Toggle from Settings UI.
+    pub inject_response_language: Arc<AtomicBool>,
+    /// ISO 639-1 code (`ja`, `en`, …) used when `inject_response_language` is true.
+    /// Synced from the dashboard's language selector via PUT /api/settings/language.
+    pub response_language: Arc<tokio::sync::RwLock<String>>,
     /// Shared notification channel — all MCP servers' notifications are collected here
     notification_tx: mpsc::Sender<McpNotification>,
     notification_rx: Mutex<Option<mpsc::Receiver<McpNotification>>>,
@@ -124,6 +131,9 @@ impl McpClientManager {
             }),
             pool,
             yolo_mode: Arc::new(AtomicBool::new(yolo_mode)),
+            // Defaults; callers override via configure_response_language().
+            inject_response_language: Arc::new(AtomicBool::new(true)),
+            response_language: Arc::new(tokio::sync::RwLock::new(String::new())),
             notification_tx,
             notification_rx: Mutex::new(Some(notification_rx)),
             mcp_request_timeout_secs,
@@ -159,6 +169,16 @@ impl McpClientManager {
             .clone()
     }
 
+    /// Set the initial response-language injection settings (called once at
+    /// startup after `new`). The values come from `plugin_configs` or the
+    /// `LANG` env var; runtime updates flow through the API handlers which
+    /// mutate `inject_response_language` and `response_language` directly.
+    pub async fn configure_response_language(&self, enabled: bool, language: String) {
+        self.inject_response_language
+            .store(enabled, Ordering::Relaxed);
+        *self.response_language.write().await = language;
+    }
+
     /// Configure isolation settings from AppConfig (called once at startup).
     pub fn configure_isolation(&mut self, config: &crate::config::AppConfig) {
         self.llm_proxy_port = config.llm_proxy_port;
@@ -179,6 +199,29 @@ impl McpClientManager {
     /// Set the kernel event bus sender (called once after AppState creation).
     pub async fn set_kernel_event_tx(&self, tx: mpsc::Sender<crate::EnvelopedEvent>) {
         *self.kernel_event_tx.lock().await = Some(tx);
+    }
+
+    /// Return a clone of the agent metadata with `response_language` injected
+    /// into `metadata` when the global toggle is on, otherwise return the
+    /// agent unchanged. Called by every think/think_with_tools dispatch path
+    /// before `serde_json::to_value(&agent)` so the Python `build_system_prompt`
+    /// reads it via `metadata.get("response_language")`.
+    pub async fn enrich_agent_for_dispatch(
+        &self,
+        agent: &cloto_shared::AgentMetadata,
+    ) -> cloto_shared::AgentMetadata {
+        if !self.inject_response_language.load(Ordering::Relaxed) {
+            return agent.clone();
+        }
+        let language = self.response_language.read().await.clone();
+        if language.is_empty() {
+            return agent.clone();
+        }
+        let mut enriched = agent.clone();
+        enriched
+            .metadata
+            .insert("response_language".to_string(), language);
+        enriched
     }
 
     /// Emit a kernel event via the event bus (if connected).
@@ -3778,6 +3821,82 @@ mod tests {
         let p = resolve_sealable_entry_point("python", &a);
         assert_eq!(p, std::path::Path::new("cpersona.server"));
         assert!(!p.exists());
+    }
+
+    /// The response-language injection has one job: put the operator's language
+    /// into the agent dict under the key the renderer reads. That renderer lives
+    /// in another repository, and its own tests pass a metadata map in by hand —
+    /// so they stay green whether or not anything on this side still produces
+    /// the key. This test is the half that cannot: it fails to compile if the
+    /// producer is removed, and fails to pass if the key is renamed.
+    #[tokio::test]
+    async fn response_language_reaches_the_agent_dict_only_when_it_is_switched_on() {
+        const KEY: &str = "response_language";
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let manager = McpClientManager::new(pool, false, 120, 30);
+
+        let agent = cloto_shared::AgentMetadata {
+            id: "agent.test".to_string(),
+            name: "Test".to_string(),
+            description: String::new(),
+            enabled: true,
+            last_seen: 0,
+            status: "offline".to_string(),
+            default_engine_id: None,
+            required_capabilities: vec![],
+            metadata: std::collections::HashMap::new(),
+            agent_type: "agent".to_string(),
+        };
+
+        // Off: nothing is added, whatever the language says.
+        manager
+            .configure_response_language(false, "ja".to_string())
+            .await;
+        assert!(
+            !manager
+                .enrich_agent_for_dispatch(&agent)
+                .await
+                .metadata
+                .contains_key(KEY),
+            "the toggle is off, so the dispatch must carry no language"
+        );
+
+        // On, but with nothing to say: an empty code would ask the model to
+        // answer in a language named by the empty string.
+        manager
+            .configure_response_language(true, String::new())
+            .await;
+        assert!(
+            !manager
+                .enrich_agent_for_dispatch(&agent)
+                .await
+                .metadata
+                .contains_key(KEY),
+            "an empty language code is not a language"
+        );
+
+        // On: the key the renderer reads, carrying the operator's code.
+        manager
+            .configure_response_language(true, "ja".to_string())
+            .await;
+        let enriched = manager.enrich_agent_for_dispatch(&agent).await;
+        assert_eq!(
+            enriched.metadata.get(KEY).map(String::as_str),
+            Some("ja"),
+            "build_system_prompt reads metadata[\"response_language\"]"
+        );
+
+        // The enrichment is for this dispatch only. The agent row it was built
+        // from is the operator's data and must come back untouched, or the
+        // language would be persisted into the agent by the act of talking to it.
+        assert!(
+            agent.metadata.is_empty(),
+            "enrichment must not reach back into the agent it was given"
+        );
     }
 
     #[tokio::test]
