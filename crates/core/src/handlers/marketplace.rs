@@ -591,7 +591,14 @@ pub async fn install_handler(
             // takes the connector off the operator's update list. Only on
             // success — a failed re-vendor leaves the old files in place, and
             // with them the reason the connector was listed.
-            Ok(()) => crate::managers::llm_proxy::forget_untrusted_provider(&entry.id),
+            Ok(()) => {
+                crate::managers::llm_proxy::forget_untrusted_provider(&entry.id);
+                // The persisted record describes callers that were just
+                // replaced. Keeping it would either hold enforcement off for a
+                // fault this update fixed, or turn it on for a connector that
+                // has not spoken yet.
+                crate::managers::llm_proxy::clear_token_evidence(&state_clone.pool).await;
+            }
             Err(e) => error!("Marketplace install failed for {}: {e}", entry.id),
         }
         // Always emit Complete so the frontend SSE listener can close.

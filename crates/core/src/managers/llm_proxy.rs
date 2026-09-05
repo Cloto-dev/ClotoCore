@@ -89,6 +89,123 @@ const TOKEN_WARN_INTERVAL: Duration = Duration::from_secs(60);
 /// When the last untrusted-caller warning was emitted (process-wide).
 static LAST_TOKEN_WARN: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 
+/// Where this installation's record of proxy callers lives.
+///
+/// `plugin_data` rather than a column of its own: this mechanism decides a
+/// DEFAULT, and a default-chooser is the kind of thing that gets retired once
+/// every shipped connector sends the token. A schema outlives the mechanism
+/// that asked for it; a key in an existing store does not. Plugins reach this
+/// table only through `ScopedDataStore`, which binds them to their own id, so
+/// nothing outside the kernel writes under this one.
+const KERNEL_STORE_ID: &str = "cloto.kernel";
+const TOKEN_EVIDENCE_KEY: &str = "llm_proxy.token_evidence";
+
+/// What this installation has learned about its own callers.
+///
+/// Two facts, not a count: the decision below only asks whether each has ever
+/// happened, and a counter would make every request a write.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TokenEvidence {
+    /// The proxy has served at least one request.
+    #[serde(default)]
+    pub served: bool,
+    /// At least one of them carried no valid token.
+    #[serde(default)]
+    pub untrusted: bool,
+}
+
+/// Whether enforcement should default to ON for an installation with this record.
+///
+/// **Positive evidence, not absent negative evidence.** "Never saw an untrusted
+/// call" is true of every installation that has not served one yet — including
+/// one whose connectors all predate the token and simply have not been used.
+/// Reading that as "safe to require the token" would break exactly the people
+/// this staging exists to protect, and it would do it on their first restart,
+/// which is why a boot-scoped window cannot answer this question either. So the
+/// answer requires the proxy to have served something AND all of it to have
+/// been authenticated.
+///
+/// An installation that never uses the proxy therefore never auto-enables. That
+/// is the intended outcome: there is nothing to protect there, and nothing that
+/// would prove it safe.
+#[must_use]
+pub fn enforcement_default(evidence: TokenEvidence) -> bool {
+    evidence.served && !evidence.untrusted
+}
+
+/// Read this installation's record. A missing or unreadable row is "no
+/// evidence", which `enforcement_default` treats as "do not enable" — the
+/// failure direction that cannot break a caller.
+pub async fn load_token_evidence(pool: &SqlitePool) -> TokenEvidence {
+    use cloto_shared::PluginDataStore as _;
+    let store = crate::db::SqliteDataStore::new(pool.clone());
+    match store.get_json(KERNEL_STORE_ID, TOKEN_EVIDENCE_KEY).await {
+        Ok(Some(v)) => serde_json::from_value(v).unwrap_or_default(),
+        _ => TokenEvidence::default(),
+    }
+}
+
+/// Forget what the proxy has seen, because the connector set changed.
+///
+/// Called when a connector is re-vendored: the record describes callers that no
+/// longer exist on disk, and carrying it forward would either hold enforcement
+/// off for a fault that was just fixed, or turn it on for a connector nobody has
+/// heard from yet. The installation earns the answer again from the new set.
+pub async fn clear_token_evidence(pool: &SqlitePool) {
+    PERSISTED_SERVED.store(false, std::sync::atomic::Ordering::Relaxed);
+    PERSISTED_UNTRUSTED.store(false, std::sync::atomic::Ordering::Relaxed);
+    store_token_evidence(pool, TokenEvidence::default()).await;
+}
+
+/// Write the record. Failures are logged and swallowed: a proxy request must
+/// not fail because bookkeeping did, and the cost of a lost write is that the
+/// installation has to earn the answer again.
+async fn store_token_evidence(pool: &SqlitePool, evidence: TokenEvidence) {
+    use cloto_shared::PluginDataStore as _;
+    let store = crate::db::SqliteDataStore::new(pool.clone());
+    if let Err(e) = store
+        .set_json(
+            KERNEL_STORE_ID,
+            TOKEN_EVIDENCE_KEY,
+            serde_json::to_value(evidence).unwrap_or(serde_json::Value::Null),
+        )
+        .await
+    {
+        tracing::debug!("could not write the LLM proxy token evidence: {e}");
+    }
+}
+
+/// What the record becomes after serving one request. Split out so the rule is
+/// testable without the process-wide flags below, which every test in this
+/// binary shares.
+#[must_use]
+fn evidence_after(prev: TokenEvidence, untrusted: bool) -> TokenEvidence {
+    TokenEvidence {
+        served: true,
+        untrusted: prev.untrusted || untrusted,
+    }
+}
+
+/// Facts already on disk, so the steady state costs an atomic load rather than
+/// a write per request. Both are conservative when wrong: a lost write means
+/// the installation has to earn the answer again, never that it claims one it
+/// did not earn.
+static PERSISTED_SERVED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static PERSISTED_UNTRUSTED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Record one served request. Writes only when it says something new.
+async fn record_evidence(pool: &SqlitePool, untrusted: bool) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let new_served = !PERSISTED_SERVED.swap(true, Relaxed);
+    let new_untrusted = untrusted && !PERSISTED_UNTRUSTED.swap(true, Relaxed);
+    if !new_served && !new_untrusted {
+        return;
+    }
+    let evidence = evidence_after(load_token_evidence(pool).await, untrusted);
+    store_token_evidence(pool, evidence).await;
+}
+
 /// Largest number of distinct connectors named in [`UntrustedCallers::connectors`].
 ///
 /// The set is bounded because it is reported to the operator and held for the
@@ -413,6 +530,11 @@ async fn proxy_handler(
         record_untrusted_caller();
         warn_untrusted_caller(presented.is_some());
     }
+    // Persisted, unlike the in-memory count: the question this answers is
+    // "has this INSTALLATION ever served an unauthenticated caller", and an
+    // answer that resets every restart would say "no" to every kernel on its
+    // first request of the day.
+    record_evidence(&state.pool, untrusted).await;
 
     // Determine provider from header or body
     let provider_id = headers
@@ -858,9 +980,103 @@ mod tests {
         );
     }
 
-    /// With enforcement off, a call with no token is served *and* observed —
-    /// that observation is what later decides whether requiring the token is
-    /// safe here, so losing it would be silent.
+    // ── The rule that decides the default (Task: stage 3) ──
+
+    /// The arm the staging exists for: an installation that has heard from a
+    /// connector with no token must not start rejecting it.
+    #[test]
+    fn an_installation_that_saw_an_untrusted_call_does_not_auto_enable() {
+        assert!(!enforcement_default(TokenEvidence {
+            served: true,
+            untrusted: true
+        }));
+    }
+
+    /// The other arm: everything it has served carried the token, so requiring
+    /// it breaks nothing that has spoken.
+    #[test]
+    fn an_installation_that_only_saw_authenticated_calls_auto_enables() {
+        assert!(enforcement_default(TokenEvidence {
+            served: true,
+            untrusted: false
+        }));
+    }
+
+    /// The trap this design exists to avoid. "Never saw an untrusted call" is
+    /// also true of an installation that has served nothing at all — every
+    /// kernel, on every first request after a restart, and every kernel whose
+    /// connectors predate the token but have not been used yet. Silence is not
+    /// a clean record.
+    #[test]
+    fn silence_is_not_evidence_of_safety() {
+        assert!(!enforcement_default(TokenEvidence::default()));
+        assert!(!enforcement_default(TokenEvidence {
+            served: false,
+            untrusted: false
+        }));
+    }
+
+    #[test]
+    fn one_untrusted_call_is_remembered_and_a_later_clean_one_does_not_erase_it() {
+        let after_bad = evidence_after(TokenEvidence::default(), true);
+        assert_eq!(
+            after_bad,
+            TokenEvidence {
+                served: true,
+                untrusted: true
+            }
+        );
+        // A connector that sends the token does not vouch for the one that does
+        // not. Only replacing a connector clears the record.
+        let after_good = evidence_after(after_bad, false);
+        assert!(
+            after_good.untrusted,
+            "a clean call must not clear the fault"
+        );
+        assert!(!enforcement_default(after_good));
+    }
+
+    #[tokio::test]
+    async fn the_record_survives_a_restart_and_a_reinstall_clears_it() {
+        // Persistence is the whole point: an in-memory record answers "no
+        // untrusted calls" to every freshly started kernel.
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            load_token_evidence(&pool).await,
+            TokenEvidence::default(),
+            "a fresh installation knows nothing"
+        );
+
+        store_token_evidence(
+            &pool,
+            TokenEvidence {
+                served: true,
+                untrusted: true,
+            },
+        )
+        .await;
+        let reloaded = load_token_evidence(&pool).await;
+        assert!(
+            reloaded.served && reloaded.untrusted,
+            "the row must persist"
+        );
+        assert!(!enforcement_default(reloaded));
+
+        clear_token_evidence(&pool).await;
+        assert_eq!(
+            load_token_evidence(&pool).await,
+            TokenEvidence::default(),
+            "re-vendoring a connector must reset what the record describes"
+        );
+        // And the reset lands on "do not enable", not on "enable" — the
+        // installation earns the answer again from the new connector set.
+        assert!(!enforcement_default(load_token_evidence(&pool).await));
+    }
+
     /// A worklist that never shrinks stops being one. The count is a different
     /// claim — what this kernel served — and updating a connector does not
     /// unserve those requests, so it must survive.
@@ -942,6 +1158,9 @@ mod tests {
         shutdown.raise();
     }
 
+    /// With enforcement off, a call with no token is served *and* observed —
+    /// that observation is what later decides whether requiring the token is
+    /// safe here, so losing it would be silent.
     #[tokio::test]
     async fn serving_without_a_token_is_observed() {
         let (port, shutdown) = spawn_test_proxy("proxy-token-under-test", false).await;

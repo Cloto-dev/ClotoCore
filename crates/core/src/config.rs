@@ -123,7 +123,11 @@ pub struct AppConfig {
     /// Whether the LLM proxy *rejects* callers that present no/wrong token.
     /// Default false: during the rollout a bad token is logged and the request
     /// proceeds, so connectors that do not yet send the header keep working.
-    pub llm_proxy_require_token: bool,
+    /// `None` when the operator said nothing. The default is then decided from
+    /// what this installation has actually served (see `llm_proxy`), because a
+    /// hard-coded default cannot know whether a connector here still predates
+    /// the token. An explicit value always wins over that.
+    pub llm_proxy_require_token: Option<bool>,
     /// Database operation timeout in seconds.
     pub db_timeout_secs: u64,
     /// Memory retrieval timeout in seconds.
@@ -199,6 +203,16 @@ pub struct AppConfig {
     pub sandbox_base_dir: PathBuf,
     /// Run a quick health scan on startup. Default: true.
     pub health_scan_on_startup: bool,
+}
+
+/// Read the enforcement override. `None` means the operator said nothing, and
+/// is deliberately NOT the same as `0`: an explicit off must survive an
+/// installation whose record would otherwise turn enforcement on.
+fn parse_require_token(raw: Option<&str>) -> Option<bool> {
+    raw.map(|v| {
+        let v = v.trim().to_ascii_lowercase();
+        v == "1" || v == "true"
+    })
 }
 
 impl AppConfig {
@@ -433,12 +447,12 @@ impl AppConfig {
             .ok()
             .filter(|v| !v.is_empty())
             .unwrap_or_else(crate::apikey::generate);
-        // Rollout switch: enforcement is opt-in until the engine library ships
-        // the header on every request (then this default flips to true).
-        let llm_proxy_require_token = env::var("CLOTO_LLM_PROXY_REQUIRE_TOKEN").is_ok_and(|v| {
-            let v = v.trim().to_ascii_lowercase();
-            v == "1" || v == "true"
-        });
+        // Rollout switch. Absent means "decide from evidence", which is not the
+        // same as `0`: an operator who turned enforcement off must keep it off,
+        // and an installation that never heard from anyone must not be read as
+        // one that heard only good news.
+        let llm_proxy_require_token =
+            parse_require_token(env::var("CLOTO_LLM_PROXY_REQUIRE_TOKEN").ok().as_deref());
 
         let db_timeout_secs = env::var("CLOTO_DB_TIMEOUT_SECS")
             .unwrap_or_else(|_| "10".to_string())
@@ -907,5 +921,17 @@ mod tests {
             config.database_url, expected,
             "DATABASE_URL default must equal sqlite:<data_dir>/cloto_memories.db"
         );
+    }
+
+    #[test]
+    fn the_enforcement_override_tells_unset_apart_from_off() {
+        // The distinction the staged rollout rests on. Collapsing these two
+        // makes an explicit `0` indistinguishable from silence, and the
+        // evidence-based default would then override the operator.
+        assert_eq!(parse_require_token(None), None);
+        assert_eq!(parse_require_token(Some("0")), Some(false));
+        assert_eq!(parse_require_token(Some("")), Some(false));
+        assert_eq!(parse_require_token(Some("1")), Some(true));
+        assert_eq!(parse_require_token(Some(" TRUE ")), Some(true));
     }
 }
