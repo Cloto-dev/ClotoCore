@@ -43,9 +43,9 @@ python3 -m scripts.opverify.run \
 * **deploy/** stands a daemon up somewhere and hands the harness an HTTP
   endpoint + admin key. `local` boots an isolated child process (throwaway
   `DATABASE_URL` + `CLOTO_SANDBOX_DIR`, captured stderr, teardown via the
-  authenticated `POST /api/system/shutdown` since the kernel installs no
-  SIGTERM handler). `linux-vm` / `windows-vm` (phases 2/3) deploy into a
-  Proxmox guest via snapshot rollback.
+  authenticated `POST /api/system/shutdown`, which is an operation the run
+  verifies rather than a signal it sends). `linux-vm` / `windows-vm` (phases
+  2/3) deploy into a Proxmox guest via snapshot rollback.
 * **catalog/** is the set of operations, one module per domain. Each
   `Operation` declares the routes it `covers`, a `drive()` that performs it,
   and an `assert_success()` that proves it took effect.

@@ -18,8 +18,11 @@ where none exists. Rotating a key in a verification run would then rewrite the
 install — which is precisely the class of collateral this deployment exists to
 avoid.
 
-Teardown is via the authenticated ``POST /api/system/shutdown`` route (the
-kernel installs no SIGTERM handler), with a SIGKILL fallback.
+Teardown is via the authenticated ``POST /api/system/shutdown`` route, with a
+SIGKILL fallback. The kernel has stopped cleanly on SIGTERM since 2026-09-03,
+so this is a choice rather than the only option: the HTTP route records who
+asked in the audit trail, and a run whose teardown is an operation is a run
+that verifies the teardown.
 """
 
 from __future__ import annotations

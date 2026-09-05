@@ -152,9 +152,8 @@ class SystemRotateKey(Operation):
     here that invalidates the harness's own credential mid-run, so it declares
     ``order = 100`` and runs last within its slice, and it repairs the harness
     on the way out: ``ctx.client`` **and** ``ctx.target`` are moved onto the new
-    key, so the deployment's teardown (``POST /api/system/shutdown``, the only
-    way this kernel exits cleanly — it installs no SIGTERM handler) still
-    authenticates.
+    key, so the deployment's teardown (``POST /api/system/shutdown``, which is
+    authenticated) still authenticates.
 
     Success is asserted from both sides of the swap, because either alone is
     passable by a handler that did half the job: the new key must authenticate
