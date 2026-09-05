@@ -204,7 +204,7 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CLOTO_CRON_INTERVAL` | `60` | Cron check interval in seconds |
 | `CLOTO_LLM_PROXY_PORT` | `8082` | LLM API proxy port |
 | `CLOTO_LLM_PROXY_TOKEN` | (generated per boot) | Token MCP servers present to the LLM proxy; the kernel passes it to the servers it spawns |
-| `CLOTO_LLM_PROXY_REQUIRE_TOKEN` | `false` | Reject LLM proxy calls without a valid token (otherwise they are served and logged) |
+| `CLOTO_LLM_PROXY_REQUIRE_TOKEN` | (earned) | Reject LLM proxy calls without a valid token. Unset, the kernel requires it only once this installation has served at least one proxy request and every one of them carried a valid token; otherwise such calls are served and logged. Set it to `1` or `0` to decide instead of being decided for |
 | `CLOTO_ALLOW_UNAUTHENTICATED_HTTP` | `false` | Allow the kernel to start without `CLOTO_API_KEY` on a non-loopback `BIND_ADDRESS` |
 | `CONSENSUS_SYNTHESIZER` | (first working engine) | Engine that merges the proposals |
 | `CONSENSUS_MIN_PROPOSALS` | `2` | Minimum proposals before synthesis |

@@ -121,8 +121,6 @@ pub struct AppConfig {
     /// that leaks out of a child therefore dies with the kernel process.
     pub llm_proxy_token: String,
     /// Whether the LLM proxy *rejects* callers that present no/wrong token.
-    /// Default false: during the rollout a bad token is logged and the request
-    /// proceeds, so connectors that do not yet send the header keep working.
     /// `None` when the operator said nothing. The default is then decided from
     /// what this installation has actually served (see `llm_proxy`), because a
     /// hard-coded default cannot know whether a connector here still predates

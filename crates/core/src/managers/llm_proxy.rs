@@ -23,12 +23,15 @@
 //! comparison here is constant-time. The token is scoped to this proxy only —
 //! it grants no kernel API access — so P5 is preserved.
 //!
-//! Enforcement is staged. `llm_proxy_require_token`
-//! (`CLOTO_LLM_PROXY_REQUIRE_TOKEN=1`) makes a missing/wrong token a `401`;
-//! with it off — the current default — the request is served and a
+//! Enforcement is decided per installation, once, at startup.
+//! `CLOTO_LLM_PROXY_REQUIRE_TOKEN` wins whenever the operator sets it: `1`
+//! makes a missing or wrong token a `401`, `0` serves every caller. With it
+//! unset, [`enforcement_default`] reads the record this installation has
+//! earned and requires the token only where the proxy has served at least one
+//! request and all of them were authenticated. Anywhere else — including an
+//! installation that has never used the proxy — the request is served and a
 //! rate-limited warning is logged instead, so connectors that do not yet send
-//! the header keep working. The default flips once the engine library ships
-//! the header.
+//! the header keep working.
 //!
 //! ## The bind address is NOT a security boundary
 //!
@@ -47,12 +50,20 @@
 //!
 //! Code Quality Audit H-4/H-5 (2026-03-22) closed the missing authentication as
 //! By Design, and one of the four stated grounds was the loopback claim corrected
-//! above. Removing it leaves the P5 argument and the upstream rate limits — and
+//! above. Removing it left the P5 argument and the upstream rate limits — and
 //! both of those justify *not sharing admin credentials*, which is a different
-//! claim from *this proxy needs no authentication of its own*. The proxy token
-//! above answers that second claim; until enforcement is the default, the gap is
-//! narrowed rather than closed, because an unauthenticated request is still
-//! served (loudly). Do not read this module as settled.
+//! claim from *this proxy needs no authentication of its own*.
+//!
+//! Re-evaluated 2026-09-05. The proxy token answers that second claim, and it is
+//! the same remedy the closure itself named as correct if hardening were ever
+//! needed, so H-4 is addressed by implementation rather than by design. What is
+//! not settled is coverage: enforcement is on only where the installation earned
+//! it, so "this proxy authenticates its callers" is a property of an
+//! installation, never of the product — do not restate it unscoped. H-5 (no rate
+//! limiting) stands with its ground replaced: a token answers *who* is calling
+//! and never *how often*, so the runaway authorized caller in the original
+//! finding would pass the check, and the upstream 429 is still the only limit on
+//! volume.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -491,11 +502,11 @@ fn warn_untrusted_caller(had_token: bool) {
     drop(last);
     warn!(
         had_token,
-        "LLM proxy request carried {} proxy token — served anyway because \
-         CLOTO_LLM_PROXY_REQUIRE_TOKEN is off. Callers must send \
+        "LLM proxy request carried {} proxy token — served anyway because this \
+         installation does not require one. Callers must send \
          `Authorization: Bearer $CLOTO_LLM_PROXY_TOKEN` (or X-Proxy-Token); \
-         enforcement will become the default and unauthenticated calls will \
-         then be rejected with 401.",
+         with CLOTO_LLM_PROXY_REQUIRE_TOKEN unset, a call like this one is also \
+         what keeps the token from being required here at the next start.",
         if had_token { "an invalid" } else { "no" }
     );
 }

@@ -141,6 +141,23 @@ The internal LLM proxy (`127.0.0.1:8082`) accepts requests from any local proces
 > *not sharing admin credentials* rather than *this proxy needing no authentication of
 > its own*. The closure of H-4 (and H-5, which leans on the same trusted-caller
 > premise) is therefore pending re-evaluation and should not be cited as settled.
+> *That re-evaluation is the note below; do not quote this paragraph without it.*
+
+> **Re-evaluation (2026-09-05) — H-4 is addressed by implementation, not by design.**
+> The struck-out recommendation above was implemented. The kernel generates a per-boot
+> proxy token, hands it to every MCP child it spawns as `CLOTO_LLM_PROXY_TOKEN`, and the
+> proxy compares it in constant time before it will spend a stored provider key. That is
+> the same remedy the 2026-03-24 text named as correct if hardening were ever needed —
+> "per-session lightweight tokens (not admin keys) injected at MCP spawn time" — so the
+> closure pointed the right way while resting one of its four grounds on a false claim.
+>
+> What is *not* settled is coverage, and that is deliberate. Requiring the token is decided
+> per installation: with `CLOTO_LLM_PROXY_REQUIRE_TOKEN` unset, the proxy requires it only
+> where it has served at least one request and every request it served carried a valid
+> token. An installation that has served an unauthenticated caller — or has never served
+> anything — keeps serving and logs. "The LLM proxy authenticates its callers" is therefore
+> true of an installation that earned it and is not a property of the product; a claim
+> about this proxy's authentication has to carry that scope.
 
 ---
 
@@ -153,6 +170,19 @@ The main API rate limiter applies only to port 8081. The LLM proxy on port 8082 
 ~~**Recommendation:** Apply a configurable rate limit to the LLM proxy endpoint.~~
 
 **Resolution (2026-03-24):** Closed as By Design. Callers are kernel-spawned trusted MCP servers, not untrusted clients. Upstream LLM providers enforce their own rate limits (429 responses are already translated to structured errors). Adding kernel-side rate limiting would only add latency for trusted processes.
+
+> **Re-evaluation (2026-09-05) — conclusion unchanged, ground replaced.**
+> There is still no kernel-side rate limit on this port and none is proposed. What changed
+> is why. The stated ground was that callers "are kernel-spawned trusted MCP servers, not
+> untrusted clients" — an assumption nothing in the code enforced, and the same
+> trusted-caller premise the H-4 addendum above had to withdraw. The proxy token now
+> enforces it, on installations that require the token.
+>
+> That does not rescue the original reasoning. A token answers *who* is calling, never *how
+> often*: the runaway kernel-spawned subprocess in the finding is authorized by
+> construction, so it passes the check and issues the same unlimited calls. The upstream
+> provider's 429 is the only limit on volume. The honest form of this closure is that the
+> risk is accepted, not that it was removed.
 
 ---
 
