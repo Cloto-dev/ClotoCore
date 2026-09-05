@@ -769,6 +769,11 @@ pub async fn update_mcp_server_env(
 pub struct MarketplaceServerRecord {
     pub name: String,
     pub installed_version: Option<String>,
+    /// Archive digest the catalog advertised at install time, when it
+    /// advertised one. `None` for installs that predate the column, and for
+    /// catalogs that carry no digest for the entry — both fall back to
+    /// comparing version strings.
+    pub installed_archive_sha256: Option<String>,
     pub marketplace_id: Option<String>,
     pub is_active: bool,
 }
@@ -779,7 +784,7 @@ pub async fn get_marketplace_servers(
 ) -> anyhow::Result<Vec<MarketplaceServerRecord>> {
     db_timeout(
         sqlx::query_as::<_, MarketplaceServerRecord>(
-            "SELECT name, installed_version, marketplace_id, is_active \
+            "SELECT name, installed_version, installed_archive_sha256, marketplace_id, is_active \
              FROM mcp_servers WHERE marketplace_id IS NOT NULL ORDER BY name ASC",
         )
         .fetch_all(pool),
@@ -788,21 +793,30 @@ pub async fn get_marketplace_servers(
 }
 
 /// Set marketplace-specific fields on an existing mcp_servers record.
+///
+/// `archive_sha256` is what the catalog said the archive hashed to at the
+/// moment of this install, or `None` when it said nothing. It is written
+/// unconditionally, including back to `None`: the record describes the install
+/// that just happened, so a re-install from a catalog that carries no digest
+/// must not keep the digest of the one before it.
 pub async fn set_marketplace_fields(
     pool: &SqlitePool,
     name: &str,
     version: &str,
     marketplace_id: &str,
     trust_level: Option<&str>,
+    archive_sha256: Option<&str>,
 ) -> anyhow::Result<()> {
     db_timeout(
         sqlx::query(
-            "UPDATE mcp_servers SET installed_version = ?, marketplace_id = ?, trust_level = ?, updated_at = unixepoch() \
+            "UPDATE mcp_servers SET installed_version = ?, marketplace_id = ?, trust_level = ?, \
+             installed_archive_sha256 = ?, updated_at = unixepoch() \
              WHERE name = ?",
         )
         .bind(version)
         .bind(marketplace_id)
         .bind(trust_level)
+        .bind(archive_sha256)
         .bind(name)
         .execute(pool),
     )
