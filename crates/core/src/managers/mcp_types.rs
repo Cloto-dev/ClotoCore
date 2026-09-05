@@ -29,8 +29,9 @@ pub struct McpServerHandle {
     /// MCP era this connection negotiated (`None` until a connect succeeds, and
     /// for handles registered as placeholders after a failure).
     pub protocol_era: Option<super::mcp_protocol::ProtocolEra>,
-    /// `DiscoverResult.instructions` from the modern-era probe — the server's
-    /// own usage guidance. Stored only; no consumer wires it into prompts yet.
+    /// The server's own usage guidance, captured from `initialize.instructions`
+    /// (legacy era) or `DiscoverResult.instructions` (modern era). Stored only;
+    /// no consumer wires it into prompts yet.
     pub instructions: Option<String>,
 }
 
