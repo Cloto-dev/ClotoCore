@@ -40,9 +40,7 @@ async fn build_handler() -> (SystemHandler, mpsc::Receiver<cloto_core::Enveloped
     // check_tool_access runs. yolo off so the default opt-in policy denies an
     // ungranted tool.
     let mcp = Arc::new(McpClientManager::new(pool.clone(), false, 120, 30));
-    let mut registry = PluginRegistry::new(5, 10, 50);
-    registry.set_mcp_manager(mcp);
-    let registry = Arc::new(registry);
+    let registry = Arc::new(PluginRegistry::new(5, 10, 50, mcp));
 
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let (event_tx, event_rx) = mpsc::channel(64);

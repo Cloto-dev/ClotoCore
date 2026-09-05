@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_update_effective_permissions_adds_permission() {
-    let registry = PluginRegistry::new(5, 10, 50);
+    let registry = PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let plugin_id = ClotoId::from_name("test.plugin");
 
     registry
@@ -21,7 +21,7 @@ async fn test_update_effective_permissions_adds_permission() {
 
 #[tokio::test]
 async fn test_update_effective_permissions_no_duplicates() {
-    let registry = PluginRegistry::new(5, 10, 50);
+    let registry = PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let plugin_id = ClotoId::from_name("test.plugin");
 
     // Grant the same permission twice
@@ -39,7 +39,7 @@ async fn test_update_effective_permissions_no_duplicates() {
 
 #[tokio::test]
 async fn test_update_effective_permissions_multiple_types() {
-    let registry = PluginRegistry::new(5, 10, 50);
+    let registry = PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let plugin_id = ClotoId::from_name("test.plugin");
 
     registry
@@ -58,7 +58,7 @@ async fn test_update_effective_permissions_multiple_types() {
 
 #[tokio::test]
 async fn test_permissions_are_isolated_between_plugins() {
-    let registry = PluginRegistry::new(5, 10, 50);
+    let registry = PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let plugin_a = ClotoId::from_name("plugin.a");
     let plugin_b = ClotoId::from_name("plugin.b");
 
@@ -79,7 +79,7 @@ async fn test_permissions_are_isolated_between_plugins() {
 
 #[tokio::test]
 async fn test_plugin_registry_list_plugins_empty() {
-    let registry = PluginRegistry::new(5, 10, 50);
+    let registry = PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let manifests = registry.list_plugins().await;
     assert!(
         manifests.is_empty(),
@@ -89,7 +89,7 @@ async fn test_plugin_registry_list_plugins_empty() {
 
 #[tokio::test]
 async fn test_plugin_registry_get_engine_missing_returns_none() {
-    let registry = PluginRegistry::new(5, 10, 50);
+    let registry = PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let result = registry.get_engine("nonexistent.plugin").await;
     assert!(
         result.is_none(),
@@ -99,7 +99,7 @@ async fn test_plugin_registry_get_engine_missing_returns_none() {
 
 #[tokio::test]
 async fn test_plugin_registry_find_memory_empty_returns_none() {
-    let registry = PluginRegistry::new(5, 10, 50);
+    let registry = PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let result = registry.find_memory().await;
     assert!(
         result.is_none(),

@@ -29,8 +29,11 @@ pub struct PluginRegistry {
     pub event_timeout_secs: u64,
     pub max_event_depth: u8,
     pub event_semaphore: Arc<tokio::sync::Semaphore>,
-    /// MCP Client Manager for dual dispatch (Rust plugins + MCP servers)
-    pub mcp_manager: Option<Arc<super::McpClientManager>>,
+    /// MCP Client Manager for dual dispatch (Rust plugins + MCP servers).
+    /// Required, not optional: it is the only source of tool risk classification
+    /// the approval gate has, so a registry without one silently waves every
+    /// tool call through. Construct it with the registry, never after.
+    pub mcp_manager: Arc<super::McpClientManager>,
 }
 
 pub struct SystemMetrics {
@@ -73,6 +76,7 @@ impl PluginRegistry {
         event_timeout_secs: u64,
         max_event_depth: u8,
         event_concurrency_limit: usize,
+        mcp_manager: Arc<super::McpClientManager>,
     ) -> Self {
         Self {
             state: tokio::sync::RwLock::new(RegistryState {
@@ -82,13 +86,8 @@ impl PluginRegistry {
             event_timeout_secs,
             max_event_depth,
             event_semaphore: Arc::new(tokio::sync::Semaphore::new(event_concurrency_limit)),
-            mcp_manager: None,
+            mcp_manager,
         }
-    }
-
-    /// Set the MCP Client Manager for dual dispatch.
-    pub fn set_mcp_manager(&mut self, mcp_manager: Arc<super::McpClientManager>) {
-        self.mcp_manager = Some(mcp_manager);
     }
 
     pub async fn update_effective_permissions(&self, plugin_id: ClotoId, permission: Permission) {
@@ -131,9 +130,7 @@ impl PluginRegistry {
         };
 
         // Dual Dispatch: also collect from MCP servers
-        if let Some(ref mcp) = self.mcp_manager {
-            schemas.extend(mcp.collect_tool_schemas().await);
-        }
+        schemas.extend(self.mcp_manager.collect_tool_schemas().await);
 
         schemas
     }
@@ -158,9 +155,11 @@ impl PluginRegistry {
         };
 
         // Dual Dispatch: also collect from MCP servers matching allowed IDs
-        if let Some(ref mcp) = self.mcp_manager {
-            schemas.extend(mcp.collect_tool_schemas_for(allowed_plugin_ids).await);
-        }
+        schemas.extend(
+            self.mcp_manager
+                .collect_tool_schemas_for(allowed_plugin_ids)
+                .await,
+        );
 
         schemas
     }
@@ -194,11 +193,9 @@ impl PluginRegistry {
         }
 
         // 2. Fall back to MCP servers (gated by the central capability gate).
-        if let Some(ref mcp) = self.mcp_manager {
-            return mcp.execute_tool_internal(caller, tool_name, args).await;
-        }
-
-        Err(anyhow::anyhow!("Tool '{}' not found", tool_name).into())
+        self.mcp_manager
+            .execute_tool_internal(caller, tool_name, args)
+            .await
     }
 
     /// Execute a tool by name, only if it belongs to the agent's allowed plugin set.
@@ -232,18 +229,22 @@ impl PluginRegistry {
         }
 
         // 2. Fall back to MCP servers (if allowed)
-        if let Some(ref mcp) = self.mcp_manager {
-            // Check if any allowed ID matches an MCP server that provides this tool
-            let mcp_schemas = mcp.collect_tool_schemas_for(allowed_plugin_ids).await;
-            let has_tool = mcp_schemas.iter().any(|s| {
-                s.get("function")
-                    .and_then(|f| f.get("name"))
-                    .and_then(|n| n.as_str())
-                    == Some(tool_name)
-            });
-            if has_tool {
-                return mcp.execute_tool_internal(caller, tool_name, args).await;
-            }
+        // Check if any allowed ID matches an MCP server that provides this tool
+        let mcp_schemas = self
+            .mcp_manager
+            .collect_tool_schemas_for(allowed_plugin_ids)
+            .await;
+        let has_tool = mcp_schemas.iter().any(|s| {
+            s.get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+                == Some(tool_name)
+        });
+        if has_tool {
+            return self
+                .mcp_manager
+                .execute_tool_internal(caller, tool_name, args)
+                .await;
         }
 
         Err(anyhow::anyhow!(
@@ -276,9 +277,11 @@ impl PluginRegistry {
         };
 
         // MCP tools: resolve_tool_access per-tool
-        if let Some(ref mcp) = self.mcp_manager {
-            schemas.extend(mcp.collect_tool_schemas_for_agent(agent_id).await);
-        }
+        schemas.extend(
+            self.mcp_manager
+                .collect_tool_schemas_for_agent(agent_id)
+                .await,
+        );
 
         schemas
     }
@@ -320,21 +323,13 @@ impl PluginRegistry {
         //    `check_tool_access` here: "shown" (presentation-layer filtering)
         //    and "allowed" (enforcement) are decoupled, single-sourced at the
         //    chokepoint.
-        if let Some(ref mcp) = self.mcp_manager {
-            return mcp
-                .execute_tool_internal(
-                    &crate::managers::Caller::Agent(agent_id.to_string()),
-                    tool_name,
-                    args,
-                )
-                .await;
-        }
-
-        Err(anyhow::anyhow!(
-            "Tool '{}' not found or not available for this agent",
-            tool_name
-        )
-        .into())
+        self.mcp_manager
+            .execute_tool_internal(
+                &crate::managers::Caller::Agent(agent_id.to_string()),
+                tool_name,
+                args,
+            )
+            .await
     }
 
     /// Deliver an event to every active plugin.
@@ -689,9 +684,36 @@ mod tests {
         names
     }
 
+    /// The kernel's own tools are part of every surface the registry builds:
+    /// the `mgp.tools.*` discovery pair unconditionally, and the rest of the
+    /// kernel-native set when YOLO is on. These tests are about what the Rust
+    /// plugins contribute, so they read the surface with the kernel's share
+    /// filtered out — that it is always there is pinned separately by
+    /// `the_tool_surface_always_carries_the_kernel_discovery_pair`.
+    fn plugin_tool_names(schemas: &[serde_json::Value]) -> Vec<String> {
+        tool_names(schemas)
+            .into_iter()
+            .filter(|n| !n.starts_with("mgp.") && !n.starts_with("gui."))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn the_tool_surface_always_carries_the_kernel_discovery_pair() {
+        let registry = PluginRegistry::new(5, 10, 50, crate::test_utils::test_mcp_manager().await);
+
+        assert_eq!(
+            tool_names(&registry.collect_tool_schemas().await),
+            vec![
+                "mgp.tools.discover".to_string(),
+                "mgp.tools.request".to_string()
+            ],
+            "a registry with no plugins still offers the kernel's discovery tools"
+        );
+    }
+
     #[tokio::test]
     async fn a_plugin_inserted_into_the_registry_is_found_by_id_and_listed() {
-        let registry = PluginRegistry::new(5, 10, 50);
+        let registry = PluginRegistry::new(5, 10, 50, crate::test_utils::test_mcp_manager().await);
         assert!(registry.get_engine("plugin.a").await.is_none());
 
         register(
@@ -710,21 +732,21 @@ mod tests {
             .collect();
         assert_eq!(listed, vec!["plugin.a".to_string()]);
         assert_eq!(
-            tool_names(&registry.collect_tool_schemas().await),
+            plugin_tool_names(&registry.collect_tool_schemas().await),
             vec!["do_a".to_string()]
         );
 
         // Unregistration is a plain map removal, and the tool surface follows.
         registry.state.write().await.plugins.remove("plugin.a");
         assert!(registry.get_engine("plugin.a").await.is_none());
-        assert!(registry.collect_tool_schemas().await.is_empty());
+        assert!(plugin_tool_names(&registry.collect_tool_schemas().await).is_empty());
     }
 
     #[tokio::test]
     async fn registering_a_second_plugin_under_a_used_id_silently_replaces_the_first() {
         // Quirk: there is no duplicate check anywhere on this path — the second
         // insert wins and the first plugin is dropped without a warning.
-        let registry = PluginRegistry::new(5, 10, 50);
+        let registry = PluginRegistry::new(5, 10, 50, crate::test_utils::test_mcp_manager().await);
         register(
             &registry,
             "plugin.a",
@@ -740,7 +762,7 @@ mod tests {
 
         assert_eq!(registry.state.read().await.plugins.len(), 1);
         assert_eq!(
-            tool_names(&registry.collect_tool_schemas().await),
+            plugin_tool_names(&registry.collect_tool_schemas().await),
             vec!["tool_v2".to_string()],
             "the later registration is the one that answers"
         );
@@ -751,7 +773,7 @@ mod tests {
         // Quirk: nothing de-duplicates tool names across plugins, so the model
         // is offered the same function twice and `execute_tool` picks whichever
         // the HashMap iteration order reaches first.
-        let registry = PluginRegistry::new(5, 10, 50);
+        let registry = PluginRegistry::new(5, 10, 50, crate::test_utils::test_mcp_manager().await);
         register(
             &registry,
             "plugin.a",
@@ -766,14 +788,14 @@ mod tests {
         .await;
 
         assert_eq!(
-            tool_names(&registry.collect_tool_schemas().await),
+            plugin_tool_names(&registry.collect_tool_schemas().await),
             vec!["shared".to_string(), "shared".to_string()]
         );
     }
 
     #[tokio::test]
     async fn the_agent_scoped_tool_surface_only_shows_and_runs_allowed_plugins() {
-        let registry = PluginRegistry::new(5, 10, 50);
+        let registry = PluginRegistry::new(5, 10, 50, crate::test_utils::test_mcp_manager().await);
         register(
             &registry,
             "plugin.allowed",
@@ -811,7 +833,7 @@ mod tests {
 
     #[tokio::test]
     async fn find_memory_returns_a_memory_capable_plugin_and_ignores_the_others() {
-        let registry = PluginRegistry::new(5, 10, 50);
+        let registry = PluginRegistry::new(5, 10, 50, crate::test_utils::test_mcp_manager().await);
         register(
             &registry,
             "plugin.tool",
@@ -837,7 +859,7 @@ mod tests {
 
     #[tokio::test]
     async fn granting_the_same_permission_twice_does_not_duplicate_it() {
-        let registry = PluginRegistry::new(5, 10, 50);
+        let registry = PluginRegistry::new(5, 10, 50, crate::test_utils::test_mcp_manager().await);
         let id = ClotoId::from_name("plugin.a");
 
         registry
@@ -860,7 +882,7 @@ mod tests {
     #[tokio::test]
     async fn dispatch_stops_delivering_once_the_depth_reaches_max_event_depth() {
         // max_event_depth = 2: depth 0 and 1 are delivered, depth 2 is dropped.
-        let registry = PluginRegistry::new(5, 2, 50);
+        let registry = PluginRegistry::new(5, 2, 50, crate::test_utils::test_mcp_manager().await);
         let plugin = Arc::new(TestPlugin::new("plugin.a"));
         let seen = plugin.seen.clone();
         register(&registry, "plugin.a", plugin).await;
@@ -883,7 +905,7 @@ mod tests {
     async fn the_concurrency_limit_caps_how_many_plugins_run_at_once() {
         // event_concurrency_limit = 1 serialises the two plugins; the shared
         // counters record the highest overlap actually observed.
-        let registry = PluginRegistry::new(5, 10, 1);
+        let registry = PluginRegistry::new(5, 10, 1, crate::test_utils::test_mcp_manager().await);
         let in_flight = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
         for id in ["plugin.a", "plugin.b", "plugin.c"] {
@@ -911,7 +933,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_plugin_that_hangs_past_the_timeout_does_not_hold_up_the_others() {
-        let registry = PluginRegistry::new(1, 10, 50); // 1s per-plugin timeout
+        let registry = PluginRegistry::new(1, 10, 50, crate::test_utils::test_mcp_manager().await); // 1s per-plugin timeout
         let fast = Arc::new(TestPlugin::new("plugin.fast"));
         let fast_seen = fast.seen.clone();
         register(&registry, "plugin.fast", fast).await;
@@ -936,7 +958,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_panicking_plugin_is_contained_and_the_others_still_receive_the_event() {
-        let registry = PluginRegistry::new(5, 10, 50);
+        let registry = PluginRegistry::new(5, 10, 50, crate::test_utils::test_mcp_manager().await);
         register(
             &registry,
             "plugin.boom",
@@ -958,7 +980,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_event_returned_by_a_plugin_is_requeued_as_that_plugin_one_level_deeper() {
-        let registry = PluginRegistry::new(5, 10, 50);
+        let registry = PluginRegistry::new(5, 10, 50, crate::test_utils::test_mcp_manager().await);
         register(
             &registry,
             "plugin.echo",

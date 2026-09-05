@@ -18,7 +18,12 @@ async fn test_system_handler_loop_prevention() {
         .bind(agent_id)
         .execute(&pool).await.unwrap();
 
-    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+    let registry = Arc::new(PluginRegistry::new(
+        5,
+        10,
+        50,
+        cloto_core::test_utils::test_mcp_manager().await,
+    ));
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let (event_tx, mut event_rx) = mpsc::channel(10);
 
@@ -89,7 +94,12 @@ async fn build_cron_test_handler(
     .await
     .unwrap();
 
-    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+    let registry = Arc::new(PluginRegistry::new(
+        5,
+        10,
+        50,
+        cloto_core::test_utils::test_mcp_manager().await,
+    ));
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let (event_tx, event_rx) = mpsc::channel(10);
     let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());

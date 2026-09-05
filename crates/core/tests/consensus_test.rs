@@ -80,7 +80,12 @@ async fn build_handler(
         .unwrap();
     }
 
-    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+    let registry = Arc::new(PluginRegistry::new(
+        5,
+        10,
+        50,
+        cloto_core::test_utils::test_mcp_manager().await,
+    ));
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let (event_tx, event_rx) = mpsc::channel(64);
     let metrics = Arc::new(cloto_core::managers::SystemMetrics::new());

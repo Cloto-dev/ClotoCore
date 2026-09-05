@@ -179,38 +179,39 @@ async fn handle_yolo_approval(
 async fn collect_untrusted_commands(
     calls: &[ToolCall],
     agent_id: &str,
-    mcp_manager: Option<&Arc<McpClientManager>>,
+    mcp_manager: &Arc<McpClientManager>,
     session_trusted: &SessionTrustedCommands,
     pool: &SqlitePool,
 ) -> Vec<serde_json::Value> {
     let mut untrusted_cmds: Vec<serde_json::Value> = Vec::new();
     for call in calls {
-        let has_sandbox_validator = if let Some(mcp) = mcp_manager {
-            mcp.get_tool_validator(&call.name).as_deref() == Some("sandbox")
-        } else {
-            false
-        };
+        let has_sandbox_validator =
+            mcp_manager.get_tool_validator(&call.name).as_deref() == Some("sandbox");
 
         // L12: Check MGP risk level first, fall back to MCP annotations
         if !has_sandbox_validator {
-            let risk_level = if let Some(mcp) = mcp_manager {
-                mcp.get_tool_risk_level(&call.name).await
-            } else {
-                None
-            };
+            let risk_level = mcp_manager.get_tool_risk_level(&call.name).await;
 
             let needs_approval = match risk_level {
                 // MGP negotiated: use kernel-derived risk level
                 Some(crate::managers::mcp_mgp::RiskLevel::Safe) => false,
                 Some(_) => true, // Moderate or Dangerous
-                // No MGP: fall back to MCP annotations (default destructive per spec)
-                None => {
-                    if let Some(mcp) = mcp_manager {
-                        mcp.is_tool_destructive(&call.name).await
-                    } else {
-                        false
-                    }
-                }
+                // Kernel-native tools (`mgp.*` / `gui.*`) are dispatched inside
+                // the kernel and pass kernel RBAC in `execute_tool_internal`
+                // before they run, so they are classified — by a different gate,
+                // not this one. They carry no annotations to read, and two of
+                // them (`mgp.tools.discover`, `mgp.tools.request`) are offered on
+                // every turn, so routing them through the branch below would put
+                // an approval prompt in front of ordinary tool discovery.
+                None if McpClientManager::is_kernel_native_tool(&call.name) => false,
+                // Everything else arriving here has no risk classification at
+                // all: no MGP negotiation, and no MCP annotations to fall back
+                // on — the shape a Rust plugin tool, or a tool no connected
+                // server registered, presents. `is_tool_destructive` answers
+                // "unknown" with the MCP spec's own default, which is
+                // destructive, so an unclassified tool is asked about rather
+                // than waved through.
+                None => mcp_manager.is_tool_destructive(&call.name).await,
             };
 
             if needs_approval {
@@ -355,7 +356,7 @@ pub(crate) async fn run_approval_gate(
     trace_id: ClotoId,
     yolo_mode: bool,
     cron_source: bool,
-    mcp_manager: Option<&Arc<McpClientManager>>,
+    mcp_manager: &Arc<McpClientManager>,
     pending_approvals: &PendingApprovals,
     session_trusted: &SessionTrustedCommands,
     pool: &SqlitePool,
@@ -467,7 +468,7 @@ mod tests {
                 ClotoId::new(),
                 yolo_mode,
                 cron_source,
-                Some(&self.mcp),
+                &self.mcp,
                 &self.pending,
                 &self.trusted,
                 &self.pool,
@@ -495,7 +496,7 @@ mod tests {
                     ClotoId::new(),
                     false,
                     false,
-                    Some(&mcp),
+                    &mcp,
                     &pending,
                     &trusted,
                     &pool,
@@ -542,6 +543,14 @@ mod tests {
             id: id.to_string(),
             name: "execute_command".to_string(),
             arguments: serde_json::json!({ "command": command }),
+        }
+    }
+
+    fn tool_call(id: &str, name: &str) -> ToolCall {
+        ToolCall {
+            id: id.to_string(),
+            name: name.to_string(),
+            arguments: serde_json::json!({}),
         }
     }
 
@@ -781,27 +790,46 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn without_an_mcp_manager_nothing_is_ever_considered_to_need_approval() {
-        // Worth pinning before a headless rewrite: the gate's entire risk
-        // classification lives behind `mcp_manager`. With `None` — the shape a
-        // stripped-down embedding would naturally produce — even
-        // `execute_command` sails through ungated.
-        let h = harness().await;
+    async fn a_tool_nothing_has_classified_is_asked_about_rather_than_waved_through() {
+        // No server registered this name, so there is no MGP risk level and no
+        // MCP annotation to read. That is an absence of evidence, not evidence
+        // of safety — the shape a Rust plugin tool also presents — and the gate
+        // has to ask rather than assume.
+        let mut h = harness().await;
 
-        let denied = run_approval_gate(
-            &[shell_call("call-1", "rm -rf /")],
-            AGENT,
-            ClotoId::new(),
-            false,
-            false,
-            None,
-            &h.pending,
-            &h.trusted,
-            &h.pool,
-            &h.tx,
-        )
-        .await;
+        let gate = h.spawn_gate(AGENT, vec![tool_call("call-1", "wipe_workspace")]);
+        h.answer(CommandApprovalDecision::Deny).await;
+
+        assert_eq!(
+            gate.await.unwrap(),
+            HashSet::from(["call-1".to_string()]),
+            "an unclassified tool must reach the operator"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_kernel_native_tool_is_not_asked_about_because_kernel_rbac_governs_it() {
+        // `mgp.*` / `gui.*` tools are dispatched inside the kernel and pass
+        // kernel RBAC before they run, and the discovery pair is offered on
+        // every turn. Treating them as unclassified would put an approval
+        // prompt in front of ordinary tool discovery.
+        let mut h = harness().await;
+
+        let denied = h
+            .gate(
+                &[
+                    tool_call("call-1", "mgp.tools.discover"),
+                    tool_call("call-2", "gui.read"),
+                ],
+                false,
+                false,
+            )
+            .await;
 
         assert!(denied.is_empty());
+        assert!(
+            !was_requested(&h.drain()),
+            "kernel-native tools must not raise an approval request here"
+        );
     }
 }

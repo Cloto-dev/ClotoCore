@@ -24,7 +24,8 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
     let (event_tx, _event_rx) = mpsc::channel(1000); // Larger buffer for benchmarks
     let (tx, _rx) = broadcast::channel(1000);
 
-    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+    let mcp_manager = Arc::new(McpClientManager::new(pool.clone(), false, 30, 30));
+    let registry = Arc::new(PluginRegistry::new(5, 10, 50, mcp_manager.clone()));
     let agent_manager = AgentManager::new(pool.clone(), 30_000);
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap());
 
@@ -36,8 +37,6 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
     let admin_api_key = config.admin_api_key.clone();
 
     let rate_limiter = Arc::new(cloto_core::middleware::RateLimiter::new(100, 200));
-
-    let mcp_manager = Arc::new(McpClientManager::new(pool.clone(), false, 30, 30));
 
     Arc::new(AppState {
         tx,

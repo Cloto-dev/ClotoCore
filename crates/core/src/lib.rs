@@ -695,8 +695,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     let mcp_manager = Arc::new(mcp_manager);
 
     // 4. Initialize External Plugins
-    let mut registry = plugin_manager.initialize_all()?;
-    registry.set_mcp_manager(mcp_manager.clone());
+    let registry = plugin_manager.initialize_all(mcp_manager.clone())?;
     let registry_arc = Arc::new(registry);
 
     // 5. Managers & Internal Handlers
