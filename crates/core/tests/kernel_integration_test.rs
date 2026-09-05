@@ -39,7 +39,7 @@ async fn test_panic_isolation() {
     use cloto_shared::ClotoId;
     use common::{create_mock_plugin, create_panicking_plugin};
 
-    let registry = PluginRegistry::new(5, 10, 50);
+    let registry = PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let id_panic = ClotoId::new();
     let id_normal = ClotoId::new();
     let (normal_plugin, received_events) = create_mock_plugin(id_normal);

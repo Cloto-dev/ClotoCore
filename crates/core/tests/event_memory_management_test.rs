@@ -16,7 +16,12 @@ async fn create_test_processor(
         .await
         .unwrap();
 
-    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+    let registry = Arc::new(PluginRegistry::new(
+        5,
+        10,
+        50,
+        cloto_core::test_utils::test_mcp_manager().await,
+    ));
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap());
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let (tx, _rx) = broadcast::channel::<SequencedEvent>(100);

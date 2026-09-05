@@ -577,24 +577,21 @@ impl SystemHandler {
             .unwrap_or_default();
 
         let mcp_memory: Option<(Arc<McpClientManager>, String)> = if memory_plugin.is_none() {
-            if let Some(ref mcp) = self.registry.mcp_manager {
-                mcp.resolve_capability_server(crate::managers::CapabilityType::Memory)
-                    .await
-                    .and_then(|server_id| {
-                        if granted_server_ids.contains(&server_id) {
-                            Some((mcp.clone(), server_id))
-                        } else {
-                            tracing::info!(
-                                agent_id = %target_agent_id,
-                                server_id = %server_id,
-                                "🔐 Agent lacks access to memory server — memory skipped"
-                            );
-                            None
-                        }
-                    })
-            } else {
-                None
-            }
+            let mcp = &self.registry.mcp_manager;
+            mcp.resolve_capability_server(crate::managers::CapabilityType::Memory)
+                .await
+                .and_then(|server_id| {
+                    if granted_server_ids.contains(&server_id) {
+                        Some((mcp.clone(), server_id))
+                    } else {
+                        tracing::info!(
+                            agent_id = %target_agent_id,
+                            server_id = %server_id,
+                            "🔐 Agent lacks access to memory server — memory skipped"
+                        );
+                        None
+                    }
+                })
         } else {
             None
         };
@@ -820,92 +817,89 @@ impl SystemHandler {
                 "🔧 Direct tool execution (tool_hint bypass)"
             );
 
-            if let Some(ref mcp) = self.registry.mcp_manager {
-                // 🔐 Per-agent capability gate (bug-420 / bug-421). `tool_hint`
-                // is supplied by an external I/O bridge and bypasses the agentic
-                // loop, but it now runs through the SAME central gate inside
-                // `execute_tool_internal` under `Caller::Agent(agent.id)` — an
-                // ungranted tool/server is refused before execution, identically
-                // to the agentic loop. The previous bug-420 bolt-on
-                // `check_tool_access` is removed (subsumed by the chokepoint).
-                let result = match tokio::time::timeout(
-                    Duration::from_secs(self.tool_execution_timeout_secs),
-                    mcp.execute_tool_internal(
-                        &crate::managers::Caller::Agent(agent.id.clone()),
-                        &tool_name,
-                        final_args,
-                    ),
-                )
-                .await
-                {
-                    Ok(Ok(val)) => {
-                        info!(agent_id = %agent.id, tool = %tool_name, "✅ Direct tool completed");
-                        match val {
-                            serde_json::Value::String(s) => s,
-                            other => serde_json::to_string_pretty(&other).unwrap_or_default(),
-                        }
-                    }
-                    Ok(Err(e)) => {
-                        warn!(agent_id = %agent.id, tool = %tool_name, error = %e, "🚫 Direct tool refused/failed");
-                        format!("Error: {e}")
-                    }
-                    Err(_) => {
-                        error!(agent_id = %agent.id, tool = %tool_name, "⏱️ Direct tool timed out");
-                        "Error: Tool execution timed out".into()
-                    }
-                };
-
-                // Route result back via callback if this is an external action
-                if let Some(callback_id) = msg.metadata.get("external_callback_id") {
-                    let action_id = msg
-                        .metadata
-                        .get("external_action_id")
-                        .cloned()
-                        .unwrap_or_default();
-                    let source = msg
-                        .metadata
-                        .get("external_source")
-                        .cloned()
-                        .unwrap_or_else(|| "external".into());
-                    let sender_name = msg
-                        .metadata
-                        .get("external_sender_name")
-                        .cloned()
-                        .unwrap_or_else(|| "Unknown".into());
-
-                    let data = ClotoEventData::ExternalAction {
-                        action_id,
-                        source: source.clone(),
-                        source_label: source,
-                        target_agent_id: agent.id.clone(),
-                        target_agent_name: agent.name.clone(),
-                        prompt: msg.content.clone(),
-                        sender_name,
-                        engine_id: String::new(),
-                        response: Some(result.clone()),
-                        status: "success".into(),
-                        callback_id: callback_id.clone(),
-                    };
-                    if let Err(e) = self.sender.send(crate::EnvelopedEvent::system(data)).await {
-                        error!("Failed to emit ExternalAction for direct tool: {}", e);
-                    }
-
-                    let respond_args = serde_json::json!({
-                        "callback_id": callback_id,
-                        "response": result,
-                    });
-                    if let Err(e) = mcp.respond_to_callback(respond_args).await {
-                        error!(
-                            callback_id = %callback_id,
-                            error = %e,
-                            "Failed to respond to direct tool callback"
-                        );
+            let mcp = &self.registry.mcp_manager;
+            // 🔐 Per-agent capability gate (bug-420 / bug-421). `tool_hint`
+            // is supplied by an external I/O bridge and bypasses the agentic
+            // loop, but it now runs through the SAME central gate inside
+            // `execute_tool_internal` under `Caller::Agent(agent.id)` — an
+            // ungranted tool/server is refused before execution, identically
+            // to the agentic loop. The previous bug-420 bolt-on
+            // `check_tool_access` is removed (subsumed by the chokepoint).
+            let result = match tokio::time::timeout(
+                Duration::from_secs(self.tool_execution_timeout_secs),
+                mcp.execute_tool_internal(
+                    &crate::managers::Caller::Agent(agent.id.clone()),
+                    &tool_name,
+                    final_args,
+                ),
+            )
+            .await
+            {
+                Ok(Ok(val)) => {
+                    info!(agent_id = %agent.id, tool = %tool_name, "✅ Direct tool completed");
+                    match val {
+                        serde_json::Value::String(s) => s,
+                        other => serde_json::to_string_pretty(&other).unwrap_or_default(),
                     }
                 }
-                // No external_callback_id = fire-and-forget (e.g. speak)
-            } else {
-                error!(agent_id = %agent.id, "❌ Direct tool: no MCP manager available");
+                Ok(Err(e)) => {
+                    warn!(agent_id = %agent.id, tool = %tool_name, error = %e, "🚫 Direct tool refused/failed");
+                    format!("Error: {e}")
+                }
+                Err(_) => {
+                    error!(agent_id = %agent.id, tool = %tool_name, "⏱️ Direct tool timed out");
+                    "Error: Tool execution timed out".into()
+                }
+            };
+
+            // Route result back via callback if this is an external action
+            if let Some(callback_id) = msg.metadata.get("external_callback_id") {
+                let action_id = msg
+                    .metadata
+                    .get("external_action_id")
+                    .cloned()
+                    .unwrap_or_default();
+                let source = msg
+                    .metadata
+                    .get("external_source")
+                    .cloned()
+                    .unwrap_or_else(|| "external".into());
+                let sender_name = msg
+                    .metadata
+                    .get("external_sender_name")
+                    .cloned()
+                    .unwrap_or_else(|| "Unknown".into());
+
+                let data = ClotoEventData::ExternalAction {
+                    action_id,
+                    source: source.clone(),
+                    source_label: source,
+                    target_agent_id: agent.id.clone(),
+                    target_agent_name: agent.name.clone(),
+                    prompt: msg.content.clone(),
+                    sender_name,
+                    engine_id: String::new(),
+                    response: Some(result.clone()),
+                    status: "success".into(),
+                    callback_id: callback_id.clone(),
+                };
+                if let Err(e) = self.sender.send(crate::EnvelopedEvent::system(data)).await {
+                    error!("Failed to emit ExternalAction for direct tool: {}", e);
+                }
+
+                let respond_args = serde_json::json!({
+                    "callback_id": callback_id,
+                    "response": result,
+                });
+                if let Err(e) = mcp.respond_to_callback(respond_args).await {
+                    error!(
+                        callback_id = %callback_id,
+                        error = %e,
+                        "Failed to respond to direct tool callback"
+                    );
+                }
             }
+            // No external_callback_id = fire-and-forget (e.g. speak)
         } else {
             // Normal mode: handle it in the agent loop.
             // 3-layer engine selection: override > routing rules > default
@@ -916,7 +910,8 @@ impl SystemHandler {
                     escalate_to: None,
                     fallback: None,
                 }
-            } else if let Some(ref mcp) = self.registry.mcp_manager {
+            } else {
+                let mcp = &self.registry.mcp_manager;
                 let connected = mcp.list_connected_mind_servers().await;
                 evaluate_engine_routing(
                     &msg.content,
@@ -924,8 +919,6 @@ impl SystemHandler {
                     &connected,
                     &default_engine_id,
                 )
-            } else {
-                evaluate_engine_routing(&msg.content, &agent.metadata, &[], &default_engine_id)
             };
 
             let engine_id = selection.engine_id.clone();
@@ -936,7 +929,7 @@ impl SystemHandler {
                 let tier1_result = {
                     let engine_plugin = self.registry.get_engine(&engine_id).await;
                     let mcp_engine = if engine_plugin.is_none() {
-                        self.registry.mcp_manager.clone()
+                        Some(self.registry.mcp_manager.clone())
                     } else {
                         None
                     };
@@ -1097,16 +1090,14 @@ impl SystemHandler {
 
                     // Auto-speak: if a Speech-capable server is connected and the agent
                     // has access to it, the kernel speaks the final response directly.
-                    let will_auto_speak = if let Some(ref mcp) = self.registry.mcp_manager {
-                        mcp.resolve_capability_server(
+                    let mcp = &self.registry.mcp_manager;
+                    let will_auto_speak = mcp
+                        .resolve_capability_server(
                             crate::managers::capability_dispatcher::CapabilityType::Speech,
                         )
                         .await
                         .as_ref()
-                        .is_some_and(|sid| granted_server_ids.contains(sid))
-                    } else {
-                        false
-                    };
+                        .is_some_and(|sid| granted_server_ids.contains(sid));
                     let speak_content = if will_auto_speak {
                         Some(content.clone())
                     } else {
@@ -1175,14 +1166,13 @@ impl SystemHandler {
                         }
 
                         // Respond to callback (sends response back to I/O bridge)
-                        if let Some(ref mcp) = self.registry.mcp_manager {
-                            let respond_args = serde_json::json!({
-                                "callback_id": callback_id,
-                                "response": content,
-                            });
-                            if let Err(e) = mcp.respond_to_callback(respond_args).await {
-                                error!(callback_id = %callback_id, error = %e, "Failed to respond to external callback");
-                            }
+                        let mcp = &self.registry.mcp_manager;
+                        let respond_args = serde_json::json!({
+                            "callback_id": callback_id,
+                            "response": content,
+                        });
+                        if let Err(e) = mcp.respond_to_callback(respond_args).await {
+                            error!(callback_id = %callback_id, error = %e, "Failed to respond to external callback");
                         }
                     }
 
@@ -1211,42 +1201,41 @@ impl SystemHandler {
 
                     // Fire-and-forget auto-speak with the final response text
                     if let Some(speak_text) = speak_content {
-                        if let Some(ref mcp) = self.registry.mcp_manager {
-                            let speak_args = serde_json::json!({
-                                "text": speak_text,
-                                "agent_id": agent.id,
-                            });
-                            info!(
-                                agent_id = %agent.id,
-                                text_len = speak_text.len(),
-                                "🔊 Auto-speak: speaking final response"
-                            );
-                            let mcp_clone = mcp.clone();
-                            let agent_id_clone = agent.id.clone();
-                            let timeout_secs = self.tool_execution_timeout_secs;
-                            tokio::spawn(async move {
-                                match tokio::time::timeout(
-                                    Duration::from_secs(timeout_secs),
-                                    mcp_clone.call_kind(
-                                        &crate::managers::Caller::Agent(agent_id_clone.clone()),
-                                        &crate::managers::ToolKind::Speak,
-                                        speak_args,
-                                    ),
-                                )
-                                .await
-                                {
-                                    Ok(Ok(_)) => {
-                                        info!(agent_id = %agent_id_clone, "✅ Auto-speak completed");
-                                    }
-                                    Ok(Err(e)) => {
-                                        error!(agent_id = %agent_id_clone, error = %e, "❌ Auto-speak failed");
-                                    }
-                                    Err(_) => {
-                                        error!(agent_id = %agent_id_clone, "⏱️ Auto-speak timed out");
-                                    }
+                        let mcp = &self.registry.mcp_manager;
+                        let speak_args = serde_json::json!({
+                            "text": speak_text,
+                            "agent_id": agent.id,
+                        });
+                        info!(
+                            agent_id = %agent.id,
+                            text_len = speak_text.len(),
+                            "🔊 Auto-speak: speaking final response"
+                        );
+                        let mcp_clone = mcp.clone();
+                        let agent_id_clone = agent.id.clone();
+                        let timeout_secs = self.tool_execution_timeout_secs;
+                        tokio::spawn(async move {
+                            match tokio::time::timeout(
+                                Duration::from_secs(timeout_secs),
+                                mcp_clone.call_kind(
+                                    &crate::managers::Caller::Agent(agent_id_clone.clone()),
+                                    &crate::managers::ToolKind::Speak,
+                                    speak_args,
+                                ),
+                            )
+                            .await
+                            {
+                                Ok(Ok(_)) => {
+                                    info!(agent_id = %agent_id_clone, "✅ Auto-speak completed");
                                 }
-                            });
-                        }
+                                Ok(Err(e)) => {
+                                    error!(agent_id = %agent_id_clone, error = %e, "❌ Auto-speak failed");
+                                }
+                                Err(_) => {
+                                    error!(agent_id = %agent_id_clone, "⏱️ Auto-speak timed out");
+                                }
+                            }
+                        });
                     }
                 }
                 Err(e) => {
@@ -1293,13 +1282,12 @@ impl SystemHandler {
                         let _ = self.sender.send(crate::EnvelopedEvent::system(data)).await;
 
                         // Respond to callback with error message
-                        if let Some(ref mcp) = self.registry.mcp_manager {
-                            let respond_args = serde_json::json!({
-                                "callback_id": callback_id,
-                                "response": error_content,
-                            });
-                            let _ = mcp.respond_to_callback(respond_args).await;
-                        }
+                        let mcp = &self.registry.mcp_manager;
+                        let respond_args = serde_json::json!({
+                            "callback_id": callback_id,
+                            "response": error_content,
+                        });
+                        let _ = mcp.respond_to_callback(respond_args).await;
                     }
 
                     // Persist error response to chat history
@@ -1519,13 +1507,10 @@ impl SystemHandler {
         if id.starts_with("mind.") || self.registry.get_engine(id).await.is_some() {
             return true;
         }
-        if let Some(ref mcp) = self.registry.mcp_manager {
-            return mcp
-                .has_kind_at(id, &crate::managers::ToolKind::ThinkWithTools)
-                .await
-                || mcp.has_kind_at(id, &crate::managers::ToolKind::Think).await;
-        }
-        false
+        let mcp = &self.registry.mcp_manager;
+        mcp.has_kind_at(id, &crate::managers::ToolKind::ThinkWithTools)
+            .await
+            || mcp.has_kind_at(id, &crate::managers::ToolKind::Think).await
     }
 
     /// Apply the global `CONSENSUS_ENGINES` list as a *filter* over the agent's
@@ -2190,24 +2175,21 @@ impl SystemHandler {
             self.registry.find_memory().await
         };
         let mcp_memory: Option<(Arc<McpClientManager>, String)> = if memory_plugin.is_none() {
-            if let Some(ref mcp) = self.registry.mcp_manager {
-                let granted = self
-                    .agent_manager
-                    .get_granted_server_ids(&agent.id)
-                    .await
-                    .unwrap_or_default();
-                mcp.resolve_capability_server(crate::managers::CapabilityType::Memory)
-                    .await
-                    .and_then(|server_id| {
-                        if granted.contains(&server_id) {
-                            Some((mcp.clone(), server_id))
-                        } else {
-                            None
-                        }
-                    })
-            } else {
-                None
-            }
+            let mcp = &self.registry.mcp_manager;
+            let granted = self
+                .agent_manager
+                .get_granted_server_ids(&agent.id)
+                .await
+                .unwrap_or_default();
+            mcp.resolve_capability_server(crate::managers::CapabilityType::Memory)
+                .await
+                .and_then(|server_id| {
+                    if granted.contains(&server_id) {
+                        Some((mcp.clone(), server_id))
+                    } else {
+                        None
+                    }
+                })
         } else {
             None
         };
@@ -2261,7 +2243,8 @@ impl SystemHandler {
         let (mcp_engine, engine_id): (Option<Arc<McpClientManager>>, &str) =
             if engine_plugin.is_some() {
                 (None, engine_id)
-            } else if let Some(ref mcp) = self.registry.mcp_manager {
+            } else {
+                let mcp = &self.registry.mcp_manager;
                 if mcp.has_server(engine_id).await {
                     (Some(mcp.clone()), engine_id)
                 } else if let Some(stripped) = engine_id.strip_prefix("mind.") {
@@ -2273,8 +2256,6 @@ impl SystemHandler {
                 } else {
                     (None, engine_id)
                 }
-            } else {
-                (None, engine_id)
             };
 
         if engine_plugin.is_none() && mcp_engine.is_none() {
@@ -2530,10 +2511,11 @@ impl SystemHandler {
                     tool_history.push(assistant_msg);
 
                     // ── Batch Command Approval Gate ──
-                    let yolo =
-                        self.registry.mcp_manager.as_ref().is_some_and(|m| {
-                            m.yolo_mode.load(std::sync::atomic::Ordering::Relaxed)
-                        });
+                    let yolo = self
+                        .registry
+                        .mcp_manager
+                        .yolo_mode
+                        .load(std::sync::atomic::Ordering::Relaxed);
                     let cron_source = message.metadata.contains_key("cron_source");
                     let denied_call_ids = command_approval::run_approval_gate(
                         &calls,
@@ -2541,7 +2523,7 @@ impl SystemHandler {
                         trace_id,
                         yolo,
                         cron_source,
-                        self.registry.mcp_manager.as_ref(),
+                        &self.registry.mcp_manager,
                         &self.pending_approvals,
                         &self.session_trusted_commands,
                         &self.pool,
@@ -3118,9 +3100,7 @@ impl SystemHandler {
             return msg;
         }
 
-        let Some(ref mcp) = self.registry.mcp_manager else {
-            return msg;
-        };
+        let mcp = &self.registry.mcp_manager;
 
         // Fallback: extract base64 image data directly from the persisted content blocks
         // when disk files are missing (e.g., attachment dir not created due to CWD mismatch).
@@ -3273,9 +3253,7 @@ impl SystemHandler {
             return msg;
         }
 
-        let Some(ref mcp) = self.registry.mcp_manager else {
-            return msg;
-        };
+        let mcp = &self.registry.mcp_manager;
 
         let mut transcripts = Vec::new();
         for att in &audio_atts {

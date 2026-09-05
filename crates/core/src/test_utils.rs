@@ -5,6 +5,21 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, RwLock};
 
+/// An [`McpClientManager`](crate::managers::McpClientManager) on a throwaway
+/// in-memory database, for tests and benches that need a [`PluginRegistry`]
+/// but never reach an MCP server.
+///
+/// The registry requires one — tool risk classification has no fallback — so
+/// this exists to keep that requirement from turning every registry test into
+/// a database fixture.
+pub async fn test_mcp_manager() -> Arc<crate::managers::McpClientManager> {
+    let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+    crate::db::init_db(&pool, "sqlite::memory:", None)
+        .await
+        .unwrap();
+    Arc::new(crate::managers::McpClientManager::new(pool, false, 120, 30))
+}
+
 pub async fn create_test_app_state(admin_api_key: Option<String>) -> Arc<crate::AppState> {
     create_test_app_state_in(std::path::PathBuf::from("data"), admin_api_key).await
 }
@@ -23,7 +38,13 @@ pub async fn create_test_app_state_in(
     let (event_tx, _event_rx) = mpsc::channel(100);
     let (tx, _rx) = broadcast::channel::<crate::events::SequencedEvent>(100);
 
-    let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+    let mcp_manager = Arc::new(crate::managers::McpClientManager::new(
+        pool.clone(),
+        false, // yolo_mode disabled in tests
+        120,   // mcp_request_timeout_secs
+        30,    // mcp_stream_idle_timeout_secs
+    ));
+    let registry = Arc::new(PluginRegistry::new(5, 10, 50, mcp_manager.clone()));
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap());
 
@@ -40,12 +61,6 @@ pub async fn create_test_app_state_in(
     ));
 
     let shutdown = crate::shutdown::ShutdownSignal::new();
-    let mcp_manager = Arc::new(crate::managers::McpClientManager::new(
-        pool.clone(),
-        false, // yolo_mode disabled in tests
-        120,   // mcp_request_timeout_secs
-        30,    // mcp_stream_idle_timeout_secs
-    ));
 
     Arc::new(crate::AppState {
         tx,

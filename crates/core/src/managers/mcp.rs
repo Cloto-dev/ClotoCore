@@ -2318,7 +2318,7 @@ impl McpClientManager {
 
     /// Whether `tool_name` is a kernel-native tool (dispatched by the
     /// `mgp.` / `gui.` prefix inside [`Self::execute_tool_internal`]).
-    fn is_kernel_native_tool(tool_name: &str) -> bool {
+    pub(crate) fn is_kernel_native_tool(tool_name: &str) -> bool {
         tool_name.starts_with("mgp.") || tool_name.starts_with("gui.")
     }
 
@@ -3347,16 +3347,23 @@ impl McpClientManager {
     /// MCP defines `destructiveHint` default as `true` — tools without annotations
     /// are assumed destructive. Tools that declare `readOnlyHint: true` or
     /// `destructiveHint: false` are treated as safe.
+    ///
+    /// The same default answers a tool this manager cannot find at all. A name
+    /// with no routing entry, a server that went away, a tool a connected server
+    /// no longer lists: none of those produce annotations to read, so none of
+    /// them produce evidence that the call is safe. Reporting them as
+    /// non-destructive made the approval gate treat "no classification" as
+    /// "classified safe" — the one answer nothing here ever established.
     pub async fn is_tool_destructive(&self, tool_name: &str) -> bool {
         let state = self.state.read().await;
         let Some(server_id) = state.tool_index.get(tool_name) else {
-            return false;
+            return true;
         };
         let Some(handle) = state.servers.get(server_id) else {
-            return false;
+            return true;
         };
         let Some(tool) = handle.tools.iter().find(|t| t.name == tool_name) else {
-            return false;
+            return true;
         };
         let Some(ann) = tool.annotations.as_ref() else {
             // No annotations → default destructiveHint is true (MCP spec)
@@ -3785,6 +3792,25 @@ mod tests {
 
         let manager_on = McpClientManager::new(pool, true, 120, 30);
         assert!(manager_on.yolo_mode.load(Ordering::Relaxed));
+    }
+
+    #[tokio::test]
+    async fn a_tool_no_server_registered_is_reported_destructive() {
+        // The lookup can fail three ways — no routing entry, a server that went
+        // away, a tool a connected server no longer lists — and none of them
+        // produce an annotation saying the call is safe. Answering "not
+        // destructive" told the approval gate the opposite.
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let manager = McpClientManager::new(pool, false, 120, 30);
+
+        assert!(
+            manager
+                .is_tool_destructive("a_tool_nobody_registered")
+                .await
+        );
     }
 
     #[tokio::test]

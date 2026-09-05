@@ -78,7 +78,8 @@ async fn test_dynamic_permission_elevation_flow() {
     cloto_core::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
-    let registry_raw = PluginRegistry::new(5, 10, 50);
+    let registry_raw =
+        PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 5, 10, 50).unwrap());
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
     let (tx_internal, _rx_internal) =

@@ -43,11 +43,19 @@ impl PluginManager {
     }
 
     /// Initialize the plugin registry (no Rust SDK plugins — all external plugins are MCP).
-    pub fn initialize_all(&self) -> anyhow::Result<PluginRegistry> {
+    ///
+    /// `mcp_manager` is a parameter rather than something the caller attaches
+    /// afterwards: the registry it hands back must never exist in a state where
+    /// tool risk classification is unavailable.
+    pub fn initialize_all(
+        &self,
+        mcp_manager: std::sync::Arc<super::McpClientManager>,
+    ) -> anyhow::Result<PluginRegistry> {
         let registry = PluginRegistry::new(
             self.event_timeout_secs,
             self.max_event_depth,
             self.event_concurrency_limit,
+            mcp_manager,
         );
         info!("✅ Plugin registry initialized (MCP-only mode)");
         Ok(registry)

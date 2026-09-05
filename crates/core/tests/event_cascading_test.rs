@@ -76,7 +76,12 @@ async fn test_event_cascading_protection() {
 
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 1, 10, 50).unwrap()); // 1 sec timeout
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
-    let registry = Arc::new(PluginRegistry::new(1, 10, 50));
+    let registry = Arc::new(PluginRegistry::new(
+        1,
+        10,
+        50,
+        cloto_core::test_utils::test_mcp_manager().await,
+    ));
 
     let id_a = "plugin.a".to_string();
     let id_b = "plugin.b".to_string();
@@ -203,7 +208,12 @@ async fn test_thoughtresponse_derived_message_recorded_once() {
 
     let plugin_manager = Arc::new(PluginManager::new(pool.clone(), vec![], 1, 10, 50).unwrap());
     let agent_manager = AgentManager::new(pool.clone(), 90_000);
-    let registry = Arc::new(PluginRegistry::new(1, 10, 50));
+    let registry = Arc::new(PluginRegistry::new(
+        1,
+        10,
+        50,
+        cloto_core::test_utils::test_mcp_manager().await,
+    ));
 
     let (tx_broadcast, _rx_broadcast) =
         broadcast::channel::<cloto_core::events::SequencedEvent>(1000);

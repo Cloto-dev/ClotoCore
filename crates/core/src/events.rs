@@ -472,9 +472,9 @@ impl EventProcessor {
                     // the db layer; here we only need to surface the failure
                     // reason in the log instead of dropping it silently so that
                     // "message fell back to default agent" can be traced.
-                    let pool_opt = self.registry.mcp_manager.as_ref().map(|m| m.pool().clone());
-                    let target_agent_id = if let Some(ref pool) = pool_opt {
-                        match crate::db::mcp::get_agents_for_server(pool, server_id).await {
+                    let pool = self.registry.mcp_manager.pool().clone();
+                    let target_agent_id =
+                        match crate::db::mcp::get_agents_for_server(&pool, server_id).await {
                             Ok(agents) => agents.into_iter().next(),
                             Err(e) => {
                                 warn!(
@@ -485,10 +485,7 @@ impl EventProcessor {
                                 None
                             }
                         }
-                    } else {
-                        None
-                    }
-                    .unwrap_or_else(|| self.system_handler.default_agent_id().to_string());
+                        .unwrap_or_else(|| self.system_handler.default_agent_id().to_string());
 
                     // 2. Extract sender info from metadata
                     let meta = metadata.as_ref();
@@ -696,7 +693,12 @@ mod tests {
             .await
             .unwrap();
 
-        let registry = Arc::new(PluginRegistry::new(5, 10, 50));
+        let registry = Arc::new(PluginRegistry::new(
+            5,
+            10,
+            50,
+            crate::test_utils::test_mcp_manager().await,
+        ));
         let plugin_manager = Arc::new(
             crate::managers::PluginManager::new(pool.clone(), vec![], 30, 10, 50).unwrap(),
         );
