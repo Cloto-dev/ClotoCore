@@ -127,8 +127,9 @@ pub struct NegotiatedProtocol {
     /// The server's own operating guidance, from whichever channel its era
     /// uses — `initialize.instructions` (legacy) or `DiscoverResult.instructions`
     /// (modern). Empty and whitespace-only are normalised to `None` at capture,
-    /// so a consumer never has to tell "absent" from "blank". Stored on the
-    /// handle for a future consumer; nothing acts on it yet.
+    /// so a consumer never has to tell "absent" from "blank". Carried onto the
+    /// handle, where `McpClientManager::compose_server_instructions` renders it
+    /// into the system prompt of every agent granted one of the server's tools.
     pub instructions: Option<String>,
 }
 
