@@ -584,8 +584,15 @@ pub async fn install_handler(
         state_clone
             .setup_in_progress
             .store(false, std::sync::atomic::Ordering::SeqCst);
-        if let Err(e) = result {
-            error!("Marketplace install failed for {}: {e}", entry.id);
+        match &result {
+            // What the LLM proxy observed about this connector described the
+            // files that were here a moment ago. They have been replaced and
+            // the child restarted, so the observation is stale: clearing it
+            // takes the connector off the operator's update list. Only on
+            // success — a failed re-vendor leaves the old files in place, and
+            // with them the reason the connector was listed.
+            Ok(()) => crate::managers::llm_proxy::forget_untrusted_provider(&entry.id),
+            Err(e) => error!("Marketplace install failed for {}: {e}", entry.id),
         }
         // Always emit Complete so the frontend SSE listener can close.
         emit(&state_clone.setup_progress_tx, SetupProgressEvent::Complete);

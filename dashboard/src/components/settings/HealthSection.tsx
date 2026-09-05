@@ -1,9 +1,9 @@
-import { AlertTriangle, CheckCircle, Loader2, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Download, Loader2, XCircle } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
 import { formatBytes } from '../../lib/format';
-import type { HealthReport, RepairReport } from '../../services/api';
+import type { HealthCheck, HealthReport, RepairReport } from '../../services/api';
 import { SectionCard } from './common';
 import { DangerZone } from './DangerZone';
 
@@ -28,6 +28,8 @@ export function HealthSection() {
   const [scanning, setScanning] = useState(false);
   const [repairing, setRepairing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
+  const [updated, setUpdated] = useState<string[]>([]);
 
   const loadReport = useCallback(
     async (fresh?: boolean) => {
@@ -67,6 +69,34 @@ export function HealthSection() {
 
   const repairableCount = report?.checks.filter((c) => c.repairable).length ?? 0;
 
+  // Connectors the LLM proxy saw calling without this kernel's token. They are
+  // named by the check itself, from provider rows it resolved — the marketplace
+  // cannot find them on its own, because it compares version strings and these
+  // connectors changed content under an unchanged version.
+  const staleConnectors = (check: HealthCheck): string[] => {
+    if (check.name !== 'llm_proxy_untrusted_callers') return [];
+    const ids = check.detail?.stale_connectors;
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
+  };
+
+  // Updating is the same operation the marketplace's Update button performs:
+  // stop the child, re-vendor from the catalog, restart it. The kernel drops
+  // the connector from the check's list once that succeeds, so the re-scan
+  // below is what makes the row shrink.
+  const handleUpdateConnector = async (serverId: string) => {
+    try {
+      setUpdating(serverId);
+      setError(null);
+      await api.installMarketplaceServer({ server_id: serverId, update: true });
+      setUpdated((done) => (done.includes(serverId) ? done : [...done, serverId]));
+      await loadReport(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : `Update of ${serverId} failed`);
+    } finally {
+      setUpdating(null);
+    }
+  };
+
   return (
     <SectionCard title={t('health.title')}>
       {/* Last scan timestamp */}
@@ -101,11 +131,37 @@ export function HealthSection() {
       ) : report ? (
         <div className="space-y-2 mb-4">
           {report.checks.map((check) => (
-            <div key={check.name} className="flex items-center gap-3 py-1.5">
-              <StatusIcon status={check.status} />
-              <span className="text-sm text-content-secondary flex-1">{check.message}</span>
+            <div key={check.name} className="py-1.5">
+              <div className="flex items-center gap-3">
+                <StatusIcon status={check.status} />
+                <span className="text-sm text-content-secondary flex-1">{check.message}</span>
+              </div>
+              {/* The action the check implies. Shown only where the kernel
+                  actually observed the problem, so an installation with nothing
+                  to update is never told to update anything. */}
+              {staleConnectors(check).length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 mt-2 ml-[26px]">
+                  {staleConnectors(check).map((id) => (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => handleUpdateConnector(id)}
+                      disabled={updating !== null}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs border border-edge text-content-secondary hover:text-content-primary disabled:opacity-50"
+                    >
+                      {updating === id ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                      {t('health.update_connector', { id })}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
+          {updated.length > 0 && (
+            <p className="text-xs text-content-tertiary ml-[26px]">
+              {t('health.updated_connectors', { ids: updated.join(', ') })}
+            </p>
+          )}
 
           {/* DB size */}
           <div className="flex items-center gap-3 py-1.5 border-t border-edge mt-2 pt-3">

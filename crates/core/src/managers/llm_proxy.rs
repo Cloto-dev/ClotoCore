@@ -89,13 +89,31 @@ const TOKEN_WARN_INTERVAL: Duration = Duration::from_secs(60);
 /// When the last untrusted-caller warning was emitted (process-wide).
 static LAST_TOKEN_WARN: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 
+/// Largest number of distinct connectors named in [`UntrustedCallers::connectors`].
+///
+/// The set is bounded because it is reported to the operator and held for the
+/// life of the process. Every id in it is a row key the proxy has already
+/// resolved in the database, so the bound is not there to contain untrusted
+/// input — it is there so a kernel serving many engines still answers with a
+/// list someone can read and act on. `served` remains exact.
+const MAX_NAMED_CALLERS: usize = 16;
+
 /// A request the proxy served without a valid token, because enforcement was off.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct UntrustedCallers {
     /// How many such requests this kernel has served since it started.
     pub served: u64,
     /// When the most recent one arrived.
     pub last_seen: std::time::SystemTime,
+    /// Which connectors were behind them, as far as the proxy could tell.
+    ///
+    /// Named from the resolved provider row, whose key is the connector's
+    /// marketplace id, and only AFTER that row was found — so an id here is
+    /// one this kernel knows, not a string a caller chose. A request that
+    /// never got that far (no provider header, or an unknown provider) is
+    /// still counted in `served` and simply not named, which is why this set
+    /// is a lower bound on `served` and never a substitute for it.
+    pub connectors: std::collections::BTreeSet<String>,
 }
 
 /// Requests served without a valid proxy token, or `None` when there were none.
@@ -114,7 +132,10 @@ static UNTRUSTED_CALLERS: std::sync::Mutex<Option<UntrustedCallers>> = std::sync
 /// "nothing seen here that requiring the token would break".
 #[must_use]
 pub fn untrusted_callers() -> Option<UntrustedCallers> {
-    UNTRUSTED_CALLERS.lock().ok().and_then(|seen| *seen)
+    UNTRUSTED_CALLERS
+        .lock()
+        .ok()
+        .and_then(|seen| seen.as_ref().cloned())
 }
 
 /// Record one request served without a valid token.
@@ -125,16 +146,53 @@ fn record_untrusted_caller() {
         return;
     };
     let now = std::time::SystemTime::now();
-    *seen = Some(match *seen {
+    *seen = Some(match seen.take() {
         Some(prev) => UntrustedCallers {
             served: prev.served.saturating_add(1),
             last_seen: now,
+            connectors: prev.connectors,
         },
         None => UntrustedCallers {
             served: 1,
             last_seen: now,
+            connectors: std::collections::BTreeSet::new(),
         },
     });
+}
+
+/// Name the connector behind a request that was served without a valid token.
+///
+/// Called only after the provider row resolved, and only for a request the
+/// count above already recorded — so this never creates an entry on its own. A
+/// request that is counted but never named is the honest outcome for one that
+/// failed before the proxy knew who was calling.
+fn record_untrusted_provider(provider_id: &str) {
+    let Ok(mut seen) = UNTRUSTED_CALLERS.lock() else {
+        return;
+    };
+    let Some(entry) = seen.as_mut() else {
+        return;
+    };
+    if entry.connectors.len() >= MAX_NAMED_CALLERS && !entry.connectors.contains(provider_id) {
+        return;
+    }
+    entry.connectors.insert(provider_id.to_string());
+}
+
+/// Drop one connector from the "needs updating" list, because it was replaced.
+///
+/// The set is a worklist, and a worklist that only grows is not one: after the
+/// operator updates a connector, leaving it listed asks them to do it again.
+/// Losing the entry costs nothing that matters — if the replacement still calls
+/// without a token, its next call puts it straight back, which is a truer
+/// answer than the one we would have kept. `served` is deliberately untouched:
+/// it records what this kernel has served, and that does not stop being true.
+pub fn forget_untrusted_provider(provider_id: &str) {
+    if let Ok(mut seen) = UNTRUSTED_CALLERS.lock() {
+        if let Some(entry) = seen.as_mut() {
+            entry.connectors.remove(provider_id);
+        }
+    }
 }
 
 struct ProxyState {
@@ -335,7 +393,12 @@ async fn proxy_handler(
     // spend stored provider credit, and the DB read itself is work done on
     // behalf of a caller we have not identified yet.
     let presented = token_presented(&headers);
-    if !token_matches(presented, &state.token) {
+    // Whether this request is one the operator would have to fix before the
+    // token can be required. Kept so the connector behind it can be named once
+    // the provider row resolves, a few lines down: naming it from the header
+    // here would report a string the caller chose.
+    let untrusted = !token_matches(presented, &state.token);
+    if untrusted {
         if state.require_token {
             return json_error(
                 StatusCode::UNAUTHORIZED,
@@ -383,6 +446,10 @@ async fn proxy_handler(
             );
         }
     };
+
+    if untrusted {
+        record_untrusted_provider(&provider_id);
+    }
 
     if !provider.enabled {
         return json_error(
@@ -650,10 +717,22 @@ mod tests {
 
     /// Start a proxy on a free port and wait for the bind to succeed.
     async fn spawn_test_proxy(token: &str, require_token: bool) -> (u16, ShutdownSignal) {
+        let (port, shutdown, _pool) = spawn_test_proxy_with_pool(token, require_token).await;
+        (port, shutdown)
+    }
+
+    /// The same, handing back the pool so a test can give the proxy a provider
+    /// row to resolve — which is the only way to reach the code that names a
+    /// caller, since naming happens after the lookup and never from the header.
+    async fn spawn_test_proxy_with_pool(
+        token: &str,
+        require_token: bool,
+    ) -> (u16, ShutdownSignal, SqlitePool) {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
+        let handed_back = pool.clone();
         let port = free_port();
         let shutdown = ShutdownSignal::new();
         let ready = spawn_llm_proxy(
@@ -668,7 +747,41 @@ mod tests {
             .await
             .expect("proxy task dropped the ready channel")
             .expect("proxy failed to bind");
-        (port, shutdown)
+        (port, shutdown, handed_back)
+    }
+
+    /// POST naming a provider, optionally presenting `header: token`.
+    async fn post_to_provider(
+        port: u16,
+        provider: &str,
+        auth: Option<(&str, &str)>,
+    ) -> reqwest::Response {
+        let url = format!("http://127.0.0.1:{port}{LLM_PROXY_ENDPOINT}");
+        let mut req = reqwest::Client::new()
+            .post(url)
+            .header("X-LLM-Provider", provider)
+            .json(&serde_json::json!({}));
+        if let Some((name, value)) = auth {
+            req = req.header(name, value);
+        }
+        req.send().await.expect("request to local proxy failed")
+    }
+
+    /// Register a provider that resolves and then fails to connect upstream.
+    /// The forward is irrelevant here — everything under test happens before it.
+    async fn register_dead_provider(pool: &SqlitePool, id: &str) {
+        crate::db::upsert_llm_provider_meta(
+            pool,
+            id,
+            id,
+            "http://127.0.0.1:1/v1/chat/completions",
+            "bearer",
+            "model-under-test",
+            1,
+            None,
+        )
+        .await
+        .expect("provider row must be inserted");
     }
 
     /// POST an empty body, optionally presenting `header: token`.
@@ -748,6 +861,56 @@ mod tests {
     /// With enforcement off, a call with no token is served *and* observed —
     /// that observation is what later decides whether requiring the token is
     /// safe here, so losing it would be silent.
+    /// The count says something is wrong; the name says what to update. Without
+    /// it the operator has to guess which connector to reinstall, and the
+    /// marketplace cannot tell them either: it compares version strings, and a
+    /// connector whose content moved under the same version still reads as
+    /// current there.
+    #[tokio::test]
+    async fn an_untrusted_call_names_the_connector_behind_it() {
+        const TOKEN: &str = "proxy-token-naming";
+        const PROVIDER: &str = "engine-that-sent-no-token";
+        let (port, shutdown, pool) = spawn_test_proxy_with_pool(TOKEN, false).await;
+        register_dead_provider(&pool, PROVIDER).await;
+
+        let _ = post_to_provider(port, PROVIDER, None).await;
+
+        let seen = untrusted_callers().expect("the served call must be visible");
+        assert!(
+            seen.connectors.iter().any(|id| id == PROVIDER),
+            "the connector that called without a token must be named: {:?}",
+            seen.connectors
+        );
+        shutdown.raise();
+    }
+
+    /// The set is the list of connectors to update, so a connector that is
+    /// already sending the token must never appear in it — being told to update
+    /// something that is current is how a report loses its reader.
+    #[tokio::test]
+    async fn an_authenticated_call_names_nobody() {
+        const TOKEN: &str = "proxy-token-authenticated";
+        const PROVIDER: &str = "engine-that-sent-its-token";
+        let (port, shutdown, pool) = spawn_test_proxy_with_pool(TOKEN, false).await;
+        register_dead_provider(&pool, PROVIDER).await;
+
+        let _ = post_to_provider(
+            port,
+            PROVIDER,
+            Some(("Authorization", &format!("Bearer {TOKEN}"))),
+        )
+        .await;
+
+        let named = untrusted_callers()
+            .map(|seen| seen.connectors)
+            .unwrap_or_default();
+        assert!(
+            !named.iter().any(|id| id == PROVIDER),
+            "an authenticated caller was listed as needing an update: {named:?}"
+        );
+        shutdown.raise();
+    }
+
     #[tokio::test]
     async fn serving_without_a_token_is_observed() {
         let (port, shutdown) = spawn_test_proxy("proxy-token-under-test", false).await;
