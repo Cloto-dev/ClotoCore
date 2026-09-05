@@ -3996,45 +3996,6 @@ async fn run_batch_install(
 mod tests {
     use super::*;
 
-    /// Build a gzip tarball at `path` from `(entry_path, bytes)` pairs,
-    /// mirroring a *real* GitHub archive: a `pax_global_header`
-    /// pseudo-entry and an entry for the top-level directory itself
-    /// precede the file entries (shared top-level prefix included by
-    /// the caller in each entry path).
-    fn write_tarball(path: &std::path::Path, files: &[(&str, &[u8])]) {
-        let mut tar_buf = Vec::new();
-        {
-            let mut builder = tar::Builder::new(&mut tar_buf);
-
-            let payload: &[u8] = b"52 comment=0123456789abcdef0123456789abcdef01234567\n";
-            let mut pax = tar::Header::new_gnu();
-            pax.set_entry_type(tar::EntryType::XGlobalHeader);
-            pax.set_size(payload.len() as u64);
-            pax.set_mode(0o644);
-            builder
-                .append_data(&mut pax, "pax_global_header", payload)
-                .unwrap();
-
-            let mut dir = tar::Header::new_gnu();
-            dir.set_entry_type(tar::EntryType::Directory);
-            dir.set_size(0);
-            dir.set_mode(0o755);
-            builder.append_data(&mut dir, "repo-v0/", &[][..]).unwrap();
-
-            for (name, data) in files {
-                let mut header = tar::Header::new_gnu();
-                header.set_size(data.len() as u64);
-                header.set_mode(0o644);
-                builder.append_data(&mut header, name, *data).unwrap();
-            }
-            builder.finish().unwrap();
-        }
-        use std::io::Write;
-        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        gz.write_all(&tar_buf).unwrap();
-        std::fs::write(path, gz.finish().unwrap()).unwrap();
-    }
-
     fn temp_dir(tag: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "clotocore-test-{tag}-{}-{}",
@@ -4048,52 +4009,7 @@ mod tests {
         dir
     }
 
-    const MONOREPO_FILES: &[(&str, &[u8])] = &[
-        ("repo-v0/README.md", b"readme"),
-        ("repo-v0/servers/demo/server.py", b"print('demo')"),
-        ("repo-v0/servers/demo/pyproject.toml", b"[project]"),
-        ("repo-v0/servers/common/pyproject.toml", b"[project]"),
-        ("repo-v0/servers/common/common/__init__.py", b""),
-        ("repo-v0/servers/other/server.py", b"print('other')"),
-    ];
-
     // ── Extraction policy ──────────────────────────────────────────
-
-    /// Build a GitHub-style tarball carrying one link entry of
-    /// `entry_type` alongside an ordinary file.
-    fn write_tarball_with_link_entry(path: &std::path::Path, entry_type: tar::EntryType) {
-        let mut tar_buf = Vec::new();
-        {
-            let mut builder = tar::Builder::new(&mut tar_buf);
-
-            let mut dir = tar::Header::new_gnu();
-            dir.set_entry_type(tar::EntryType::Directory);
-            dir.set_size(0);
-            dir.set_mode(0o755);
-            builder.append_data(&mut dir, "repo-v0/", &[][..]).unwrap();
-
-            let mut ordinary = tar::Header::new_gnu();
-            ordinary.set_size(6);
-            ordinary.set_mode(0o644);
-            builder
-                .append_data(&mut ordinary, "repo-v0/server.py", &b"normal"[..])
-                .unwrap();
-
-            let mut link = tar::Header::new_gnu();
-            link.set_entry_type(entry_type);
-            link.set_size(0);
-            link.set_mode(0o777);
-            builder
-                .append_link(&mut link, "repo-v0/escape", "../../../etc/passwd")
-                .unwrap();
-
-            builder.finish().unwrap();
-        }
-        use std::io::Write;
-        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
-        gz.write_all(&tar_buf).unwrap();
-        std::fs::write(path, gz.finish().unwrap()).unwrap();
-    }
 
     /// Drive `write_entry` over a single-file tarball with a hand-set
     /// budget, so the limits can be exercised without materializing
