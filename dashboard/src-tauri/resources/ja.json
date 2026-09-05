@@ -221,6 +221,8 @@
       "scan": "スキャン",
       "repair": "修復",
       "repaired": "{{count}} 件の問題を修復しました",
+      "update_connector": "{{id}} を更新",
+      "updated_connectors": "更新しました: {{ids}}。上の件数は履歴で、カーネルを再起動すると消えます。",
       "db_size": "データベースサイズ",
       "danger": {
         "title": "危険な操作",
