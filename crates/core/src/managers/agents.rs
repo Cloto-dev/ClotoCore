@@ -334,7 +334,18 @@ impl AgentManager {
     /// Note: CPersona memory data cleanup is handled separately by the caller
     /// (handler layer) via MCP tool call, since the agent manager does not
     /// have access to the MCP client manager.
-    pub async fn delete_agent(&self, agent_id: &str) -> anyhow::Result<()> {
+    /// Delete an agent and everything scoped to it.
+    ///
+    /// `default_agent_id` is passed in rather than looked up: which agent is
+    /// the default is a configuration fact this manager does not own. Taking
+    /// it as an argument makes the protection travel with every call site,
+    /// instead of living only in the HTTP handler — where a CLI, a scheduled
+    /// job, or any other direct caller would simply not have it.
+    pub async fn delete_agent(&self, agent_id: &str, default_agent_id: &str) -> anyhow::Result<()> {
+        if agent_id == default_agent_id {
+            anyhow::bail!("Cannot delete the default agent '{agent_id}'");
+        }
+
         // Clean up avatar/VRM files from disk (paths stored in metadata JSON)
         if let Ok(Some(path)) = self.get_avatar_path(agent_id).await {
             let _ = tokio::fs::remove_file(&path).await;
@@ -710,7 +721,7 @@ mod tests {
         );
 
         let delete_err = mgr
-            .delete_agent("agent.ghost")
+            .delete_agent("agent.ghost", "agent.cloto_default")
             .await
             .expect_err("deleting nothing must not read as success");
         assert!(
@@ -731,7 +742,7 @@ mod tests {
                 .unwrap();
         }
 
-        mgr.delete_agent(&id).await.unwrap();
+        mgr.delete_agent(&id, "agent.cloto_default").await.unwrap();
 
         assert!(!mgr.agent_exists(&id).await.unwrap());
         assert!(
@@ -749,10 +760,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_manager_layer_will_delete_the_default_seeded_agent_without_complaint() {
-        // Quirk worth knowing before a headless rewrite: "the default agent
-        // cannot be deleted" is enforced only in the HTTP handler. Any caller
-        // that reaches AgentManager directly bypasses that protection.
+    async fn the_manager_layer_refuses_to_delete_the_agent_it_is_told_is_the_default() {
+        // "The default agent cannot be deleted" used to be enforced only in the
+        // HTTP handler, so any caller reaching AgentManager directly walked
+        // straight past it. The manager now refuses on its own.
         let mgr = manager().await;
         let default_id = "agent.cloto_default"; // AppConfig's DEFAULT_AGENT_ID fallback
         assert!(
@@ -760,9 +771,16 @@ mod tests {
             "the migrations seed this agent"
         );
 
-        mgr.delete_agent(default_id).await.unwrap();
+        let err = mgr
+            .delete_agent(default_id, default_id)
+            .await
+            .expect_err("the default agent must not be deletable");
+        assert!(err.to_string().contains(default_id), "{err}");
 
-        assert!(!mgr.agent_exists(default_id).await.unwrap());
+        assert!(
+            mgr.agent_exists(default_id).await.unwrap(),
+            "the refusal must leave the agent in place"
+        );
     }
 
     #[tokio::test]
