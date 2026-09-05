@@ -345,37 +345,33 @@ async fn kernel_rbac_blocks_only_on_explicit_deny() {
     }
 }
 
-// ────────── presentation vs execution, outside YOLO (repro) ──────────
+// ────────── presentation vs execution, outside YOLO ──────────
 
-/// A kernel-native tool the agent was never offered is still reachable, and the
-/// two halves of `mgp.discovery.*` do not agree on whether that matters.
+/// Outside YOLO the kernel offers an agent exactly two kernel-native tools, the
+/// `mgp.tools.*` discovery pair, and nothing in the gate chain stops it from
+/// naming one of the others: the approval gate does not ask about kernel-native
+/// names (they pass kernel RBAC instead), kernel RBAC is Deny-only, and
+/// `execute_tool_for_agent` filters `allowed_plugin_ids` on the Rust-plugin side
+/// only. What stands between a named-but-unoffered kernel tool and its handler is
+/// the handler's own check.
 ///
-/// Outside YOLO the kernel offers an agent exactly two kernel-native tools —
-/// the `mgp.tools.*` discovery pair — and the approval gate deliberately does
-/// not ask about kernel-native names (they pass kernel RBAC instead). Kernel
-/// RBAC is Deny-only, so an agent holding no grants at all is not stopped by it
-/// either. What is left standing between a named-but-unoffered kernel tool and
-/// its handler is whatever that handler checks for itself, and the handlers do
-/// not check the same things: `mgp.discovery.register` refuses outside YOLO,
-/// while `mgp.discovery.deregister` — which disconnects a live MCP server by
-/// name — runs its own logic.
-///
-/// This test pins that split as it stands today rather than asserting it is
-/// correct. Closing it changes what `deregister` returns here.
+/// So the handlers that reach past the caller now have one. This pins that a
+/// zero-grant agent is refused by the handler, not merely undisclosed.
 #[tokio::test]
-async fn outside_yolo_an_unoffered_kernel_tool_still_reaches_its_handler() {
+async fn outside_yolo_a_kernel_tool_that_reaches_another_server_is_refused() {
     use cloto_core::managers::PluginRegistry;
     use std::sync::Arc;
 
     let pool = fresh_pool().await;
     add_server(&pool, "kernel", "opt-in").await;
+    add_server(&pool, "victim", "opt-in").await;
     let mgr = Arc::new(McpClientManager::new(pool, false, 120, 30)); // yolo OFF
     let registry = PluginRegistry::new(5, 10, 50, mgr.clone());
 
     const AGENT: &str = "agent.zero_grants";
 
-    // 1. Presentation: outside YOLO the agent is offered the discovery pair and
-    //    nothing else from the kernel's own set.
+    // Presentation: the agent is offered the discovery pair and nothing else
+    // from the kernel's own set.
     let offered: Vec<String> = mgr
         .collect_tool_schemas_for_agent(AGENT)
         .await
@@ -391,51 +387,75 @@ async fn outside_yolo_an_unoffered_kernel_tool_still_reaches_its_handler() {
         "outside YOLO only the discovery pair is offered"
     );
 
-    // 2. Execution, through the same call the agentic loop makes. The agent
-    //    holds no grants and no plugin ids.
-    let register = registry
-        .execute_tool_for_agent(
-            &[],
-            AGENT,
-            "mgp.discovery.register",
-            serde_json::json!({ "id": "planted", "command": "noop", "transport": "stdio" }),
-        )
-        .await;
-    let register_err = register
-        .expect_err("register refuses outside YOLO")
-        .to_string();
-    assert!(
-        register_err.contains("privileged") || register_err.contains("YOLO"),
-        "register is stopped for being outside YOLO, got: {register_err}"
-    );
-
-    // Its sibling is not stopped at all: the error is the handler's own lookup
-    // failing on a server id that does not exist, which is only reachable past
-    // every gate. With a live server of that name it would have disconnected it.
+    // Disconnecting a server is privileged, like registering one. Both halves of
+    // the pair now answer that the same way.
     let deregister = registry
         .execute_tool_for_agent(
             &[],
             AGENT,
             "mgp.discovery.deregister",
-            serde_json::json!({ "id": "no_such_server" }),
+            serde_json::json!({ "id": "victim" }),
         )
-        .await;
-    let deregister_err = deregister
-        .expect_err("no server by that name exists")
-        .to_string();
+        .await
+        .expect_err("deregister is privileged outside YOLO");
     assert!(
-        deregister_err.contains("not found"),
-        "deregister reached its own body, so nothing gated it; got: {deregister_err}"
+        deregister.to_string().contains("privileged"),
+        "deregister must be refused before it reaches disconnect_server, got: {deregister}"
     );
-    for stopped in [
-        "privileged",
-        "YOLO",
-        "Access denied",
-        "cannot use kernel tool",
+
+    // Steering another server's stream is authorized against that server, like
+    // cancelling one.
+    let pace = registry
+        .execute_tool_for_agent(
+            &[],
+            AGENT,
+            "mgp.stream.pace",
+            serde_json::json!({
+                // The agentic loop forces `agent_id` into every tool call
+                // (bug-406), so the ownership check reads an identity the caller
+                // cannot choose. Supplied here for the same reason.
+                "agent_id": AGENT,
+                "server_id": "victim",
+                "request_id": 1,
+                "max_chunks_per_second": 1,
+            }),
+        )
+        .await
+        .expect_err("a zero-grant agent may not pace another server");
+    assert!(
+        pace.to_string().contains("no grant for server"),
+        "pace must be refused by the ownership check, got: {pace}"
+    );
+}
+
+/// The other side of the same split: guarding the tools that reach past the
+/// caller must not take the read-only ones with them. These are reachable by
+/// design — `mgp.tools.discover` is offered on every turn — so a future guard
+/// applied too widely fails here rather than in an agent's transcript.
+#[tokio::test]
+async fn outside_yolo_the_read_only_kernel_tools_stay_reachable() {
+    use cloto_core::managers::PluginRegistry;
+    use std::sync::Arc;
+
+    let pool = fresh_pool().await;
+    add_server(&pool, "kernel", "opt-in").await;
+    let mgr = Arc::new(McpClientManager::new(pool, false, 120, 30)); // yolo OFF
+    let registry = PluginRegistry::new(5, 10, 50, mgr);
+
+    for (tool, args) in [
+        ("mgp.discovery.list", serde_json::json!({})),
+        (
+            "mgp.tools.discover",
+            serde_json::json!({ "query": "anything" }),
+        ),
+        ("mgp.events.pending_callbacks", serde_json::json!({})),
     ] {
+        let result = registry
+            .execute_tool_for_agent(&[], "agent.zero_grants", tool, args)
+            .await;
         assert!(
-            !deregister_err.contains(stopped),
-            "deregister was expected to reach its handler, but was stopped by {stopped}: {deregister_err}"
+            result.is_ok(),
+            "{tool} is read-only and must stay reachable outside YOLO, got: {result:?}"
         );
     }
 }

@@ -1151,6 +1151,11 @@ pub(super) async fn execute_stream_pace(manager: &McpClientManager, args: Value)
         as u32;
     let reason = args.get("reason").and_then(|v| v.as_str());
 
+    // Pacing a stream steers another server's delivery, the same kind of reach
+    // `mgp.stream.cancel` authorizes before using. It carries the identical
+    // `server_id` argument, so it takes the identical check.
+    require_server_access(manager, &args, server_id).await?;
+
     super::mcp_streaming::send_pace(manager, server_id, request_id, max_chunks, reason).await?;
 
     Ok(serde_json::json!({
@@ -1277,6 +1282,16 @@ pub(super) async fn execute_events_unsubscribe(
     manager: &McpClientManager,
     args: Value,
 ) -> Result<Value> {
+    // `mgp.events.subscribe` authorizes the caller against the server it is
+    // subscribing to. Tearing that subscription down reaches the same server, so
+    // it takes the same check — the subscription itself is what says which one.
+    // An id that resolves to nothing is left to the handler, which reports it as
+    // not removed; refusing here would tell a caller which ids exist.
+    if let Some(sub_id) = args.get("subscription_id").and_then(|v| v.as_str()) {
+        if let Some(server_id) = manager.events.subscription_server(sub_id) {
+            require_server_access(manager, &args, &server_id).await?;
+        }
+    }
     Ok(super::mcp_events::unsubscribe(manager, args).await?)
 }
 
@@ -1342,6 +1357,19 @@ pub(super) async fn execute_callback_respond(
     manager: &McpClientManager,
     args: Value,
 ) -> Result<Value> {
+    // Answering a callback puts words into a request another server is waiting
+    // on, and `mgp.events.pending_callbacks` hands out the ids to answer. The
+    // callback records which server it came from, so the caller is authorized
+    // against that server exactly as the rest of this family is.
+    //
+    // This guards the tool, not `McpClientManager::respond_to_callback`: the
+    // kernel answers its own external-bridge callbacks through that wrapper and
+    // is not a caller being authorized.
+    if let Some(callback_id) = args.get("callback_id").and_then(|v| v.as_str()) {
+        if let Some(server_id) = manager.events.callback_server(callback_id) {
+            require_server_access(manager, &args, &server_id).await?;
+        }
+    }
     Ok(super::mcp_events::respond_to_callback(manager, args).await?)
 }
 
@@ -2068,6 +2096,110 @@ fn parse_think_result(
     Err(anyhow::anyhow!(
         "MCP engine returned no parseable ThinkResult"
     ))
+}
+
+#[cfg(test)]
+mod ownership_gate_tests {
+    //! The kernel tools that reach a server someone else owns authorize the
+    //! caller against that server first. `mgp.events.unsubscribe` and
+    //! `mgp.callback.respond` name their target by an opaque id rather than by
+    //! `server_id`, so the object itself is asked which server it belongs to.
+    //! These live in-crate because seeding a subscription or a pending callback
+    //! needs `EventManager`, which is not part of the public surface.
+
+    use super::*;
+
+    async fn manager() -> McpClientManager {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        McpClientManager::new(pool, false, 120, 30)
+    }
+
+    fn denied(result: &Result<Value>) -> bool {
+        matches!(result, Err(e) if e.to_string().contains("no grant for server"))
+    }
+
+    #[tokio::test]
+    async fn unsubscribing_from_a_server_the_caller_holds_no_grant_for_is_refused() {
+        let mgr = manager().await;
+        let sub_id = mgr
+            .events
+            .add_subscription(super::super::mcp_events::EventSubscription {
+                id: String::new(),
+                server_id: "someone.elses.server".to_string(),
+                channels: vec!["tools".to_string()],
+                filter: None,
+            });
+
+        let result = execute_events_unsubscribe(
+            &mgr,
+            serde_json::json!({ "subscription_id": sub_id, "agent_id": "agent.zero_grants" }),
+        )
+        .await;
+
+        assert!(
+            denied(&result),
+            "the subscription names the server it reaches; a caller with no grant for it is refused: {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unknown_subscription_id_is_left_to_the_handler_rather_than_refused() {
+        // Refusing here would answer "does this id exist?" for anyone who asks.
+        let mgr = manager().await;
+
+        let result = execute_events_unsubscribe(
+            &mgr,
+            serde_json::json!({ "subscription_id": "no-such-sub", "agent_id": "agent.zero_grants" }),
+        )
+        .await;
+
+        let value = result.expect("an unknown id is reported, not refused");
+        assert_eq!(
+            value.get("removed").and_then(serde_json::Value::as_bool),
+            Some(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn answering_a_callback_owned_by_another_server_is_refused() {
+        let mgr = manager().await;
+        assert!(mgr.events.register_callback(
+            "cb-1",
+            "someone.elses.server",
+            "elicitation",
+            "pick one",
+            None,
+        ));
+
+        let result = execute_callback_respond(
+            &mgr,
+            serde_json::json!({
+                "callback_id": "cb-1",
+                "response": "forged",
+                "agent_id": "agent.zero_grants",
+            }),
+        )
+        .await;
+
+        assert!(
+            denied(&result),
+            "pending_callbacks hands out the ids, so answering one is authorized against its server: {result:?}"
+        );
+        // The refusal must not have consumed the callback on the way out.
+        assert!(
+            mgr.events.callback_server("cb-1").is_some(),
+            "a refused answer leaves the callback outstanding"
+        );
+        assert!(
+            mgr.events
+                .resolve_callback("cb-1", "the real answer")
+                .is_some(),
+            "the callback is still answerable by someone who may"
+        );
+    }
 }
 
 #[cfg(test)]

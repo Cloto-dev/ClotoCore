@@ -348,6 +348,20 @@ pub(super) async fn execute_discovery_deregister(
     manager: &McpClientManager,
     args: Value,
 ) -> Result<Value> {
+    // Registering a server is privileged; disconnecting one is the same reach in
+    // the other direction, and `mgp.discovery.list` hands out the ids to aim at.
+    // The two halves of this pair took different answers to that question until
+    // now — registering refused outside privileged mode, deregistering did not.
+    if !manager.yolo_mode.load(Ordering::Relaxed) {
+        return Err(ToolFailure::Rejection(ToolRejection {
+            code: RejectionCode::YoloRequired,
+            reason: "This tool is restricted to privileged (YOLO) mode, which is currently disabled by the operator. The kernel will reject identical requests until the operator re-enables privileged mode in the dashboard.".to_string(),
+            remediation_hint: Some("Ask the operator to enable YOLO mode in Settings → Security.".to_string()),
+            retryable: true,
+            details: None,
+        }));
+    }
+
     let id = args
         .get("id")
         .and_then(|v| v.as_str())
