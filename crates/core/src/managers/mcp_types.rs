@@ -30,8 +30,10 @@ pub struct McpServerHandle {
     /// for handles registered as placeholders after a failure).
     pub protocol_era: Option<super::mcp_protocol::ProtocolEra>,
     /// The server's own usage guidance, captured from `initialize.instructions`
-    /// (legacy era) or `DiscoverResult.instructions` (modern era). Stored only;
-    /// no consumer wires it into prompts yet.
+    /// (legacy era) or `DiscoverResult.instructions` (modern era). Read by
+    /// `McpClientManager::compose_server_instructions`, which places it in the
+    /// system prompt of every agent granted at least one of this server's
+    /// tools.
     pub instructions: Option<String>,
 }
 

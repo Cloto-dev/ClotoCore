@@ -25,6 +25,31 @@ use tracing::{debug, error, info, warn};
 /// Approver identity used for YOLO-mode auto-approved permissions.
 const YOLO_APPROVER_ID: &str = "YOLO";
 
+/// Per-server ceiling on the handshake instructions carried into a system
+/// prompt. 3,000 characters is the line at which the authoring side's own
+/// health check already calls a server's instructions oversized (cpersona
+/// `docs/OPERATING_CONTEXT_DESIGN.md`: the summary SHOULD stay under 1,500
+/// characters, and `check_health` warns above 3,000), so a server that
+/// respects its own guidance is never truncated here.
+const INSTRUCTIONS_PER_SERVER_CHARS: usize = 3_000;
+
+/// Ceiling on the whole composed block — three full-size servers. The text is
+/// written by the installed connectors rather than by the operator, and it
+/// rides on every dispatch, so its cost stays bounded even when a server
+/// ignores the guidance above.
+const INSTRUCTIONS_TOTAL_CHARS: usize = 9_000;
+
+/// Truncate `text` to at most `limit` characters, marking the cut so a reader
+/// can tell a clipped instruction from a short one. Counts characters, not
+/// bytes: instructions are prose and are routinely not ASCII.
+fn clamp_instructions(text: &str, limit: usize) -> String {
+    if text.chars().count() <= limit {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(limit).collect();
+    format!("{head}… [truncated by the kernel at {limit} characters]")
+}
+
 /// Identity of the caller requesting a tool / engine execution, threaded into
 /// the two execution chokepoints (PATH 1 = [`McpClientManager::resolve_tool_call_target`],
 /// PATH 2 = [`McpClientManager::execute_tool_internal`]) so the per-agent
@@ -201,27 +226,140 @@ impl McpClientManager {
         *self.kernel_event_tx.lock().await = Some(tx);
     }
 
-    /// Return a clone of the agent metadata with `response_language` injected
-    /// into `metadata` when the global toggle is on, otherwise return the
-    /// agent unchanged. Called by every think/think_with_tools dispatch path
-    /// before `serde_json::to_value(&agent)` so the Python `build_system_prompt`
-    /// reads it via `metadata.get("response_language")`.
+    /// Return a clone of the agent metadata carrying the keys the renderer
+    /// reads, or an untouched clone when there is nothing to add. Called by
+    /// every think/think_with_tools dispatch path before
+    /// `serde_json::to_value(&agent)`, so everything added here reaches the
+    /// Python `build_system_prompt` and nothing here is persisted.
+    ///
+    /// Two enrichers today: the operator's response language, and the
+    /// instructions the connected servers supplied at handshake.
     pub async fn enrich_agent_for_dispatch(
         &self,
         agent: &cloto_shared::AgentMetadata,
     ) -> cloto_shared::AgentMetadata {
-        if !self.inject_response_language.load(Ordering::Relaxed) {
-            return agent.clone();
-        }
-        let language = self.response_language.read().await.clone();
-        if language.is_empty() {
-            return agent.clone();
-        }
         let mut enriched = agent.clone();
+
+        if self.inject_response_language.load(Ordering::Relaxed) {
+            let language = self.response_language.read().await.clone();
+            if !language.is_empty() {
+                // `build_system_prompt` reads metadata["response_language"].
+                enriched
+                    .metadata
+                    .insert("response_language".to_string(), language);
+            }
+        }
+
+        if let Some(block) = self.compose_server_instructions(&agent.id).await {
+            // `build_system_prompt` reads metadata["mcp_server_instructions"].
+            enriched
+                .metadata
+                .insert("mcp_server_instructions".to_string(), block);
+        }
+
         enriched
-            .metadata
-            .insert("response_language".to_string(), language);
-        enriched
+    }
+
+    /// Compose the block of server-supplied instructions for `agent_id`, or
+    /// `None` when no server this agent can reach had anything to say.
+    ///
+    /// Scoped per agent: a server contributes only when the agent is allowed to
+    /// call at least one of its tools. Guidance for a server the agent cannot
+    /// reach is noise at best; at worst it describes a surface the operator
+    /// deliberately withheld. A server offering no tools therefore contributes
+    /// nothing — there is no grant that could have admitted it.
+    ///
+    /// Reasoning engines are skipped for the reason they are skipped in
+    /// `collect_tool_schemas_for_agent`: `think`/`think_with_tools` are
+    /// engine-internal, so an engine's guidance is not addressed to the agent.
+    ///
+    /// The kernel owns the composition — which servers, in which order, under
+    /// which budget — because only the kernel knows the grants. The renderer
+    /// only places the finished block.
+    async fn compose_server_instructions(&self, agent_id: &str) -> Option<String> {
+        // Snapshot under the lock and resolve grants after releasing it:
+        // `resolve_tool_access` is a DB round-trip per tool and this runs on
+        // every dispatch, so the state lock must not be held across it.
+        let candidates: Vec<(String, String, Vec<String>)> = {
+            let state = self.state.read().await;
+            let mut rows: Vec<(String, String, Vec<String>)> = state
+                .servers
+                .iter()
+                .filter(|(_, handle)| {
+                    handle.status == ServerStatus::Connected && !handle.is_reasoning_engine()
+                })
+                .filter_map(|(server_id, handle)| {
+                    handle.instructions.as_ref().map(|text| {
+                        (
+                            server_id.clone(),
+                            text.clone(),
+                            handle.tools.iter().map(|t| t.name.clone()).collect(),
+                        )
+                    })
+                })
+                .collect();
+            // `servers` is a HashMap, so without this the same set of servers
+            // renders in a different order on each dispatch — which defeats
+            // prompt caching and makes two dispatches impossible to diff.
+            rows.sort_by(|a, b| a.0.cmp(&b.0));
+            rows
+        };
+        if candidates.is_empty() {
+            return None;
+        }
+
+        let mut sections: Vec<String> = Vec::new();
+        let mut used = 0usize;
+        let mut omitted = 0usize;
+        for (server_id, text, tool_names) in candidates {
+            let mut reachable = false;
+            for tool_name in &tool_names {
+                if let Ok(crate::db::mcp::PermissionLevel::Allow) =
+                    crate::db::resolve_tool_access(&self.pool, agent_id, &server_id, tool_name)
+                        .await
+                {
+                    reachable = true;
+                    break;
+                }
+            }
+            if !reachable {
+                continue;
+            }
+
+            let body = clamp_instructions(&text, INSTRUCTIONS_PER_SERVER_CHARS);
+            let cost = body.chars().count();
+            if used + cost > INSTRUCTIONS_TOTAL_CHARS {
+                omitted += 1;
+                continue;
+            }
+            used += cost;
+            sections.push(format!("## {server_id}\n\n{body}"));
+        }
+
+        if sections.is_empty() {
+            return None;
+        }
+
+        let mut block = String::from(
+            "# MCP Server Instructions\n\n\
+             The following connected MCP servers supplied instructions for using \
+             their tools. Each section below was written by the server it names.\n",
+        );
+        for section in sections {
+            block.push('\n');
+            block.push_str(&section);
+            block.push('\n');
+        }
+        if omitted > 0 {
+            use std::fmt::Write as _;
+            let plural = if omitted == 1 { "" } else { "s" };
+            let _ = write!(
+                block,
+                "\n({omitted} further server{plural} had instructions that did not fit \
+                 the prompt budget and were left out.)\n"
+            );
+        }
+        Some(block)
     }
 
     /// Emit a kernel event via the event bus (if connected).
@@ -3896,6 +4034,205 @@ mod tests {
         assert!(
             agent.metadata.is_empty(),
             "enrichment must not reach back into the agent it was given"
+        );
+    }
+
+    // ── server instructions → agent system prompt (Goal #175) ──
+
+    /// Build a Connected handle carrying `instructions` and one tool, the shape
+    /// `compose_server_instructions` reads. `client: None` is fine: nothing on
+    /// this path speaks to the server, it only reads what the handshake left.
+    fn handle_with_instructions(
+        id: &str,
+        tool: &str,
+        instructions: Option<&str>,
+    ) -> McpServerHandle {
+        McpServerHandle {
+            id: id.to_string(),
+            config: McpServerConfig {
+                id: id.to_string(),
+                command: "noop".to_string(),
+                ..Default::default()
+            },
+            client: None,
+            tools: vec![crate::managers::mcp_protocol::McpTool {
+                name: tool.to_string(),
+                description: None,
+                input_schema: serde_json::json!({}),
+                annotations: None,
+            }],
+            handshake: None,
+            mgp_negotiated: None,
+            status: ServerStatus::Connected,
+            audit_seq: Arc::new(AtomicU64::new(0)),
+            connected_at: Some(std::time::Instant::now()),
+            isolation_profile: None,
+            protocol_era: None,
+            instructions: instructions.map(str::to_string),
+        }
+    }
+
+    async fn register_server_row(pool: &SqlitePool, name: &str, default_policy: &str) {
+        sqlx::query(
+            "INSERT INTO mcp_servers (name, command, created_at, default_policy) \
+             VALUES (?, 'noop', 0, ?)",
+        )
+        .bind(name)
+        .bind(default_policy)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    fn bare_agent(id: &str) -> cloto_shared::AgentMetadata {
+        cloto_shared::AgentMetadata {
+            id: id.to_string(),
+            name: "Test".to_string(),
+            description: String::new(),
+            enabled: true,
+            last_seen: 0,
+            status: "offline".to_string(),
+            default_engine_id: None,
+            required_capabilities: vec![],
+            metadata: std::collections::HashMap::new(),
+            agent_type: "agent".to_string(),
+        }
+    }
+
+    /// The half of the contract that lives on this side. The renderer is in
+    /// another repository and its tests hand `metadata` in by hand, so they
+    /// stay green whether or not anything still produces the key — the same
+    /// blind spot that let `response_language` sit dead for four months. This
+    /// fails to compile if the producer is removed, and fails to pass if the
+    /// key is renamed.
+    ///
+    /// It also pins the scoping rule, which is the part with consequences: a
+    /// server's guidance reaches an agent only where a grant already lets that
+    /// agent call the server.
+    #[tokio::test]
+    async fn server_instructions_reach_only_the_agents_granted_that_server() {
+        const KEY: &str = "mcp_server_instructions";
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        // opt-out: every agent is allowed unless explicitly denied, so the
+        // granted/ungranted split below is decided by the grant rows alone.
+        register_server_row(&pool, "srv.talkative", "opt-out").await;
+        register_server_row(&pool, "srv.silent", "opt-out").await;
+
+        let manager = McpClientManager::new(pool.clone(), false, 120, 30);
+        manager
+            .configure_response_language(false, String::new())
+            .await;
+        {
+            let mut state = manager.state.write().await;
+            state.servers.insert(
+                "srv.talkative".to_string(),
+                handle_with_instructions(
+                    "srv.talkative",
+                    "remember",
+                    Some("store before you recall"),
+                ),
+            );
+            // A connected server that said nothing must not invent a section.
+            state.servers.insert(
+                "srv.silent".to_string(),
+                handle_with_instructions("srv.silent", "ping", None),
+            );
+        }
+
+        // Granted (opt-out default, no deny): the guidance arrives, attributed.
+        let granted = manager
+            .enrich_agent_for_dispatch(&bare_agent("agent.granted"))
+            .await;
+        let block = granted
+            .metadata
+            .get(KEY)
+            .expect("build_system_prompt reads metadata[\"mcp_server_instructions\"]");
+        assert!(
+            block.contains("store before you recall"),
+            "the server's own words must survive the composition, got: {block}"
+        );
+        assert!(
+            block.contains("## srv.talkative"),
+            "each section must name the server that wrote it, got: {block}"
+        );
+        assert!(
+            !block.contains("srv.silent"),
+            "a server with no instructions must not get a section, got: {block}"
+        );
+
+        // Denied that server: the guidance describes a surface this agent was
+        // deliberately not given, so it must not appear.
+        sqlx::query(
+            "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_at) \
+             VALUES ('server_grant', 'agent.denied', 'srv.talkative', NULL, 'deny', 't0')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(
+            !manager
+                .enrich_agent_for_dispatch(&bare_agent("agent.denied"))
+                .await
+                .metadata
+                .contains_key(KEY),
+            "an agent denied the server must not be told how to use it"
+        );
+
+        // The enrichment is for this dispatch only.
+        let agent = bare_agent("agent.granted");
+        let _ = manager.enrich_agent_for_dispatch(&agent).await;
+        assert!(
+            agent.metadata.is_empty(),
+            "enrichment must not reach back into the agent it was given"
+        );
+    }
+
+    /// A server that ignores the size guidance cannot spend the prompt budget
+    /// it likes: the text is clipped, and the clip says so rather than ending
+    /// mid-sentence as if the server had stopped there.
+    #[tokio::test]
+    async fn oversized_server_instructions_are_clamped_and_say_so() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        register_server_row(&pool, "srv.verbose", "opt-out").await;
+
+        let manager = McpClientManager::new(pool, false, 120, 30);
+        manager
+            .configure_response_language(false, String::new())
+            .await;
+        // Multi-byte on purpose: the clamp counts characters, and a byte-wise
+        // cut through this text would not be valid UTF-8.
+        let flood: String = "あ".repeat(INSTRUCTIONS_PER_SERVER_CHARS + 500);
+        {
+            let mut state = manager.state.write().await;
+            state.servers.insert(
+                "srv.verbose".to_string(),
+                handle_with_instructions("srv.verbose", "shout", Some(&flood)),
+            );
+        }
+
+        let block = manager
+            .enrich_agent_for_dispatch(&bare_agent("agent.granted"))
+            .await
+            .metadata
+            .remove("mcp_server_instructions")
+            .expect("a granted server's instructions must be composed");
+        assert!(
+            block.matches('あ').count() == INSTRUCTIONS_PER_SERVER_CHARS,
+            "exactly the per-server allowance survives, got {}",
+            block.matches('あ').count()
+        );
+        assert!(
+            block.contains("truncated by the kernel"),
+            "a clipped instruction must say it was clipped, got tail: {}",
+            &block[block.len().saturating_sub(120)..]
         );
     }
 
