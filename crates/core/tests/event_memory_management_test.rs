@@ -194,7 +194,7 @@ async fn test_cleanup_task_integration() {
     // Spawn cleanup task
     processor
         .clone()
-        .spawn_cleanup_task(std::sync::Arc::new(tokio::sync::Notify::new()));
+        .spawn_cleanup_task(cloto_core::shutdown::ShutdownSignal::new());
 
     // Add some old events
     {

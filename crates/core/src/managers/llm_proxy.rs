@@ -68,10 +68,10 @@ use axum::{
 };
 use serde_json::Value;
 use sqlx::SqlitePool;
-use tokio::sync::Notify;
 use tracing::{debug, error, info, warn};
 
 use crate::db;
+use crate::shutdown::ShutdownSignal;
 
 /// OpenAI-compatible chat completions endpoint path.
 const LLM_PROXY_ENDPOINT: &str = "/v1/chat/completions";
@@ -116,7 +116,7 @@ pub fn spawn_llm_proxy(
     token: String,
     require_token: bool,
     timeout_secs: u64,
-    shutdown: Arc<Notify>,
+    shutdown: ShutdownSignal,
 ) -> tokio::sync::oneshot::Receiver<Result<(), String>> {
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
 
@@ -160,7 +160,7 @@ pub fn spawn_llm_proxy(
 
         axum::serve(listener, app)
             .with_graceful_shutdown(async move {
-                shutdown.notified().await;
+                shutdown.raised().await;
                 info!("LLM Proxy shutting down");
             })
             .await
@@ -600,13 +600,13 @@ mod tests {
     }
 
     /// Start a proxy on a free port and wait for the bind to succeed.
-    async fn spawn_test_proxy(token: &str, require_token: bool) -> (u16, Arc<Notify>) {
+    async fn spawn_test_proxy(token: &str, require_token: bool) -> (u16, ShutdownSignal) {
         let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
         crate::db::init_db(&pool, "sqlite::memory:", None)
             .await
             .unwrap();
         let port = free_port();
-        let shutdown = Arc::new(Notify::new());
+        let shutdown = ShutdownSignal::new();
         let ready = spawn_llm_proxy(
             pool,
             port,
@@ -665,7 +665,7 @@ mod tests {
         let resp = post_empty(port, Some((PROXY_TOKEN_HEADER, TOKEN))).await;
         assert_eq!(resp.status().as_u16(), 400);
 
-        shutdown.notify_waiters();
+        shutdown.raise();
     }
 
     /// With enforcement off (the rollout default), the same unauthenticated
@@ -678,6 +678,6 @@ mod tests {
         let resp = post_empty(port, None).await;
         assert_eq!(resp.status().as_u16(), 400);
 
-        shutdown.notify_waiters();
+        shutdown.raise();
     }
 }

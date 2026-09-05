@@ -12,10 +12,10 @@ use tracing::{debug, error, info, warn};
 
 /// Spawn a background task that periodically checks for dead MCP servers
 /// and auto-restarts them based on their restart policy (§11.6).
-/// Follows the `tokio::select!` + `Arc<Notify>` shutdown pattern from events.rs.
+/// Follows the `tokio::select!` + `ShutdownSignal` shutdown pattern from events.rs.
 pub(super) fn spawn_health_monitor(
     manager: Arc<McpClientManager>,
-    shutdown: Arc<tokio::sync::Notify>,
+    shutdown: crate::shutdown::ShutdownSignal,
     interval_secs: u64,
     setup_in_progress: Arc<AtomicBool>,
     setup_done: Arc<AtomicBool>,
@@ -24,7 +24,7 @@ pub(super) fn spawn_health_monitor(
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(interval_secs));
         loop {
             tokio::select! {
-                () = shutdown.notified() => {
+                () = shutdown.raised() => {
                     info!("MCP health monitor shutting down");
                     break;
                 }
@@ -501,7 +501,7 @@ mod tests {
             Some(on_failure(5, 1)),
         )
         .await;
-        let shutdown = Arc::new(tokio::sync::Notify::new());
+        let shutdown = crate::shutdown::ShutdownSignal::new();
         let setup_in_progress = Arc::new(AtomicBool::new(false));
         let setup_done = Arc::new(AtomicBool::new(false));
 
@@ -537,13 +537,13 @@ mod tests {
             "once setup is done the next tick does sweep for dead servers"
         );
 
-        shutdown.notify_waiters();
+        shutdown.raise();
     }
 
     #[tokio::test]
-    async fn the_health_monitor_task_ends_when_shutdown_is_notified() {
+    async fn the_health_monitor_task_ends_when_shutdown_is_raised() {
         let manager = manager().await;
-        let shutdown = Arc::new(tokio::sync::Notify::new());
+        let shutdown = crate::shutdown::ShutdownSignal::new();
 
         spawn_health_monitor(
             manager.clone(),
@@ -559,12 +559,12 @@ mod tests {
             "the monitor task should be holding the manager"
         );
 
-        // Re-signalled every poll on purpose: `notify_waiters` is lossy — it
-        // wakes only tasks already parked on `notified()`, and the monitor is
-        // briefly elsewhere (its first `interval.tick()` fires immediately).
+        // Raised once, on purpose: the monitor is briefly elsewhere (its first
+        // `interval.tick()` fires immediately), and a latched signal is still
+        // there when it comes back round to check.
+        shutdown.raise();
         assert!(
             wait_until(|| {
-                shutdown.notify_waiters();
                 let stopped = Arc::strong_count(&manager) == 1;
                 async move { stopped }
             })

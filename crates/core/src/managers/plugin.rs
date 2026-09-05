@@ -15,7 +15,7 @@ pub struct PluginManager {
     event_concurrency_limit: usize,
     pub event_tx: Option<tokio::sync::mpsc::Sender<crate::EnvelopedEvent>>,
     pub plugin_semaphore: Arc<tokio::sync::Semaphore>,
-    pub shutdown: Arc<tokio::sync::Notify>,
+    pub shutdown: crate::shutdown::ShutdownSignal,
 }
 
 impl PluginManager {
@@ -34,7 +34,7 @@ impl PluginManager {
             event_concurrency_limit,
             event_tx: None,
             plugin_semaphore: Arc::new(tokio::sync::Semaphore::new(event_concurrency_limit)),
-            shutdown: Arc::new(tokio::sync::Notify::new()),
+            shutdown: crate::shutdown::ShutdownSignal::new(),
         })
     }
 
