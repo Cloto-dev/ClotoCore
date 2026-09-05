@@ -861,6 +861,37 @@ mod tests {
     /// With enforcement off, a call with no token is served *and* observed —
     /// that observation is what later decides whether requiring the token is
     /// safe here, so losing it would be silent.
+    /// A worklist that never shrinks stops being one. The count is a different
+    /// claim — what this kernel served — and updating a connector does not
+    /// unserve those requests, so it must survive.
+    #[test]
+    fn updating_a_connector_takes_it_off_the_list_without_erasing_the_count() {
+        const PROVIDER: &str = "engine-that-was-updated";
+        record_untrusted_caller();
+        record_untrusted_provider(PROVIDER);
+        let before = untrusted_callers().expect("a recorded caller must be visible");
+        assert!(
+            before.connectors.iter().any(|id| id == PROVIDER),
+            "precondition: the connector must be listed before it is forgotten"
+        );
+
+        forget_untrusted_provider(PROVIDER);
+
+        let after = untrusted_callers().expect("forgetting a name must not drop the record");
+        assert!(
+            !after.connectors.iter().any(|id| id == PROVIDER),
+            "an updated connector must leave the list: {:?}",
+            after.connectors
+        );
+        // Not equality: the counter is process-wide and other tests in this
+        // binary add to it. What must hold is that forgetting a name never
+        // takes the count down with it.
+        assert!(
+            after.served >= before.served,
+            "the count of served requests must not shrink when a name is dropped"
+        );
+    }
+
     /// The count says something is wrong; the name says what to update. Without
     /// it the operator has to guess which connector to reinstall, and the
     /// marketplace cannot tell them either: it compares version strings, and a

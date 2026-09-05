@@ -7,7 +7,7 @@
 An AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-777%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-778%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/sponsor-Cloto--dev-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Cloto-dev)
 
