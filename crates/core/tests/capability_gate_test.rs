@@ -344,3 +344,98 @@ async fn kernel_rbac_blocks_only_on_explicit_deny() {
         );
     }
 }
+
+// ────────── presentation vs execution, outside YOLO (repro) ──────────
+
+/// A kernel-native tool the agent was never offered is still reachable, and the
+/// two halves of `mgp.discovery.*` do not agree on whether that matters.
+///
+/// Outside YOLO the kernel offers an agent exactly two kernel-native tools —
+/// the `mgp.tools.*` discovery pair — and the approval gate deliberately does
+/// not ask about kernel-native names (they pass kernel RBAC instead). Kernel
+/// RBAC is Deny-only, so an agent holding no grants at all is not stopped by it
+/// either. What is left standing between a named-but-unoffered kernel tool and
+/// its handler is whatever that handler checks for itself, and the handlers do
+/// not check the same things: `mgp.discovery.register` refuses outside YOLO,
+/// while `mgp.discovery.deregister` — which disconnects a live MCP server by
+/// name — runs its own logic.
+///
+/// This test pins that split as it stands today rather than asserting it is
+/// correct. Closing it changes what `deregister` returns here.
+#[tokio::test]
+async fn outside_yolo_an_unoffered_kernel_tool_still_reaches_its_handler() {
+    use cloto_core::managers::PluginRegistry;
+    use std::sync::Arc;
+
+    let pool = fresh_pool().await;
+    add_server(&pool, "kernel", "opt-in").await;
+    let mgr = Arc::new(McpClientManager::new(pool, false, 120, 30)); // yolo OFF
+    let registry = PluginRegistry::new(5, 10, 50, mgr.clone());
+
+    const AGENT: &str = "agent.zero_grants";
+
+    // 1. Presentation: outside YOLO the agent is offered the discovery pair and
+    //    nothing else from the kernel's own set.
+    let offered: Vec<String> = mgr
+        .collect_tool_schemas_for_agent(AGENT)
+        .await
+        .iter()
+        .filter_map(|s| s.get("function")?.get("name")?.as_str().map(str::to_string))
+        .collect();
+    assert_eq!(
+        offered,
+        vec![
+            "mgp.tools.discover".to_string(),
+            "mgp.tools.request".to_string()
+        ],
+        "outside YOLO only the discovery pair is offered"
+    );
+
+    // 2. Execution, through the same call the agentic loop makes. The agent
+    //    holds no grants and no plugin ids.
+    let register = registry
+        .execute_tool_for_agent(
+            &[],
+            AGENT,
+            "mgp.discovery.register",
+            serde_json::json!({ "id": "planted", "command": "noop", "transport": "stdio" }),
+        )
+        .await;
+    let register_err = register
+        .expect_err("register refuses outside YOLO")
+        .to_string();
+    assert!(
+        register_err.contains("privileged") || register_err.contains("YOLO"),
+        "register is stopped for being outside YOLO, got: {register_err}"
+    );
+
+    // Its sibling is not stopped at all: the error is the handler's own lookup
+    // failing on a server id that does not exist, which is only reachable past
+    // every gate. With a live server of that name it would have disconnected it.
+    let deregister = registry
+        .execute_tool_for_agent(
+            &[],
+            AGENT,
+            "mgp.discovery.deregister",
+            serde_json::json!({ "id": "no_such_server" }),
+        )
+        .await;
+    let deregister_err = deregister
+        .expect_err("no server by that name exists")
+        .to_string();
+    assert!(
+        deregister_err.contains("not found"),
+        "deregister reached its own body, so nothing gated it; got: {deregister_err}"
+    );
+    for stopped in [
+        "privileged",
+        "YOLO",
+        "Access denied",
+        "cannot use kernel tool",
+    ] {
+        assert!(
+            !deregister_err.contains(stopped),
+            "deregister was expected to reach its handler, but was stopped by {stopped}: {deregister_err}"
+        );
+    }
+}
