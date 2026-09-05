@@ -717,19 +717,57 @@ fn untrusted_callers_check(
             detail: None,
         };
     };
+    // Naming the connectors is what turns this from a fact into something the
+    // operator can act on: the fix is to update those connectors, and a report
+    // that does not say which one leaves them to guess or to update all of
+    // them. The count and the names are reported separately because they can
+    // disagree honestly — a request that failed before the proxy resolved a
+    // provider is counted and cannot be named.
+    let named: Vec<&str> = seen.connectors.iter().map(String::as_str).collect();
+    let subject = match named.as_slice() {
+        // Two different things reach this arm: a call the proxy could not
+        // attribute, and a connector that has since been updated (the install
+        // path clears it). Naming a stale connector here would be a guess in
+        // the second case, so the message reports the count and says where it
+        // ends instead.
+        [] => "no connector is currently listed as needing an update, and the count \
+               clears when this kernel restarts"
+            .to_string(),
+        [only] => format!("connector '{only}' predates the one the marketplace now ships"),
+        many => format!(
+            "connectors {} predate the ones the marketplace now ships",
+            many.iter()
+                .map(|id| format!("'{id}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
     HealthCheck {
         name,
         status: HealthStatus::Degraded,
-        message: format!(
-            "{} LLM proxy request(s) were served without this kernel's token — an \
-             installed connector predates the one the marketplace now ships, and \
-             would stop working if the token were required",
-            seen.served
-        ),
+        message: if named.is_empty() {
+            format!(
+                "{} LLM proxy request(s) were served without this kernel's token since it \
+                 started — {subject}",
+                seen.served
+            )
+        } else {
+            format!(
+                "{} LLM proxy request(s) were served without this kernel's token — {subject}, \
+                 and would stop working if the token were required. Update from the \
+                 marketplace to keep it working.",
+                seen.served
+            )
+        },
         repairable: false,
         detail: Some(serde_json::json!({
             "served_without_token": seen.served,
             "last_seen": chrono::DateTime::<chrono::Utc>::from(seen.last_seen).to_rfc3339(),
+            // The action this check implies, in the form the dashboard needs to
+            // offer it: these ids are marketplace server ids, and updating one
+            // is POST /api/marketplace/install with update=true. Empty when the
+            // proxy saw the calls but never got far enough to name a caller.
+            "stale_connectors": named,
         })),
     }
 }
@@ -1118,6 +1156,7 @@ mod tests {
         let observed = crate::managers::llm_proxy::UntrustedCallers {
             served: 3,
             last_seen: std::time::SystemTime::UNIX_EPOCH,
+            connectors: std::collections::BTreeSet::new(),
         };
         let check = untrusted_callers_check(Some(observed));
         assert_eq!(check.status, HealthStatus::Degraded);
@@ -1128,6 +1167,67 @@ mod tests {
         );
         let detail = check.detail.expect("a degraded result carries detail");
         assert_eq!(detail["served_without_token"], 3);
+    }
+
+    fn observed_from(served: u64, ids: &[&str]) -> crate::managers::llm_proxy::UntrustedCallers {
+        crate::managers::llm_proxy::UntrustedCallers {
+            served,
+            last_seen: std::time::SystemTime::UNIX_EPOCH,
+            connectors: ids.iter().map(|id| (*id).to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn untrusted_callers_check_names_the_connector_to_update() {
+        // The operator's next move is to update a specific connector. A report
+        // that only counts requests makes them guess which, and the marketplace
+        // will not tell them either (it compares version strings, and a content
+        // change under the same version leaves the entry looking current).
+        let check = untrusted_callers_check(Some(observed_from(2, &["groq"])));
+        assert!(
+            check.message.contains("groq"),
+            "the connector belongs in the message: {}",
+            check.message
+        );
+        let detail = check.detail.expect("a degraded result carries detail");
+        assert_eq!(detail["stale_connectors"], serde_json::json!(["groq"]));
+    }
+
+    #[test]
+    fn untrusted_callers_check_names_every_connector_it_saw() {
+        let check = untrusted_callers_check(Some(observed_from(5, &["claude", "groq"])));
+        for id in ["claude", "groq"] {
+            assert!(
+                check.message.contains(id),
+                "{id} is missing from: {}",
+                check.message
+            );
+        }
+        let detail = check.detail.expect("a degraded result carries detail");
+        assert_eq!(
+            detail["stale_connectors"],
+            serde_json::json!(["claude", "groq"]),
+            "the ids the dashboard offers to update must all be there"
+        );
+    }
+
+    #[test]
+    fn untrusted_callers_check_still_reports_when_it_named_nobody() {
+        // A request that failed before the provider resolved is counted and
+        // cannot be named. Degrading on the count alone is the honest outcome:
+        // silence here would hide calls that the token requirement will break.
+        let check = untrusted_callers_check(Some(observed_from(4, &[])));
+        assert_eq!(check.status, HealthStatus::Degraded);
+        let detail = check.detail.expect("a degraded result carries detail");
+        assert_eq!(detail["served_without_token"], 4);
+        assert_eq!(detail["stale_connectors"], serde_json::json!([]));
+        // The same arm is reached after every named connector was updated, so
+        // it must not assert that something installed is still out of date.
+        assert!(
+            !check.message.contains("predate"),
+            "an unattributed count must not accuse an installed connector: {}",
+            check.message
+        );
     }
 
     #[test]
