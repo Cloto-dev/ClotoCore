@@ -232,6 +232,27 @@ impl EventManager {
             .map(|r| (cb.server_id.clone(), r.clone()))
     }
 
+    /// The server a callback belongs to, without resolving it.
+    ///
+    /// `resolve_callback` also marks the callback answered, so it cannot be used
+    /// to ask who owns one before deciding whether the caller may answer it.
+    pub fn callback_server(&self, callback_id: &str) -> Option<String> {
+        let cbs = self.callbacks.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
+        cbs.get(callback_id).map(|cb| cb.server_id.clone())
+    }
+
+    /// The server a subscription was opened against.
+    pub fn subscription_server(&self, subscription_id: &str) -> Option<String> {
+        let subs = self.subscriptions.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
+        subs.get(subscription_id).map(|s| s.server_id.clone())
+    }
+
     /// Check if a callback type is llm_completion (§13.4).
     pub fn is_llm_completion(&self, callback_id: &str) -> bool {
         let cbs = self.callbacks.lock().unwrap_or_else(|e| {
