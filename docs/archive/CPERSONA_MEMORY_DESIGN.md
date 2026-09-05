@@ -2,6 +2,7 @@
 
 > **Status:** Implemented (v2.4.6 current — adaptive quality gate, extended health checks, dynamic time decay, recall boost, LLM dependency removed)
 > **Related:** `MCP_PLUGIN_ARCHITECTURE.md`, `ARCHITECTURE.md` Section 3
+> **Roadmap:** superseded. The version roadmap — including what became of the 3.0 graph plan below — is maintained in the memory server's own repository: <https://cloto-dev.github.io/CPersona/roadmap/>
 > **MCP Server ID:** `memory.cpersona`
 > **Companion Server:** `tool.embedding` (pluggable vector embedding)
 
