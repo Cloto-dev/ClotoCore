@@ -89,6 +89,54 @@ const TOKEN_WARN_INTERVAL: Duration = Duration::from_secs(60);
 /// When the last untrusted-caller warning was emitted (process-wide).
 static LAST_TOKEN_WARN: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
 
+/// A request the proxy served without a valid token, because enforcement was off.
+#[derive(Debug, Clone, Copy)]
+pub struct UntrustedCallers {
+    /// How many such requests this kernel has served since it started.
+    pub served: u64,
+    /// When the most recent one arrived.
+    pub last_seen: std::time::SystemTime,
+}
+
+/// Requests served without a valid proxy token, or `None` when there were none.
+///
+/// The proxy already decides this on every request; keeping the answer turns a
+/// rate-limited log line into state that can be read back. Making the token
+/// mandatory can then be decided on what this kernel has actually seen, rather
+/// than on elapsed time — a connector that never sends the header does not
+/// start sending it because a deadline passed.
+static UNTRUSTED_CALLERS: std::sync::Mutex<Option<UntrustedCallers>> = std::sync::Mutex::new(None);
+
+/// What this kernel has served without a valid token since it started.
+///
+/// `None` means every proxy request carried a valid token — or that none
+/// arrived at all. The two are deliberately not distinguished: both say
+/// "nothing seen here that requiring the token would break".
+#[must_use]
+pub fn untrusted_callers() -> Option<UntrustedCallers> {
+    UNTRUSTED_CALLERS.lock().ok().and_then(|seen| *seen)
+}
+
+/// Record one request served without a valid token.
+///
+/// Unlike the warning, this is not rate-limited: the count is the point.
+fn record_untrusted_caller() {
+    let Ok(mut seen) = UNTRUSTED_CALLERS.lock() else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    *seen = Some(match *seen {
+        Some(prev) => UntrustedCallers {
+            served: prev.served.saturating_add(1),
+            last_seen: now,
+        },
+        None => UntrustedCallers {
+            served: 1,
+            last_seen: now,
+        },
+    });
+}
+
 struct ProxyState {
     pool: SqlitePool,
     http_client: reqwest::Client,
@@ -299,6 +347,7 @@ async fn proxy_handler(
                 }),
             );
         }
+        record_untrusted_caller();
         warn_untrusted_caller(presented.is_some());
     }
 
@@ -677,6 +726,41 @@ mod tests {
 
         let resp = post_empty(port, None).await;
         assert_eq!(resp.status().as_u16(), 400);
+
+        shutdown.raise();
+    }
+
+    /// The counter is process-wide and other tests in this binary also serve
+    /// unauthenticated calls, so assert the change this call causes rather than
+    /// an absolute value — `served` only ever grows.
+    #[test]
+    fn recording_an_untrusted_caller_increases_the_count() {
+        let before = untrusted_callers().map_or(0, |seen| seen.served);
+        record_untrusted_caller();
+        let after = untrusted_callers().expect("a recorded caller must be visible");
+        assert!(
+            after.served > before,
+            "expected the count to grow past {before}, got {}",
+            after.served
+        );
+    }
+
+    /// With enforcement off, a call with no token is served *and* observed —
+    /// that observation is what later decides whether requiring the token is
+    /// safe here, so losing it would be silent.
+    #[tokio::test]
+    async fn serving_without_a_token_is_observed() {
+        let (port, shutdown) = spawn_test_proxy("proxy-token-under-test", false).await;
+
+        let before = untrusted_callers().map_or(0, |seen| seen.served);
+        let resp = post_empty(port, None).await;
+        assert_eq!(resp.status().as_u16(), 400);
+        let after = untrusted_callers().expect("the served call must be visible");
+        assert!(
+            after.served > before,
+            "expected the count to grow past {before}, got {}",
+            after.served
+        );
 
         shutdown.raise();
     }

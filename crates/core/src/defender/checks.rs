@@ -69,7 +69,7 @@ pub fn registry() -> &'static [CheckDef] {
     &REGISTRY
 }
 
-static REGISTRY: [CheckDef; 16] = [
+static REGISTRY: [CheckDef; 17] = [
     // ── Absorbed from db::health (names preserved — API compatibility) ──
     CheckDef {
         name: "db_connection",
@@ -167,6 +167,14 @@ static REGISTRY: [CheckDef; 16] = [
         fix_capable: false,
         needs_pool: false,
         run: c_port_availability,
+    },
+    CheckDef {
+        name: "llm_proxy_untrusted_callers",
+        scope: CheckScope::Runtime,
+        base_severity: Severity::Warning,
+        fix_capable: false,
+        needs_pool: false,
+        run: c_llm_proxy_untrusted_callers,
     },
     CheckDef {
         name: "update_write_probe",
@@ -677,6 +685,55 @@ fn c_receipt_staleness(ctx: &CheckCtx) -> CheckFuture<'_> {
 
 // ── Port availability ──
 
+/// Report whether this kernel has served an LLM proxy request that carried no
+/// valid token. Such a request comes from a connector older than the one the
+/// marketplace now ships, and is exactly what would break if the token became
+/// mandatory — so the answer is read from what arrived, not from a deadline.
+fn c_llm_proxy_untrusted_callers(ctx: &CheckCtx) -> CheckFuture<'_> {
+    Box::pin(async move {
+        if !ctx.in_kernel {
+            // The count lives in the serving process. A scan from outside it
+            // would report "none seen" for the wrong reason, so skip instead.
+            return None;
+        }
+        Some(untrusted_callers_check(
+            crate::managers::llm_proxy::untrusted_callers(),
+        ))
+    })
+}
+
+/// Split from the check above so both outcomes are testable without going
+/// through the process-wide counter.
+fn untrusted_callers_check(
+    observed: Option<crate::managers::llm_proxy::UntrustedCallers>,
+) -> HealthCheck {
+    let name = "llm_proxy_untrusted_callers".to_string();
+    let Some(seen) = observed else {
+        return HealthCheck {
+            name,
+            status: HealthStatus::Healthy,
+            message: "Every LLM proxy request carried this kernel's token".to_string(),
+            repairable: false,
+            detail: None,
+        };
+    };
+    HealthCheck {
+        name,
+        status: HealthStatus::Degraded,
+        message: format!(
+            "{} LLM proxy request(s) were served without this kernel's token — an \
+             installed connector predates the one the marketplace now ships, and \
+             would stop working if the token were required",
+            seen.served
+        ),
+        repairable: false,
+        detail: Some(serde_json::json!({
+            "served_without_token": seen.served,
+            "last_seen": chrono::DateTime::<chrono::Utc>::from(seen.last_seen).to_rfc3339(),
+        })),
+    }
+}
+
 fn c_port_availability(ctx: &CheckCtx) -> CheckFuture<'_> {
     Box::pin(async move {
         let name = "port_availability".to_string();
@@ -1047,5 +1104,38 @@ mod tests {
         // No env override in the test environment ⇒ default path.
         let p = resolve_db_path(dir);
         assert!(p.ends_with("cloto_memories.db"));
+    }
+
+    #[test]
+    fn untrusted_callers_check_is_healthy_when_nothing_was_seen() {
+        let check = untrusted_callers_check(None);
+        assert_eq!(check.status, HealthStatus::Healthy);
+        assert!(check.detail.is_none());
+    }
+
+    #[test]
+    fn untrusted_callers_check_degrades_and_reports_the_count() {
+        let observed = crate::managers::llm_proxy::UntrustedCallers {
+            served: 3,
+            last_seen: std::time::SystemTime::UNIX_EPOCH,
+        };
+        let check = untrusted_callers_check(Some(observed));
+        assert_eq!(check.status, HealthStatus::Degraded);
+        assert!(
+            check.message.contains('3'),
+            "the count belongs in the message: {}",
+            check.message
+        );
+        let detail = check.detail.expect("a degraded result carries detail");
+        assert_eq!(detail["served_without_token"], 3);
+    }
+
+    #[test]
+    fn untrusted_callers_check_is_registered_once() {
+        let hits = registry()
+            .iter()
+            .filter(|d| d.name == "llm_proxy_untrusted_callers")
+            .count();
+        assert_eq!(hits, 1, "the check must be in the registry to ever run");
     }
 }
