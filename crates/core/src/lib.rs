@@ -1173,11 +1173,27 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 
     // 6e. Internal LLM Proxy (MGP §13.4 — centralized API key management)
     //     Check result in background to avoid blocking HTTP server startup.
+    // Decided once, at startup. Re-deciding mid-run would make a call that
+    // worked a second ago return 401 at a moment nobody can point at; the
+    // operator's explicit setting always wins over the decision either way.
+    let llm_proxy_require_token = if let Some(explicit) = config.llm_proxy_require_token {
+        explicit
+    } else {
+        let evidence = managers::llm_proxy::load_token_evidence(&pool).await;
+        let decided = managers::llm_proxy::enforcement_default(evidence);
+        if decided {
+            info!(
+                "LLM proxy: requiring the token by default — every proxy request this \
+                 installation has served carried it"
+            );
+        }
+        decided
+    };
     let llm_proxy_rx = managers::llm_proxy::spawn_llm_proxy(
         pool.clone(),
         config.llm_proxy_port,
         config.llm_proxy_token.clone(),
-        config.llm_proxy_require_token,
+        llm_proxy_require_token,
         config.llm_proxy_timeout_secs,
         app_state.shutdown.clone(),
     );
