@@ -871,7 +871,7 @@ jobs:
 
       - name: Create GitHub Release (binaries first, no latest.json)
         if: github.event.inputs.draft_only != 'true'
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "v${{ steps.version.outputs.version }}"
@@ -889,7 +889,7 @@ jobs:
 
       - name: Append latest.json (auto-update indicator, after all binaries)
         if: github.event.inputs.draft_only != 'true' && hashFiles('release-indicator/latest.json') != ''
-        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v2
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           files: release-indicator/latest.json
