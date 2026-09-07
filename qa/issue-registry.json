@@ -4550,7 +4550,8 @@
       "pattern": "Registry declares zero issues",
       "expected": "present",
       "status": "fixed",
-      "notes": "Distinct from the legitimate empty selection, which still passes: `--filter open` against a registry holding nothing open is a real answer about a registry that WAS read, and it exits 0 as before -- measured both ways. That branch now names which question got the empty answer ('No issues matched this run (registry holds N)') rather than saying the registry is empty when it is not. FIXED: the row-count trailer emitted by the extractor is checked for zero after the transport reconciliation and before the bucket accounting, so an empty registry fails rather than reaching the early return. bug-511 pins the message: deleting the guard makes this row STALE and the Issue Registry job red."
+      "notes": "Distinct from the legitimate empty selection, which still passes: `--filter open` against a registry holding nothing open is a real answer about a registry that WAS read, and it exits 0 as before -- measured both ways. That branch now names which question got the empty answer ('No issues matched this run (registry holds N)') rather than saying the registry is empty when it is not. FIXED: the row-count trailer emitted by the extractor is checked for zero after the transport reconciliation and before the bucket accounting, so an empty registry fails rather than reaching the early return. bug-511 pins the message: deleting the guard makes this row STALE and the Issue Registry job red.",
+      "github_issue": 548
     }
   ]
 }
