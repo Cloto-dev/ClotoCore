@@ -85,36 +85,56 @@ if command -v cygpath &>/dev/null; then
     _REGISTRY_PY="$(cygpath -m "$REGISTRY")"
 fi
 
-# Output format: id|severity|file|pattern|expected|status|summary
-# plus a final `#count=<n>` trailer, so a truncated read cannot masquerade as
-# a short registry. `data['issues']` is indexed, not `.get`, so a registry
+# Output format: the seven fields below joined by US (0x1f), one issue per
+# line, plus a final `#count=<n>` trailer so a truncated read cannot masquerade
+# as a short registry. `data['issues']` is indexed, not `.get`, so a registry
 # missing the key raises instead of verifying nothing.
+#
+# The separator is a control character rather than `|` because `pattern` holds
+# regexes (bug-509). A `|` inside a pattern shifted every field after it, so
+# the row's `expected` became regex debris, matched neither branch of the check
+# below, and the entry was dropped with no error and no output while the report
+# stayed green — three entries, one of them HIGH, were unverified that way.
+# Fields are validated here so the separator cannot quietly start appearing in
+# the data again, and the accounting check after the loop catches any other
+# route by which a row could reach no check at all.
 if ! PYTHONUTF8=1 $PYTHON_CMD -c "
 import json, sys
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+SEP = '\x1f'
+FIELDS = ('id', 'severity', 'file', 'pattern', 'expected', 'status', 'summary')
+DEFAULTS = {'severity': '?', 'expected': 'present', 'status': 'unknown'}
+FORBIDDEN = (
+    (SEP, 'the field separator US (0x1f)'),
+    ('\n', 'a newline'),
+    ('\r', 'a carriage return'),
+)
 with open('$_REGISTRY_PY', encoding='utf-8') as f:
     data = json.load(f)
 issues = data['issues']
-for issue in issues:
-    print('|'.join([
-        issue.get('id', ''),
-        issue.get('severity', '?'),
-        issue.get('file', ''),
-        issue.get('pattern', ''),
-        issue.get('expected', 'present'),
-        issue.get('status', 'unknown'),
-        issue.get('summary', ''),
-    ]))
+for index, issue in enumerate(issues):
+    row = []
+    for key in FIELDS:
+        value = issue.get(key, DEFAULTS.get(key, ''))
+        for char, name in FORBIDDEN:
+            if char in value:
+                sys.exit(
+                    'entry {} (id {!r}): field {!r} contains {}, which would shift '
+                    'every field after it and drop the entry from verification'
+                    .format(index, issue.get('id', ''), key, name)
+                )
+        row.append(value)
+    print(SEP.join(row))
 print('#count={}'.format(len(issues)))
 " > "$EXTRACT_OUT" 2> "$EXTRACT_ERR"; then
-    echo -e "  ${RED}[ERROR]${NC} Failed to parse registry: qa/issue-registry.json"
+    echo -e "  ${RED}[ERROR]${NC} Failed to read registry: qa/issue-registry.json"
     sed 's/^/           /' "$EXTRACT_ERR"
     echo ""
     echo -e "${RED}Registry could not be read — nothing was verified.${NC}"
     exit 1
 fi
 
-while IFS='|' read -r id severity file pattern expected status summary; do
+while IFS=$'\037' read -r id severity file pattern expected status summary; do
     # Row-count trailer, not an issue
     if [[ "$id" == '#count='* ]]; then
         declared_count="${id#\#count=}"
@@ -175,6 +195,13 @@ while IFS='|' read -r id severity file pattern expected status summary; do
             echo -e "           Pattern still present in $file (${match_count} matches)"
             errors=$((errors + 1))
         fi
+    else
+        # Neither branch applies, so nothing about this entry was checked.
+        # Saying so is the point: silence here is exactly what bug-509 looked
+        # like from the outside.
+        echo -e "  ${RED}[ERROR]${NC} $id ($severity): unrecognised expected value: '$expected'"
+        echo -e "           Expected 'present' or 'absent' — an entry matching neither is verified by nothing"
+        errors=$((errors + 1))
     fi
 
 done < "$EXTRACT_OUT"
@@ -186,6 +213,16 @@ if [[ -z "$declared_count" ]]; then
     errors=$((errors + 1))
 elif [[ "$rows_read" -ne "$declared_count" ]]; then
     echo -e "  ${RED}[ERROR]${NC} Read $rows_read of $declared_count registry entries — output was truncated"
+    errors=$((errors + 1))
+fi
+
+# Every entry counted in `total` must have landed in exactly one bucket. The
+# trailer check above proves the rows arrived; this proves they were checked.
+# bug-509 satisfied the trailer check and exited 0 precisely because a dropped
+# entry is still a row — it goes missing from the buckets, not from the input.
+counted=$((verified + stale + fixed + errors))
+if [[ "$counted" -ne "$total" ]]; then
+    echo -e "  ${RED}[ERROR]${NC} $((total - counted)) of $total entries reached no check — the report above is incomplete"
     errors=$((errors + 1))
 fi
 
