@@ -1,0 +1,183 @@
+# Measures how often an intermittent test actually fails, on Windows.
+#
+# A single green run says nothing about a race. This job runs one test binary
+# many times under concurrency and reports a failure RATE, so a fix can be
+# shown as a change in that rate rather than as one run that happened to pass.
+# It is a measuring instrument, not a gate: it always exits 0.
+#
+# It was built to measure `corrupt_db_is_quarantined_and_recreated`, which
+# failed intermittently on windows-latest with "could not be moved aside for
+# recovery ... os error 32". It produced 27/400 before the fix and 0/400
+# after (runs 34091895850 and 34092472004, PR #535). It is kept because
+# rebuilding it cost three attempts, and the three things that make it work
+# are each easy to leave out:
+#
+#   1. Copies run CONCURRENTLY, not merely repeatedly. 60 sequential runs on
+#      an idle runner reproduced nothing. The window only opens under
+#      scheduler pressure.
+#   2. `set +e`. GitHub runs `run:` under `bash -e`, so without this the step
+#      dies on the first failure -- deleting the measurement in exactly the
+#      case being measured.
+#   3. A known-positive self-test. A counter that can only report zero makes
+#      a green result meaningless, and a surviving errexit turns it into one.
+#
+# Triggers only on `flake/**` branches and manual dispatch, so it never runs
+# on master or on a pull request. Point it at a different test through the
+# dispatch inputs rather than editing this file.
+name: Flake probe (Windows, repeat under concurrency)
+
+on:
+  push:
+    branches: ["flake/**"]
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Cargo package holding the test"
+        required: false
+        default: "cloto_core"
+      test:
+        description: "Integration test target (the --test name)"
+        required: false
+        default: "corrupt_db_recovery_test"
+      waves:
+        description: "How many waves of concurrent runs"
+        required: false
+        default: "50"
+      parallel:
+        description: "How many copies to run at once in each wave"
+        required: false
+        default: "8"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Repeat one test under concurrency (windows-latest)
+    runs-on: windows-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+      RUST_LOG: warn
+      PACKAGE: ${{ github.event.inputs.package || 'cloto_core' }}
+      TEST: ${{ github.event.inputs.test || 'corrupt_db_recovery_test' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
+      # Same shared-key as the CI test job so this reuses the registry cache
+      # instead of paying a cold dependency fetch.
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: ci-test-windows-latest
+          cache-targets: false
+
+      # Same two prerequisites as the CI test job: cloto_core embeds the
+      # dashboard bundle with RustEmbed and will not compile without the
+      # directory, and the install-engine tests build the Go sidecar.
+      - name: Create dashboard dist placeholder
+        shell: bash
+        run: |
+          mkdir -p dashboard/dist
+          echo '<html><body></body></html>' > dashboard/dist/index.html
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          cache: false
+
+      - name: Build the test binary
+        shell: bash
+        run: cargo test -p "$PACKAGE" --test "$TEST" --no-run
+
+      # Runs the binary itself rather than `cargo test` so the loop measures the
+      # test, not cargo's freshness check.
+      #
+      # Copies run CONCURRENTLY, which is the point rather than a speed trick.
+      # 60 sequential runs on an idle runner reproduced nothing, because the
+      # window being measured is the gap between an error reaching the caller
+      # and a worker thread closing the file behind it -- a gap that only opens
+      # under scheduler pressure. The failure was originally seen inside
+      # `cargo test --workspace`, with the whole suite competing for the cores.
+      # Concurrent copies recreate that contention and multiply the attempts.
+      - name: Repeat the test and count failures
+        shell: bash
+        env:
+          WAVES: ${{ github.event.inputs.waves || '50' }}
+          PARALLEL: ${{ github.event.inputs.parallel || '8' }}
+        run: |
+          # GitHub runs `run:` under `bash -e`, which would abort this step on the
+          # first failing iteration -- that is, it would delete the measurement in
+          # exactly the case being measured, and report nothing rather than a rate.
+          # Failures are the observation here, so errexit has to go.
+          set +e
+          set -uo pipefail
+          # Newest matching artifact is the one the build step just produced.
+          # The stem is shared with dep-info (`.d`), debug symbols (`.pdb`) and
+          # codegen-unit objects (`.rcgu.o`), so match the executable exactly:
+          # `<stem>-<hash>` with no extension, or `.exe` on Windows.
+          bin=$(ls -t "target/debug/deps/${TEST}-"* 2>/dev/null \
+                | grep -E "${TEST}-[0-9a-f]+(\.exe)?$" | head -1)
+          if [ -z "$bin" ] || [ ! -x "$bin" ]; then
+            echo "::error::could not locate the test binary for ${TEST}"
+            ls -la target/debug/deps/ | grep "$TEST" || true
+            exit 1
+          fi
+          echo "binary: $bin"
+
+          # A counter that can only ever report zero would make a green result
+          # meaningless, and it is what a surviving errexit turns this into.
+          # Prove the loop counts a known failure before trusting what it counts.
+          selftest=0
+          for i in 1 2 3; do
+            if ! out=$(sh -c 'exit 1' 2>&1); then
+              selftest=$((selftest+1))
+            fi
+          done
+          if [ "$selftest" -ne 3 ]; then
+            echo "::error::self-test failed: counter saw $selftest of 3 known failures"
+            exit 1
+          fi
+          echo "self-test OK: counter caught 3/3 known failures"
+
+          workdir=$(mktemp -d)
+          fail=0
+          total=0
+          for wave in $(seq 1 "$WAVES"); do
+            pids=""
+            for slot in $(seq 1 "$PARALLEL"); do
+              # Each copy gets its own cwd; the test makes its own tempdir, so
+              # concurrent copies never contend for the same file -- the only
+              # thing they share is the CPU, which is what widens the window.
+              ( "$bin" > "$workdir/w${wave}s${slot}.log" 2>&1 ) &
+              pids="$pids $!"
+            done
+            for pid in $pids; do
+              total=$((total+1))
+              if ! wait "$pid"; then
+                fail=$((fail+1))
+              fi
+            done
+          done
+
+          echo "=============================================="
+          echo "RESULT: $fail failure(s) in $total run(s) (${WAVES} waves x ${PARALLEL} concurrent)"
+          echo "  package=${PACKAGE} test=${TEST}"
+          echo "=============================================="
+
+          if [ "$fail" -gt 0 ]; then
+            echo "--- what the failures said ---"
+            grep -lE "os error|could not be moved|panicked" "$workdir"/*.log 2>/dev/null | head -5 | while read -r f; do
+              echo "### $f"
+              grep -iE "os error|could not be moved|panicked|^test .* FAILED" "$f" | head -6
+            done
+          fi
+          # Always exit 0: this job reports a rate, it is not a gate.
