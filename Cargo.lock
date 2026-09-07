@@ -159,7 +159,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "app"
-version = "0.6.8-beta.6"
+version = "0.6.8-beta.7"
 dependencies = [
  "cloto_core",
  "dotenvy",
@@ -982,7 +982,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "cloto_core"
-version = "0.6.8-beta.6"
+version = "0.6.8-beta.7"
 dependencies = [
  "anyhow",
  "argon2",
@@ -1037,7 +1037,7 @@ dependencies = [
 
 [[package]]
 name = "cloto_shared"
-version = "0.6.8-beta.6"
+version = "0.6.8-beta.7"
 dependencies = [
  "anyhow",
  "async-trait",

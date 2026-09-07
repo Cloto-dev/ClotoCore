@@ -7,6 +7,109 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8-beta.7] — 2026-09-07
+
+Soak release. Everything below landed after beta.6 was published and this line
+counts soak on the *published* artifact, so the changes needed a cut of their
+own before the final. Most of it tightens boundaries that were open by default,
+which is exactly the kind of change a soak exists to catch.
+
+### Added
+
+- **A failure can be carried to a bug report.** The error screen offers a
+  report composed by the kernel — version, install engine, install receipt and
+  the tail of the log — shaped like the issue template. Two levels: `safe`
+  names the fields that may leave the machine and shortens paths under the home
+  directory, `full` keeps the log and the component stack long. Neither emits a
+  credential; secrets the kernel holds are removed from the text by value, so a
+  key is caught wherever it appears rather than only where it is labelled. The
+  text is editable before it is copied, because the person pasting it is the
+  last check before it reaches a public issue. (#518)
+- **An agent is told what the servers it was granted can do.** A server's
+  `initialize` instructions are read off the wire and composed into the agent's
+  prompt, so a connector no longer has to restate its own usage in every tool
+  description. (#514, #516)
+- **Response language injection is back**, with the test that would have kept
+  it. (#515)
+
+### Security
+
+- **`/api` authenticates at the router.** Authentication became a layer with an
+  explicit public allowlist — version, health, setup status and progress,
+  marketplace progress — instead of relying on every handler to remember its
+  own check; the per-handler checks remain as defence in depth. `ANY
+  /api/plugin/{*path}`, which bypassed authentication and forwarded to a router
+  nothing populated, is gone. (#487)
+- **Avatar, VRM and chat-attachment reads require the admin key**, accepted in
+  `X-API-Key` or as `?token=` — the channel the event stream already uses.
+  `Cache-Control` becomes `private`. This also fixes a latent dashboard defect:
+  attachment images sat behind a header-only check that an `<img src>` cannot
+  satisfy. (#486)
+- **A keyless start on a non-loopback bind is refused** with an explanatory
+  error rather than served to the network; `CLOTO_ALLOW_UNAUTHENTICATED_HTTP=1`
+  opts out. A loopback bind keeps its warning-only behaviour, and a
+  non-loopback bind *with* a key now says plainly that the key is the only
+  boundary. IPv6 binds work: the socket family follows the configured address.
+  (#485)
+- **The LLM proxy requires its per-boot token where the installation has earned
+  it.** The token is minted per boot and presented by the servers the kernel
+  spawns; enforcement turns on from positive evidence that this installation's
+  connectors present it, never from the mere absence of bad news — an
+  installation that has served nothing has also never served an untrusted call.
+  The health scan names any connector that called without one. (#489, #510,
+  #511, #512)
+- **Kernel tools that reach a server the caller does not own are authorized**
+  rather than assumed safe, and a tool nothing classified is treated as needing
+  approval instead of being waved through. What YOLO mode allows is recorded.
+  (#505, #507, #509)
+
+### Changed
+
+- **The kernel stops cleanly on SIGTERM and SIGINT**, draining its children
+  instead of leaving them to be adopted by init. (#484)
+- **The marketplace install path the engine replaced is gone.** The two
+  implementations were kept side by side for one release so they could be
+  compared; the engine shipped, nothing has called the old path since, and
+  keeping it would leave a second way to install that no test exercises.
+  (#517)
+- **An update whose version did not move is still an update** — the marketplace
+  no longer refuses to re-vendor a connector whose contents changed under an
+  unchanged version string. (#513)
+- **sqlx 0.8 → 0.9.** Verified against a real database copy written by 0.8: all
+  seventy migration checksums match, so an existing installation does not meet
+  the startup refusal. (#457)
+- A reserved name is not an installed server. (#502)
+
+### Fixed
+
+- **The shutdown signal latches**, so a task that was not parked when it fired
+  still sees it. (#506)
+- **A prefix install is not drift**, and the defender's receipt needs a
+  directory to describe one. (#501)
+- **The service user gets a home and a data directory it can write**, so a
+  systemd install does not fail on first boot. (#500)
+- **The discovery probe's clock starts when the child speaks**, not when the
+  kernel writes to it — a slow interpreter start no longer reads as a server
+  that never answered. (#498)
+- **`import_memories` is classified as a Memory tool**, so the REST import can
+  reach the memory server. (#494)
+
+### Removed
+
+- Unreachable VRM context, three uncalled Tauri commands, unused plugins and
+  client methods; the maintenance marker, two unused dependencies and three
+  dead fields. Dead code that tests still call reads as coverage while proving
+  nothing. (#488, #492)
+
+### Verification
+
+- opverify covers the routes the dashboard drives: 35 → 75 of 81. (#493)
+- CI verifies `Cargo.lock` is self-consistent before anything rewrites it
+  (#483), and holds the test-count floor at what the lowest platform measures
+  rather than at whichever platform ran last (#503).
+
+---
+
 ## [0.6.8-beta.6] — 2026-09-03
 
 Soak release. It is the first cut that carries the separate install engine, and
