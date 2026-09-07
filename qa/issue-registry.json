@@ -4537,7 +4537,8 @@
       "pattern": "empty verification pattern",
       "expected": "present",
       "status": "fixed",
-      "notes": "Found by comparing this script against the three sibling implementations that grew from the same original: each had hardened against a different failure and none had converged. The registry carried no empty pattern at the time, so the defect was latent rather than active. FIXED: an entry whose pattern is empty is refused before the file is opened — no file content can make an empty pattern meaningful — and counted as an error, so the run cannot end green with such an entry in the registry. The entry above pins the guard: deleting it makes this row STALE and the Issue Registry job red."
+      "notes": "Found by comparing this script against the three sibling implementations that grew from the same original: each had hardened against a different failure and none had converged. The registry carried no empty pattern at the time, so the defect was latent rather than active. FIXED: an entry whose pattern is empty is refused before the file is opened — no file content can make an empty pattern meaningful — and counted as an error, so the run cannot end green with such an entry in the registry. The entry above pins the guard: deleting it makes this row STALE and the Issue Registry job red.",
+      "github_issue": 546
     }
   ]
 }
