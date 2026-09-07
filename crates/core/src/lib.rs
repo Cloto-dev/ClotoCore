@@ -1332,6 +1332,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route("/health/scan", get(handlers::health::scan_handler))
         .route("/health/repair", post(handlers::health::repair_handler))
         .route("/system/shutdown", post(handlers::shutdown_handler))
+        .route(
+            "/system/diagnostics",
+            post(handlers::diagnostics::report_handler),
+        )
         // Same admin-auth class as shutdown, and the same exit path — it just
         // hands the installation to a detached helper on the way out (§7).
         .route(
