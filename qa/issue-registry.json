@@ -4500,6 +4500,18 @@
       "status": "fixed",
       "notes": "Failure scenario: on a host with a cold virtualenv the interpreter takes longer to reach its stdin loop than the probe budget (10s). The probe is written into the pipe and is never lost, but nothing on the other side has run a line, so the window closes on a silence the server never sent. FIXED 2026-09-04: the transport now signals the instant the child produces its first byte on either output stream, and the probe's silence budget runs from that instant rather than from the write, with a longer absolute cap applying for as long as the child has written nothing at all. A dead child still resolves immediately, because the response loop drains every pending request when the read side reaches EOF. Regression test connects a mock that stays silent past the budget and then answers server/discover in the modern era; with the budget measured from the write it reports legacy instead.",
       "github_issue": 499
+    },
+    {
+      "id": "bug-508",
+      "summary": "MEDIUM: on Windows the corrupt-DB self-heal loses a race against the handle it is trying to rename, so recovery fails and startup dead-ends -- the outcome bug-486's recovery path exists to prevent. `quarantine_corrupt_db` (crates/core/src/lib.rs) renames the unreadable file aside before recreating it, but the SQLite handle it races cannot be waited on: sqlx opens the file on a per-connection worker thread, and a connection that fails its setup PRAGMAs -- which is exactly how a corrupt file reports itself -- is dropped rather than closed, so sqlite3_close lands on that worker thread some time after the error has already reached `open_kernel_db`. Windows refuses to rename a file with a live handle (ERROR_SHARING_VIOLATION), while POSIX renames over open handles, so only Windows ever saw it. Measured on windows-latest at 27 failures in 400 concurrent runs (6.75%); 60 sequential runs on an idle runner reproduced it 0 times, because the window only opens under scheduler pressure.",
+      "severity": "MEDIUM",
+      "discovered": "2026-09-07T00:00:00Z",
+      "version": "0.6.8",
+      "file": "crates/core/src/lib.rs",
+      "pattern": "rename_waiting_for_release\\(db_path",
+      "expected": "present",
+      "status": "fixed",
+      "notes": "The pinned pattern is the call site, not the helper's definition: a helper that exists but is no longer called would leave the defect back in place while still matching its own name. The four unit tests on the retry policy cannot see that either -- they exercise `retry_while_sharing_violation` directly, so reverting the call site to a bare `fs::rename` keeps them all green. This entry is that mutation's only structural guard on a non-Windows gate. Fix shape: retry the rename while the error is the sharing-violation class, bounded at ~2 s (40 x 50 ms), leaving a genuinely locked file (AV scanner, a second instance) to report as before rather than hang; the -wal/-shm sidecars go through the same wait because they are held by the same worker and a best-effort rename would silently leave a stale WAL beside the freshly created database. Waiting is sound rather than merely lucky: SQLITE_NOTADB is not transient in sqlx's connect phase, so the pool makes exactly one attempt and no second handle can appear after the rename succeeds. End-to-end evidence is a rate, not a green run -- 27/400 before, 0/400 after, same protocol, GitHub Actions runs 34091895850 and 34092472004. Note the CI job that surfaces this is `Test (windows-latest)`, which is experimental / continue-on-error, so a regression here still would not turn a PR red."
     }
   ]
 }
