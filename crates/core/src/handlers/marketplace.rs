@@ -438,12 +438,29 @@ impl<'a> InstallState<'a> {
         self.named.is_some()
     }
 
+    /// The row this entry's install is recorded in: the one that claims the
+    /// catalog id, else the one named by it.
+    ///
+    /// The order matters — naming the id is the weaker claim, so it only
+    /// answers when no row claims the id outright.
+    fn recorded_in(&self) -> Option<&'a crate::db::mcp::InstallRow> {
+        self.claimed.or(self.named)
+    }
+
+    /// What the install recorded as its version, from whichever row holds it.
+    ///
+    /// Reading only the claiming row would report "no version known" for every
+    /// install recognised through its name — and a version that is not known is
+    /// scored as nothing to do, because `catalog_offers_an_update` returns false
+    /// without one. The entry would sit at "installed", show no version, and
+    /// never prompt for the update it is due.
     fn installed_version(&self) -> Option<&str> {
-        self.claimed.and_then(|r| r.installed_version.as_deref())
+        self.recorded_in()
+            .and_then(|r| r.installed_version.as_deref())
     }
 
     fn installed_archive_sha256(&self) -> Option<&str> {
-        self.claimed
+        self.recorded_in()
             .and_then(|r| r.installed_archive_sha256.as_deref())
     }
 
@@ -4274,9 +4291,11 @@ mod tests {
             "both readers now reach the same answer"
         );
 
-        // The stale key still means the catalog knows no version for it: that
-        // comes off the row `marketplace_id` claims, and none does.
-        assert_eq!(state.installed_version(), None);
+        // And the version comes off that same row. Reading it only from the
+        // claiming row would leave this entry version-less, which
+        // `catalog_offers_an_update` reads as "nothing to do" — the install
+        // would sit there and never be offered the update it is due.
+        assert_eq!(state.installed_version(), Some("1.0.0"));
     }
 
     /// The asymmetric shape: files on disk make the catalog say "installed"
