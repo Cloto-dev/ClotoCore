@@ -415,10 +415,22 @@ impl<'a> InstallState<'a> {
         }
     }
 
-    /// What the catalog reports to the dashboard. Files on disk count on their
-    /// own, which is what covers servers installed by batch setup.
+    /// What the catalog reports to the dashboard.
+    ///
+    /// Any of the three keys is enough. `marketplace_id` is the key an install
+    /// writes, but it is also the one that goes stale: a row installed before a
+    /// catalog id was retired still carries the old value forever, because
+    /// nothing rewrites it until the connector is installed again. The row name
+    /// is steadier — it is what grants point at — so a row *named* by this
+    /// catalog id is this entry's install even when its `marketplace_id` says
+    /// otherwise. Files on disk count on their own, which covers servers
+    /// installed by batch setup.
+    ///
+    /// This widens what the catalog recognises; it cannot recognise an install
+    /// whose name *and* key both predate a rename, because nothing in the
+    /// catalog records what an entry used to be called.
     fn shown_as_installed(&self) -> bool {
-        self.claimed.is_some_and(|r| r.is_active) || self.has_files
+        self.claimed.is_some_and(|r| r.is_active) || self.named.is_some() || self.has_files
     }
 
     /// Whether a fresh install is refused as "already installed".
@@ -4212,11 +4224,15 @@ mod tests {
         assert_eq!(state.installed_version(), Some("1.0.0"));
     }
 
-    /// The live fault this type exists to make visible: the catalog renamed the
-    /// entry (`tool.embedding` became `cembedding`) while the row kept the old
-    /// key, so nothing links the two. Every reader then answers "absent" about a
-    /// connector that is installed and running — the catalog offers it, the
-    /// guard admits a second copy beside the first, and uninstall deletes no row.
+    /// The limit of what widening the predicate can reach.
+    ///
+    /// When the catalog renamed the entry (`tool.embedding` became `cembedding`)
+    /// the row kept the old key *and* is named after neither, and the install
+    /// directory is named after the old entry too. All three keys miss, so every
+    /// reader answers "absent" about a connector that is installed and running —
+    /// the catalog offers it, the guard admits a second copy beside the first,
+    /// and uninstall deletes no row. Recognising it would take a record of what
+    /// the entry used to be called, which the catalog does not carry.
     #[test]
     fn a_row_keyed_under_a_retired_catalog_id_reads_as_absent_everywhere() {
         let rows = vec![install_row("embedding", Some("tool.embedding"), "python")];
@@ -4235,6 +4251,32 @@ mod tests {
         // Both readers are wrong in the same direction here, so this particular
         // shape is agreement-on-absence rather than a disagreement.
         assert!(!state.keys_disagree());
+    }
+
+    /// The class widening the predicate does close: the row is named by the
+    /// current catalog id, but its `marketplace_id` still carries a retired
+    /// prefix from the install that wrote it. Nothing rewrites that column until
+    /// the connector is installed again, so before this the catalog reported a
+    /// running connector as installable while the guard refused to install it.
+    #[test]
+    fn a_row_named_by_the_catalog_id_counts_even_when_its_key_drifted() {
+        let rows = vec![install_row("local", Some("mind.local"), "python")];
+        let empty = std::path::Path::new("/nonexistent-install-root");
+        let state = InstallState::resolve(&rows, &entry("local", ""), empty);
+
+        assert!(
+            state.shown_as_installed(),
+            "a row named by this catalog id is this entry's install"
+        );
+        assert!(state.blocks_a_fresh_install());
+        assert!(
+            !state.keys_disagree(),
+            "both readers now reach the same answer"
+        );
+
+        // The stale key still means the catalog knows no version for it: that
+        // comes off the row `marketplace_id` claims, and none does.
+        assert_eq!(state.installed_version(), None);
     }
 
     /// The asymmetric shape: files on disk make the catalog say "installed"
