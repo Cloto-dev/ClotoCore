@@ -99,7 +99,7 @@ fi
 # the data again, and the accounting check after the loop catches any other
 # route by which a row could reach no check at all.
 if ! PYTHONUTF8=1 $PYTHON_CMD -c "
-import json, sys
+import json, os, sys
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 SEP = '\x1f'
 FIELDS = ('id', 'severity', 'file', 'pattern', 'expected', 'status', 'summary')
@@ -111,6 +111,33 @@ FORBIDDEN = (
 )
 with open('$_REGISTRY_PY', encoding='utf-8') as f:
     data = json.load(f)
+
+# The registry names the document that describes its shape. Nothing read that
+# field for months, and the path it held pointed at a file this repository does
+# not contain, so the pointer was free to be wrong in the one way that matters:
+# a reader following it arrived nowhere. It is repo-relative on purpose -- a URL
+# cannot be checked from here, and a sibling registry's URL had already rotted
+# into a 404 while its own gate stayed green.
+schema_rel = data.get('\$schema')
+if not schema_rel:
+    sys.exit(
+        'registry names no \$schema. That field is the only pointer from the data to '
+        'the document saying what its shape is; without it the shape is whatever the '
+        'reader assumes'
+    )
+if '://' in schema_rel or os.path.isabs(schema_rel):
+    sys.exit(
+        '\$schema is {!r}; it must be a path relative to the repository root, because '
+        'that is the only form this check can follow'.format(schema_rel)
+    )
+_root = os.path.dirname(os.path.dirname(os.path.abspath('$_REGISTRY_PY')))
+_schema = os.path.normpath(os.path.join(_root, schema_rel))
+if not (_schema.startswith(_root + os.sep) and os.path.isfile(_schema)):
+    sys.exit(
+        '\$schema points at {!r}, which is not a file in this repository'
+        .format(schema_rel)
+    )
+
 issues = data['issues']
 for index, issue in enumerate(issues):
     row = []

@@ -1,6 +1,5 @@
 {
   "$schema": "qa/issue-registry.schema.md",
-  "version": "1.0",
   "description": "Mechanical verification registry for documented issues. Source of truth for bug existence proof.",
   "issues": [
     {
@@ -4552,6 +4551,18 @@
       "status": "fixed",
       "notes": "Distinct from the legitimate empty selection, which still passes: `--filter open` against a registry holding nothing open is a real answer about a registry that WAS read, and it exits 0 as before -- measured both ways. That branch now names which question got the empty answer ('No issues matched this run (registry holds N)') rather than saying the registry is empty when it is not. FIXED: the row-count trailer emitted by the extractor is checked for zero after the transport reconciliation and before the bucket accounting, so an empty registry fails rather than reaching the early return. bug-511 pins the message: deleting the guard makes this row STALE and the Issue Registry job red.",
       "github_issue": 548
+    },
+    {
+      "id": "bug-512",
+      "summary": "MEDIUM: the registry's `$schema` field named a document this repository does not contain, and nothing read the field, so the pointer was free to be wrong in the one way that matters -- a reader following it arrived nowhere. Measured on 2026-09-08: `$schema` was \"qa/issue-registry.schema.md\", no such file was tracked, and the gate was green. The same field in a sibling registry held a URL that had rotted into a 404, with that gate green too. The root `version` field was the same kind of decoration for the same reason: four registries in this project all declared \"1.0\" for four incompatible shapes, because nothing compared the number to anything.",
+      "severity": "MEDIUM",
+      "discovered": "2026-09-08T00:00:00Z",
+      "version": "0.6.8",
+      "file": "scripts/verify-issues.sh",
+      "pattern": "is not a file in this repository",
+      "expected": "present",
+      "status": "fixed",
+      "notes": "FIXED in two parts. (1) qa/issue-registry.schema.md now exists and describes this registry's actual shape -- including the fields the siblings do not have and the statuses they do not use -- rather than a shape shared with repositories that had already diverged from it. The verifier refuses a registry whose `$schema` is absent, is a URL or an absolute path (neither form can be followed from here), or does not resolve to a file inside the repository; measured across all four shapes, each exiting 0 before and 1 after. (2) The root `version` field is removed rather than given a meaning: the registry has one producer and one consumer, both in this repository and versioned together by git, so there is no version skew for such a field to describe, and a number nothing compares is not a version. Per-entry `version` fields are unaffected -- those say which release the defect was found in, which is a real fact."
     }
   ]
 }
