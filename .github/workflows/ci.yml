@@ -422,7 +422,16 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          # 24, not 20. Two reasons, and the second is the one that bites:
+          # Node 20 left support on 2026-04-30, and jsdom 30 does not accept it
+          # at all (`^22.22.2 || ^24.15.0 || >=26.0.0`) -- on 20 the undici it
+          # loads reads `markAsUncloneable` off node:worker_threads, gets
+          # undefined, and the test worker dies before one test runs.
+          # 24 is also what development runs, so a version-only split between
+          # here and a developer's machine cannot hide a failure again.
+          # release.yml still pins 20 in four places; that is a separate call,
+          # because it is the release pipeline.
+          node-version: "24"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
 
