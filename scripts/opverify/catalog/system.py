@@ -52,6 +52,99 @@ class SystemInfo(Operation):
 
 
 @register
+class SystemDiagnostics(Operation):
+    """Compose the report a user pastes into an issue, in both modes.
+
+    The endpoint exists so a failure the user saw becomes something a
+    maintainer can read, which means the report has to carry the facts an
+    investigation needs and none of the secrets it does not. Both halves are
+    asserted here because both are silent when they break: a report that has
+    stopped naming the version still looks like a report, and a redactor that
+    has stopped matching still returns prose.
+
+    * the version, the platform and the caller's own description reach the
+      document — a report that names none of them cannot be acted on;
+    * the full mode is longer than the safe one (that is the only difference
+      the modes are supposed to have);
+    * **an API key never appears in either mode.** The kernel holds one, the
+      report is assembled from state that can reach it, and the promise made
+      in the UI is that credentials are withheld regardless of mode.
+    """
+
+    domain = "system"
+    name = "diagnostics"
+    covers = ["POST /api/system/diagnostics"]
+    phase0 = True
+
+    _CONTEXT = "opverify probe"
+    _MESSAGE = "a failure the operator saw"
+
+    def drive(self, ctx: RunContext):
+        def compose(mode: str):
+            return ctx.client.post(
+                "/api/system/diagnostics",
+                {
+                    "context": self._CONTEXT,
+                    "message": self._MESSAGE,
+                    "mode": mode,
+                },
+                timeout=60.0,
+            )
+
+        return {
+            "safe": compose("safe"),
+            "full": compose("full"),
+            "_version": ctx.client.get("/api/system/version"),
+        }
+
+    def assert_success(self, ctx: RunContext, result):
+        raw = result["_version"]
+        version = raw if isinstance(raw, str) else (
+            raw.get("version") or raw.get("server_version")
+        )
+        assert version, f"could not read the kernel's own version: {raw!r}"
+
+        for label in ("safe", "full"):
+            payload = result[label]
+            assert isinstance(payload, dict), f"{label}: response not an object"
+            markdown = payload.get("markdown")
+            assert isinstance(markdown, str) and markdown.strip(), (
+                f"{label}: report carries no markdown: {payload!r}"
+            )
+            assert payload.get("mode") == label, (
+                f"{label}: report says mode {payload.get('mode')!r}"
+            )
+            assert isinstance(payload.get("masked"), int), (
+                f"{label}: masked count missing or not a number"
+            )
+            assert isinstance(payload.get("log_lines"), int), (
+                f"{label}: log_lines missing or not a number"
+            )
+
+            # The facts an investigation starts from.
+            assert version in markdown, (
+                f"{label}: report does not name the version it came from "
+                f"({version!r}) — a report that cannot be dated is not actionable"
+            )
+            assert self._MESSAGE in markdown, (
+                f"{label}: the failure the caller described did not survive"
+            )
+
+            # The promise the UI makes about both modes.
+            key = ctx.client.api_key
+            if key:
+                assert key not in markdown, (
+                    f"{label}: the admin API key reached the report — the redactor "
+                    f"is not covering the value it is most important to withhold"
+                )
+
+        assert len(result["full"]["markdown"]) >= len(result["safe"]["markdown"]), (
+            "the full report is shorter than the safe one; the modes differ only "
+            "in how much they carry"
+        )
+
+
+@register
 class SystemUninstallPlan(Operation):
     """Enumerate what an uninstall would remove, at the narrowest and the
     widest scope, without removing anything.
