@@ -230,6 +230,22 @@ elif [[ "$rows_read" -ne "$declared_count" ]]; then
     errors=$((errors + 1))
 fi
 
+# A registry that declares no entries verifies nothing. The extractor indexes
+# `data['issues']`, so a missing key already raises; reaching here with a count
+# of zero means the file itself declares an empty list — a truncated or
+# overwritten registry, not a clean bill of health. Without this, that file took
+# the `total -eq 0` early return below and exited 0, which is the same fail-open
+# shape as bug-494: the gate reporting success at the moment it lost its subject.
+# Distinct from the `total -eq 0` case, which is a real answer about a registry
+# that was read — `--filter open` against a registry with nothing open.
+if [[ "$declared_count" == "0" ]]; then
+    echo ""
+    echo -e "${RED}[ERROR]${NC} Registry declares zero issues."
+    echo -e "         A registry with no entries verifies nothing, so this is reported"
+    echo -e "         as a failure rather than as nothing-to-check."
+    exit 1
+fi
+
 # Every entry counted in `total` must have landed in exactly one bucket. The
 # trailer check above proves the rows arrived; this proves they were checked.
 # bug-509 satisfied the trailer check and exited 0 precisely because a dropped
@@ -260,7 +276,9 @@ fi
 
 if [[ $total -eq 0 ]]; then
     echo ""
-    echo -e "${YELLOW}No issues found in registry.${NC}"
+    # Name which question got the empty answer: the registry WAS read and holds
+    # $declared_count entries; none of them survived the filter / obsolete skip.
+    echo -e "${YELLOW}No issues matched this run (registry holds $declared_count).${NC}"
     exit 0
 fi
 
