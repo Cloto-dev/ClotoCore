@@ -7,6 +7,46 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.8] — 2026-09-07
+
+The final of the 0.6.8 line. This is the release the stable channel carries, so
+it is the first time any of the beta line reaches an installed user who did not
+opt in to pre-releases.
+
+What the line as a whole did: it closed the boundaries that were open by
+default. Authentication moved onto the `/api` router behind an explicit public
+allowlist, avatar, VRM and attachment reads began requiring the admin key, a
+keyless start on a non-loopback bind became a refusal rather than a service,
+and the LLM proxy started enforcing its per-boot token. The marketplace
+installer's Rust path was replaced by the Go engine. A failure the user sees
+can now be carried into a bug report the maintainers can read.
+
+### Added
+
+- **Installs the catalog no longer lists are reported.** A connector retired
+  upstream used to keep running with nothing in the app mentioning it — the
+  catalog renders the entries it has, and a retired connector is not one of
+  them. The marketplace now names them and offers to remove them. It does not
+  claim to know what replaces one: the catalog keeps no record of what an entry
+  used to be called.
+
+### Fixed
+
+- **A pending human-in-the-loop callback can no longer be discovered by an
+  agent it was not addressed to.** Answering one was already authorized against
+  the server it belongs to, but the listing that hands out the ids returned
+  every outstanding callback in the process — so the check was guarding a door
+  whose keys were published beside it. The listing is now scoped to the servers
+  its caller holds a grant for.
+- **"Installed" has one definition.** The catalog, the install guard and
+  uninstall each decided it separately and could disagree, which is how a
+  connector ended up offered as new while the installer refused it as already
+  present. A row named by a catalog entry now counts as that entry's install
+  even when the key written at install time has gone stale, so a connector
+  installed before an id was retired stops being invisible to the catalog.
+
+---
+
 ## [0.6.8-beta.7] — 2026-09-07
 
 Soak release. Everything below landed after beta.6 was published and this line
