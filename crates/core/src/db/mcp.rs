@@ -228,24 +228,6 @@ pub async fn delete_mcp_server(pool: &SqlitePool, name: &str) -> anyhow::Result<
 /// is a real install upserting a command over it.
 pub const PLACEHOLDER_COMMAND: &str = "config-loaded";
 
-/// Whether a real server is installed under `name`.
-///
-/// A [`PLACEHOLDER_COMMAND`] row does not count. Counting one closes the only
-/// exit a placeholder has: the install that would overwrite it is refused as
-/// "already installed", so the connector can then be neither installed nor
-/// started, and the catalog — which reads installs, not rows — goes on
-/// correctly reporting it as absent. A fresh database seeds six of these.
-pub async fn installed_server_exists(pool: &SqlitePool, name: &str) -> anyhow::Result<bool> {
-    let row: (i64,) = db_timeout(
-        sqlx::query_as("SELECT COUNT(*) FROM mcp_servers WHERE name = ? AND command != ?")
-            .bind(name)
-            .bind(PLACEHOLDER_COMMAND)
-            .fetch_one(pool),
-    )
-    .await?;
-    Ok(row.0 > 0)
-}
-
 // ============================================================
 // MCP Access Control (MCP_SERVER_UI_DESIGN.md §3)
 // ============================================================
@@ -792,6 +774,48 @@ pub async fn get_marketplace_servers(
     .await
 }
 
+/// One `mcp_servers` row, carrying every column the install predicates read.
+///
+/// Loaded in a single query so the call sites that decide whether a catalog
+/// entry is installed all decide from the same rows. They used to each ask the
+/// database their own question, which is why they could disagree.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct InstallRow {
+    pub name: String,
+    pub command: String,
+    pub marketplace_id: Option<String>,
+    pub is_active: bool,
+    pub installed_version: Option<String>,
+    pub installed_archive_sha256: Option<String>,
+}
+
+impl InstallRow {
+    /// Whether this row exists only so an access grant can name it.
+    ///
+    /// See [`PLACEHOLDER_COMMAND`]: such a row is not a server, and reading one
+    /// as an install refuses the install that would replace it.
+    #[must_use]
+    pub fn is_placeholder(&self) -> bool {
+        self.command == PLACEHOLDER_COMMAND
+    }
+}
+
+/// Every row the install predicates read, in one shot.
+///
+/// Deliberately unfiltered: the callers need rows a `marketplace_id IS NOT NULL`
+/// filter would hide (a placeholder blocks an install; a locally registered
+/// server occupies a name) and the table holds tens of rows, not thousands.
+pub async fn get_install_rows(pool: &SqlitePool) -> anyhow::Result<Vec<InstallRow>> {
+    db_timeout(
+        sqlx::query_as::<_, InstallRow>(
+            "SELECT name, command, marketplace_id, is_active, installed_version, \
+             installed_archive_sha256 FROM mcp_servers ORDER BY name ASC",
+        )
+        .fetch_all(pool),
+    )
+    .await
+}
+
 /// Set marketplace-specific fields on an existing mcp_servers record.
 ///
 /// `archive_sha256` is what the catalog said the archive hashed to at the
@@ -873,49 +897,6 @@ mod tests {
             created_at: 0,
             updated_at: None,
         }
-    }
-
-    /// The seed migrations give a fresh database one placeholder row per default
-    /// connector so the default agent's access grants have something to point at.
-    /// Those rows are not installs: reading them as installs refuses the install
-    /// that would replace them, which left six connectors permanently stuck —
-    /// reported absent by the catalog, rejected as present by the installer.
-    #[tokio::test]
-    async fn a_placeholder_row_is_not_an_installed_server() {
-        let state = crate::test_utils::create_test_app_state(None).await;
-        let pool = &state.pool;
-
-        // Sourced from the schema rather than a hardcoded list, so this test
-        // keeps describing whatever the migrations actually seed.
-        let seeded: Vec<String> =
-            sqlx::query_scalar("SELECT name FROM mcp_servers WHERE command = ? ORDER BY name")
-                .bind(PLACEHOLDER_COMMAND)
-                .fetch_all(pool)
-                .await
-                .unwrap();
-        assert!(
-            !seeded.is_empty(),
-            "the seed migrations must still create the placeholders this test is about"
-        );
-
-        for name in &seeded {
-            assert!(
-                !installed_server_exists(pool, name).await.unwrap(),
-                "placeholder {name} must not read as installed — the install that \
-                 replaces it is refused when it does"
-            );
-        }
-
-        // A real row under one of those very names does count, so the guard is
-        // still a guard: installing twice is still refused.
-        let name = &seeded[0];
-        save_mcp_server(pool, &sample_record(name, None))
-            .await
-            .unwrap();
-        assert!(
-            installed_server_exists(pool, name).await.unwrap(),
-            "a server with a runnable command is installed"
-        );
     }
 
     /// Regression for the "Failed to get server settings: Internal Server Error"

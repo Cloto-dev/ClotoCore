@@ -359,6 +359,92 @@ pub struct BatchInstallRequest {
 
 // ── Endpoints ───────────────────────────────────────────────────────
 
+/// The row that claims a catalog id through its `marketplace_id` column.
+fn row_claiming<'a>(
+    rows: &'a [crate::db::mcp::InstallRow],
+    catalog_id: &str,
+) -> Option<&'a crate::db::mcp::InstallRow> {
+    rows.iter()
+        .find(|r| r.marketplace_id.as_deref() == Some(catalog_id))
+}
+
+/// The installed row whose `name` *is* a catalog id. Placeholders excluded —
+/// see [`crate::db::mcp::InstallRow::is_placeholder`].
+fn row_named<'a>(
+    rows: &'a [crate::db::mcp::InstallRow],
+    catalog_id: &str,
+) -> Option<&'a crate::db::mcp::InstallRow> {
+    rows.iter()
+        .find(|r| r.name == catalog_id && !r.is_placeholder())
+}
+
+/// What is actually installed under one catalog id.
+///
+/// Three call sites used to answer "is this installed?" with three different
+/// queries of their own: the catalog matched `marketplace_id` and required
+/// `is_active`, the install guard matched `name` and excluded placeholders, and
+/// uninstall deleted by `name`. Nothing held the three together — they agreed
+/// because of what the rows happened to contain, not because of anything in the
+/// code, so a row whose `marketplace_id` stopped matching its catalog id reads
+/// as absent to the catalog, absent to the install guard (which then lets a
+/// second copy in beside the first) and absent to uninstall (which deletes no
+/// row and reports success).
+///
+/// Resolving it here does not by itself make the two keys agree. It makes the
+/// disagreement one value — [`Self::keys_disagree`] — instead of a property
+/// spread across three queries that no test can hold in view at once.
+struct InstallState<'a> {
+    claimed: Option<&'a crate::db::mcp::InstallRow>,
+    named: Option<&'a crate::db::mcp::InstallRow>,
+    has_files: bool,
+}
+
+impl<'a> InstallState<'a> {
+    fn resolve(
+        rows: &'a [crate::db::mcp::InstallRow],
+        entry: &RegistryEntry,
+        servers_root: &std::path::Path,
+    ) -> Self {
+        Self {
+            claimed: row_claiming(rows, &entry.id),
+            named: row_named(rows, &entry.id),
+            // `effective_install_dir` mirrors the install path's fallback, so
+            // the probe targets the directory the installer actually wrote to
+            // even when `entry.directory` is empty.
+            has_files: servers_root.join(effective_install_dir(entry)).is_dir(),
+        }
+    }
+
+    /// What the catalog reports to the dashboard. Files on disk count on their
+    /// own, which is what covers servers installed by batch setup.
+    fn shown_as_installed(&self) -> bool {
+        self.claimed.is_some_and(|r| r.is_active) || self.has_files
+    }
+
+    /// Whether a fresh install is refused as "already installed".
+    fn blocks_a_fresh_install(&self) -> bool {
+        self.named.is_some()
+    }
+
+    fn installed_version(&self) -> Option<&str> {
+        self.claimed.and_then(|r| r.installed_version.as_deref())
+    }
+
+    fn installed_archive_sha256(&self) -> Option<&str> {
+        self.claimed
+            .and_then(|r| r.installed_archive_sha256.as_deref())
+    }
+
+    /// The catalog and the install guard reach opposite answers for this entry.
+    ///
+    /// True means one of two user-visible faults is live: the entry is offered
+    /// as installable while the guard refuses it, or it is shown as installed
+    /// while a second install would be admitted beside it.
+    fn keys_disagree(&self) -> bool {
+        self.shown_as_installed() != self.blocks_a_fresh_install()
+    }
+}
+
 /// GET /api/marketplace/catalog — fetch registry and merge with local state.
 pub async fn catalog_handler(
     State(state): State<Arc<AppState>>,
@@ -376,9 +462,10 @@ pub async fn catalog_handler(
     let stale_reason = fetched.stale_reason().map(str::to_string);
     let registry = fetched.into_registry();
 
-    let marketplace_servers = crate::db::mcp::get_marketplace_servers(&state.pool)
+    let install_rows = crate::db::mcp::get_install_rows(&state.pool)
         .await
         .unwrap_or_default();
+    let servers_root = state.data_dir.join("mcp-servers");
 
     let running_servers = state.mcp_manager.list_servers().await;
 
@@ -386,27 +473,22 @@ pub async fn catalog_handler(
         .servers
         .iter()
         .map(|entry| {
-            let mp_record = marketplace_servers
-                .iter()
-                .find(|r| r.marketplace_id.as_deref() == Some(&entry.id));
-            // Installed if: DB marketplace record is active, OR server files
-            // exist on disk (covers Config servers installed by batch setup).
-            // `effective_install_dir` mirrors the install path's fallback so
-            // the on-disk probe targets the same dir the installer wrote to,
-            // even when `entry.directory` is empty.
-            let db_installed = mp_record.is_some_and(|r| r.is_active);
-            let files_installed = state
-                .data_dir
-                .join("mcp-servers")
-                .join(effective_install_dir(entry))
-                .is_dir();
-            let installed = db_installed || files_installed;
-            let installed_version = mp_record.and_then(|r| r.installed_version.clone());
+            let install = InstallState::resolve(&install_rows, entry, &servers_root);
+            let installed = install.shown_as_installed();
+            let installed_version = install.installed_version().map(str::to_string);
             let update_available = catalog_offers_an_update(
-                installed_version.as_deref(),
-                mp_record.and_then(|r| r.installed_archive_sha256.as_deref()),
+                install.installed_version(),
+                install.installed_archive_sha256(),
                 entry,
             );
+            if install.keys_disagree() {
+                warn!(
+                    server_id = %entry.id,
+                    shown_as_installed = install.shown_as_installed(),
+                    "catalog and install guard disagree about this entry — its row \
+                     is keyed under a name the catalog no longer uses"
+                );
+            }
             let running = running_servers.iter().any(|s| {
                 s.id == entry.id
                     && matches!(
@@ -529,9 +611,11 @@ pub async fn install_handler(
 
     // An already-installed server is rejected only for a fresh install; an
     // update (the marketplace "Update" button) re-vendors in place instead.
-    let exists = crate::db::mcp::installed_server_exists(&state.pool, &request.server_id)
+    let install_rows = crate::db::mcp::get_install_rows(&state.pool)
         .await
-        .unwrap_or(false);
+        .unwrap_or_default();
+    let install = InstallState::resolve(&install_rows, &entry, &state.data_dir.join("mcp-servers"));
+    let exists = install.blocks_a_fresh_install();
     let is_update = request.update.unwrap_or(false);
     if reject_existing(exists, is_update) {
         return Err(AppError::Validation(format!(
@@ -691,6 +775,21 @@ pub async fn uninstall_handler(
             .await
             .ok()
             .flatten();
+
+    // The row this uninstall deletes is found by `name`, while the catalog found
+    // the entry by `marketplace_id`. Where those two keys have drifted apart no
+    // row carries this name, the DELETE matches nothing, and the response still
+    // reports success — so say it in the log rather than let it pass silently.
+    let install_rows = crate::db::mcp::get_install_rows(&state.pool)
+        .await
+        .unwrap_or_default();
+    if row_named(&install_rows, &server_id).is_none() {
+        warn!(
+            server_id = %server_id,
+            "uninstall names no installed row — it is already gone, or its row is \
+             keyed under a name the catalog no longer uses"
+        );
+    }
 
     // Disconnect and remove from manager + DB
     if let Err(e) = state.mcp_manager.remove_server(&server_id).await {
@@ -4087,6 +4186,137 @@ mod tests {
         let _ = std::fs::remove_dir_all(&work);
     }
 
+    use crate::db::mcp::InstallRow;
+
+    fn install_row(name: &str, marketplace_id: Option<&str>, command: &str) -> InstallRow {
+        InstallRow {
+            name: name.into(),
+            command: command.into(),
+            marketplace_id: marketplace_id.map(Into::into),
+            is_active: true,
+            installed_version: Some("1.0.0".into()),
+            installed_archive_sha256: None,
+        }
+    }
+
+    /// A row installed under the catalog's own id: every reader agrees.
+    #[test]
+    fn matching_keys_make_the_three_readers_agree() {
+        let rows = vec![install_row("cpersona", Some("cpersona"), "python")];
+        let empty = std::path::Path::new("/nonexistent-install-root");
+        let state = InstallState::resolve(&rows, &entry("cpersona", ""), empty);
+
+        assert!(state.shown_as_installed());
+        assert!(state.blocks_a_fresh_install());
+        assert!(!state.keys_disagree());
+        assert_eq!(state.installed_version(), Some("1.0.0"));
+    }
+
+    /// The live fault this type exists to make visible: the catalog renamed the
+    /// entry (`tool.embedding` became `cembedding`) while the row kept the old
+    /// key, so nothing links the two. Every reader then answers "absent" about a
+    /// connector that is installed and running — the catalog offers it, the
+    /// guard admits a second copy beside the first, and uninstall deletes no row.
+    #[test]
+    fn a_row_keyed_under_a_retired_catalog_id_reads_as_absent_everywhere() {
+        let rows = vec![install_row("embedding", Some("tool.embedding"), "python")];
+        let empty = std::path::Path::new("/nonexistent-install-root");
+        let state = InstallState::resolve(&rows, &entry("cembedding", ""), empty);
+
+        assert!(!state.shown_as_installed(), "the catalog offers it as new");
+        assert!(
+            !state.blocks_a_fresh_install(),
+            "the guard admits a second copy beside the one already installed"
+        );
+        assert!(
+            row_named(&rows, "cembedding").is_none(),
+            "uninstall finds no row to delete and still reports success"
+        );
+        // Both readers are wrong in the same direction here, so this particular
+        // shape is agreement-on-absence rather than a disagreement.
+        assert!(!state.keys_disagree());
+    }
+
+    /// The asymmetric shape: files on disk make the catalog say "installed"
+    /// while the guard, which reads rows, would still admit a fresh install.
+    #[test]
+    fn files_without_a_row_are_a_disagreement() {
+        let rows: Vec<InstallRow> = vec![];
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("websearch")).unwrap();
+        let state = InstallState::resolve(&rows, &entry("websearch", ""), dir.path());
+
+        assert!(state.shown_as_installed());
+        assert!(!state.blocks_a_fresh_install());
+        assert!(state.keys_disagree(), "this is the case worth logging");
+    }
+
+    /// `resolve` must reach the directory through `effective_install_dir`, not
+    /// through the raw id: entries that carry a monorepo-relative `directory`
+    /// install to its final component.
+    #[test]
+    fn the_disk_probe_follows_the_install_path_fallback() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("terminal")).unwrap();
+        let rows: Vec<InstallRow> = vec![];
+        let state =
+            InstallState::resolve(&rows, &entry("terminal", "servers/terminal"), dir.path());
+
+        assert!(
+            state.shown_as_installed(),
+            "a multi-segment catalog directory collapses to its last component"
+        );
+    }
+
+    /// The seed migrations give a fresh database one placeholder row per default
+    /// connector so the default agent's access grants have something to point at.
+    /// Those rows are not installs: reading them as installs refuses the install
+    /// that would replace them, which left six connectors permanently stuck —
+    /// reported absent by the catalog, rejected as present by the installer.
+    ///
+    /// Ported from `db::mcp` when the guard's own query was folded into
+    /// [`InstallState`], so it now exercises the predicate the handler runs.
+    #[tokio::test]
+    async fn a_placeholder_row_is_not_an_installed_server() {
+        let state = crate::test_utils::create_test_app_state(None).await;
+
+        // Sourced from the schema rather than a hardcoded list, so this test
+        // keeps describing whatever the migrations actually seed.
+        let seeded: Vec<String> =
+            sqlx::query_scalar("SELECT name FROM mcp_servers WHERE command = ? ORDER BY name")
+                .bind(crate::db::mcp::PLACEHOLDER_COMMAND)
+                .fetch_all(&state.pool)
+                .await
+                .unwrap();
+        assert!(
+            !seeded.is_empty(),
+            "the seed migrations must still create the placeholders this test is about"
+        );
+
+        let rows = crate::db::mcp::get_install_rows(&state.pool).await.unwrap();
+        for name in &seeded {
+            assert!(
+                row_named(&rows, name).is_none(),
+                "placeholder {name} must not read as installed — the install that \
+                 replaces it is refused when it does"
+            );
+        }
+
+        // A real row under one of those very names does count, so the guard is
+        // still a guard: installing twice is still refused.
+        let name = &seeded[0];
+        sqlx::query("UPDATE mcp_servers SET command = 'python' WHERE name = ?")
+            .bind(name)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        let rows = crate::db::mcp::get_install_rows(&state.pool).await.unwrap();
+        assert!(
+            row_named(&rows, name).is_some(),
+            "a server with a runnable command is installed"
+        );
+    }
+
     fn entry(id: &str, directory: &str) -> RegistryEntry {
         RegistryEntry {
             id: id.into(),
@@ -4790,6 +5020,69 @@ mod tests {
         assert!(
             state.install_task.lock().await.is_none(),
             "slot is cleared after take()"
+        );
+    }
+
+    /// The install endpoint's guard, driven end to end.
+    ///
+    /// `reject_existing` below is tested with `exists` handed to it, so it says
+    /// nothing about how `exists` is computed. That gap was real: replacing the
+    /// guard predicate with a constant `false` left every test in this crate
+    /// green except the ones that call it directly, which means nothing was
+    /// watching the endpoint that a user's second install actually hits.
+    #[tokio::test]
+    async fn the_install_endpoint_refuses_a_second_fresh_install() {
+        let state = crate::test_utils::create_test_app_state(Some("k".into())).await;
+
+        // A catalog holding one entry, and a real row installed under its id.
+        {
+            let mut cache = state.marketplace_cache.write().await;
+            cache.data = Some(Registry {
+                schema_version: 1,
+                updated_at: String::new(),
+                servers: vec![entry("cpersona", "")],
+                collections: vec![],
+            });
+        }
+        crate::db::mcp::save_mcp_server(
+            &state.pool,
+            &crate::db::mcp::McpServerRecord {
+                name: "cpersona".into(),
+                command: "python".into(),
+                marketplace_id: Some("cpersona".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", "k".parse().unwrap());
+        let outcome = install_handler(
+            ConnectInfo("127.0.0.1:0".parse().unwrap()),
+            State(state.clone()),
+            headers,
+            Json(InstallRequest {
+                server_id: "cpersona".into(),
+                env: None,
+                auto_start: None,
+                update: None,
+            }),
+        )
+        .await;
+
+        let Err(AppError::Validation(message)) = outcome else {
+            panic!("a second fresh install of an installed server must be refused");
+        };
+        assert!(
+            message.contains("already installed"),
+            "the refusal must be the install guard, not some earlier failure: {message}"
+        );
+        assert!(
+            !state
+                .setup_in_progress
+                .load(std::sync::atomic::Ordering::SeqCst),
+            "a refused install must not leave the install lock held"
         );
     }
 
