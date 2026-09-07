@@ -149,7 +149,7 @@ Always review this list before making code changes and adhere to the constraints
 | Feature | GitHub Pages landing page (OS auto-detection) | Done |
 | Infra | GitHub Actions release workflow (5 platforms + installer) | Done |
 
-**Test Count:** 864 tests (Rust 784 + Dashboard 80)
+**Test Count:** 894 tests (Rust 810 + Dashboard 84)
 **Audit Score:** 90+/100
 
 ### Remaining Items (Next Phase)
@@ -168,7 +168,7 @@ ClotoCore uses a phase-based versioning scheme with three stages.
 | Phase | Display | Cargo (Semver) | Git Tag | Status |
 |-------|---------|---------------|---------|--------|
 | Alpha | A1, A2, ... | `0.0.1`, `0.0.2`, ... | `vA1` | Completed (A1–A7) |
-| Beta | βX.Y | `0.X.Y` | `v0.X.Y` | **Current (0.6.8-beta.7)** |
+| Beta | βX.Y | `0.X.Y` | `v0.X.Y` | **Current (0.6.8)** |
 | Stable | 1.X.Y | `1.X.Y` | `v1.X.Y` | Future |
 
 - **Alpha (A)**: Rapid prototyping. Breaking changes expected on every release.

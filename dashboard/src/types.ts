@@ -277,6 +277,19 @@ export interface EnvVarDef {
   description?: string;
 }
 
+/** An install no entry in the current catalog accounts for.
+ *
+ * The kernel reports these as an observation, never a verdict: the catalog
+ * carries no record of what an entry used to be called, so nothing can name a
+ * successor — only say that the catalog no longer lists this.
+ */
+export interface UnlistedInstall {
+  /** Also the id the uninstall endpoint takes. */
+  name: string;
+  installed_version: string | null;
+  running: boolean;
+}
+
 export interface MarketplaceCatalogEntry {
   id: string;
   name: string;
