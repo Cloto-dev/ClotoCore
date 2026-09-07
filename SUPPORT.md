@@ -80,7 +80,7 @@ discretion and must not be relied upon.
 
 | Line | Tier | Notes |
 | --- | --- | --- |
-| 0.6.x | **Current** | Latest release: v0.6.7 <!-- docs-facts: latest-release -->. 0.6.8 pre-releases (0.6.8-beta.6 <!-- docs-facts: latest-prerelease -->) are **Experimental**. |
+| 0.6.x | **Current** | Latest release: v0.6.7 <!-- docs-facts: latest-release -->. 0.6.8 pre-releases (0.6.8-beta.7 <!-- docs-facts: latest-prerelease -->) are **Experimental**. |
 
 **No line has been certified Stable yet.** Until the first certification
 event, the `stable` update channel aliases `current` (the initial-state rule
