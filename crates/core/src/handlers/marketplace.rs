@@ -474,6 +474,69 @@ impl<'a> InstallState<'a> {
     }
 }
 
+/// An install that no entry in the current catalog accounts for.
+///
+/// Deliberately an observation, not a verdict. The catalog carries no record of
+/// what an entry used to be called — a connector that moved to its own package
+/// arrives as a new id with nothing tying it to the install it supersedes — so
+/// nothing here can name a successor. It can only say the catalog no longer
+/// lists this, which is the part that is true.
+#[derive(Debug, Clone, Serialize)]
+pub struct UnlistedInstall {
+    /// The row name, which is also the id `DELETE /api/marketplace/servers/:id`
+    /// takes — the path that removes one of these works, because it keys off
+    /// the name rather than off a catalog id that no longer exists.
+    pub name: String,
+    pub installed_version: Option<String>,
+    /// Still connected. One of these is not dormant by virtue of being unlisted.
+    pub running: bool,
+}
+
+/// Installs the current catalog does not account for.
+///
+/// The reverse of what [`InstallState`] does per entry, and built out of the
+/// same two lookups so the two directions cannot drift: a row is accounted for
+/// exactly when some catalog entry would resolve to it.
+///
+/// Excluded by design:
+/// - rows with no `marketplace_id`, which were registered locally and were
+///   never the catalog's to list
+/// - placeholder rows, which are not installs at all
+/// - everything, when the registry is empty — with no catalog in hand the
+///   honest answer is silence, not "none of your installs exist"
+fn unlisted_installs(
+    rows: &[crate::db::mcp::InstallRow],
+    registry: &Registry,
+    running: &[crate::managers::mcp_types::McpServerInfo],
+) -> Vec<UnlistedInstall> {
+    if registry.servers.is_empty() {
+        return Vec::new();
+    }
+    let accounted: std::collections::HashSet<&str> = registry
+        .servers
+        .iter()
+        .flat_map(|entry| [row_claiming(rows, &entry.id), row_named(rows, &entry.id)])
+        .flatten()
+        .map(|row| row.name.as_str())
+        .collect();
+
+    rows.iter()
+        .filter(|row| row.marketplace_id.is_some() && !row.is_placeholder())
+        .filter(|row| !accounted.contains(row.name.as_str()))
+        .map(|row| UnlistedInstall {
+            name: row.name.clone(),
+            installed_version: row.installed_version.clone(),
+            running: running.iter().any(|s| {
+                s.id == row.name
+                    && matches!(
+                        s.status,
+                        crate::managers::mcp_types::ServerStatus::Connected
+                    )
+            }),
+        })
+        .collect()
+}
+
 /// GET /api/marketplace/catalog — fetch registry and merge with local state.
 pub async fn catalog_handler(
     State(state): State<Arc<AppState>>,
@@ -559,8 +622,20 @@ pub async fn catalog_handler(
         )
     };
 
+    let unlisted = unlisted_installs(&install_rows, &registry, &running_servers);
+    if !unlisted.is_empty() {
+        warn!(
+            count = unlisted.len(),
+            "installs the current catalog does not list"
+        );
+    }
+
     super::ok_data(serde_json::json!({
         "servers": entries,
+        // Installs no catalog entry accounts for. Reported so a connector that
+        // was retired upstream stops being invisible: it keeps running, and
+        // nothing else in this response mentions it.
+        "unlisted_installs": unlisted,
         // Hub-curated setup presets, passed through for the dashboard's
         // preset resolution chain (bundled presets are its offline floor).
         "collections": registry.collections,
@@ -4296,6 +4371,85 @@ mod tests {
         // `catalog_offers_an_update` reads as "nothing to do" — the install
         // would sit there and never be offered the update it is due.
         assert_eq!(state.installed_version(), Some("1.0.0"));
+    }
+
+    fn registry_of(ids: &[&str]) -> Registry {
+        Registry {
+            schema_version: 1,
+            updated_at: String::new(),
+            servers: ids.iter().map(|id| entry(id, "")).collect(),
+            collections: vec![],
+        }
+    }
+
+    /// The population this exists for, in the shape the running database holds:
+    /// connectors installed under a retired id, still active, that no current
+    /// catalog entry mentions. Nothing else in the catalog response names them.
+    #[test]
+    fn installs_the_catalog_dropped_are_reported() {
+        let rows = vec![
+            install_row("cpersona", Some("cpersona"), "python"), // current
+            install_row("local", Some("mind.local"), "python"),  // named by a current id
+            install_row("stt", Some("voice.stt"), "python"),     // retired
+            install_row("imagegen", Some("tool.imagegen"), "python"), // retired
+        ];
+        let registry = registry_of(&["cpersona", "local", "terminal"]);
+
+        let unlisted = unlisted_installs(&rows, &registry, &[]);
+        let names: Vec<&str> = unlisted.iter().map(|u| u.name.as_str()).collect();
+
+        assert_eq!(names, vec!["stt", "imagegen"]);
+        assert_eq!(unlisted[0].installed_version.as_deref(), Some("1.0.0"));
+        assert!(!unlisted[0].running, "nothing was reported as connected");
+    }
+
+    /// A row reached only through its name is accounted for, not unlisted.
+    /// This is what keeps the reverse view from contradicting the forward one:
+    /// both directions run the same two lookups.
+    #[test]
+    fn a_row_named_by_a_current_entry_is_not_unlisted() {
+        let rows = vec![install_row("local", Some("mind.local"), "python")];
+        let unlisted = unlisted_installs(&rows, &registry_of(&["local"]), &[]);
+        assert!(
+            unlisted.is_empty(),
+            "the catalog resolves this row through its name, so it is listed"
+        );
+    }
+
+    /// Locally registered servers were never the catalog's to list, and a
+    /// placeholder is not an install. Sweeping either in would tell the user
+    /// their own servers had been retired upstream.
+    #[test]
+    fn local_registrations_and_placeholders_are_not_unlisted() {
+        let mut local = install_row("x-browser", None, "python");
+        local.installed_version = None;
+        let rows = vec![
+            local,
+            install_row("kernel", None, crate::db::mcp::PLACEHOLDER_COMMAND),
+            install_row(
+                "seeded",
+                Some("seeded"),
+                crate::db::mcp::PLACEHOLDER_COMMAND,
+            ),
+        ];
+
+        assert!(unlisted_installs(&rows, &registry_of(&["cpersona"]), &[]).is_empty());
+    }
+
+    /// With no catalog in hand, every install would look retired. Reporting
+    /// that would turn a hub outage into a screen telling the user everything
+    /// they have was dropped, so an empty registry reports nothing at all.
+    #[test]
+    fn an_empty_catalog_reports_nothing_rather_than_everything() {
+        let rows = vec![
+            install_row("stt", Some("voice.stt"), "python"),
+            install_row("cpersona", Some("cpersona"), "python"),
+        ];
+
+        assert!(
+            unlisted_installs(&rows, &registry_of(&[]), &[]).is_empty(),
+            "no catalog is not evidence that these were dropped"
+        );
     }
 
     /// The asymmetric shape: files on disk make the catalog say "installed"

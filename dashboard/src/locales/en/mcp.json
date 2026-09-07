@@ -3,7 +3,11 @@
   "no_servers": "No MCP servers registered.",
   "status": "Status",
   "tools": "Tools",
-  "logs": "Logs",
+  "logs": {
+    "event_log": "Event Log",
+    "clear": "Clear",
+    "waiting": "No log output yet."
+  },
   "settings": "Settings",
   "access_control": "Access Control",
   "servers_count": "{{count}} servers",
@@ -98,11 +102,6 @@
     "placeholder_value": "value",
     "add": "Add"
   },
-  "logs": {
-    "event_log": "Event Log",
-    "clear": "Clear",
-    "waiting": "No log output yet."
-  },
   "marketplace": {
     "tab_servers": "Servers",
     "tab_marketplace": "Marketplace",
@@ -131,6 +130,9 @@
     "seal_verified": "Verified",
     "seal_verified_tooltip": "Magic Seal present — kernel will honor the declared trust level.",
     "seal_unverified": "Unverified",
-    "seal_unverified_tooltip": "No Magic Seal — kernel will force trust level to untrusted at runtime (MGP v0.6.3 §10 invariant 3)."
+    "seal_unverified_tooltip": "No Magic Seal — kernel will force trust level to untrusted at runtime (MGP v0.6.3 §10 invariant 3).",
+    "unlisted_title": "Not in the current catalog",
+    "unlisted_hint": "These are installed on this machine, but no entry in the catalog matches them — usually because the connector was retired or moved upstream. The catalog keeps no record of what an entry used to be called, so there is no way to tell you what replaces one of these. They keep running until you remove them.",
+    "unlisted_running": "running"
   }
 }

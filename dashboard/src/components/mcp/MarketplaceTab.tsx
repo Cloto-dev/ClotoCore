@@ -1,8 +1,9 @@
-import { AlertTriangle, Lock, Search, Unlock } from 'lucide-react';
+import { AlertTriangle, Lock, PackageX, Search, Unlock } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
 import { useMarketplace } from '../../hooks/useMarketplace';
+import { useUnlistedInstalls } from '../../hooks/useUnlistedInstalls';
 import { extractError } from '../../lib/errors';
 import type { MarketplaceCatalogEntry } from '../../types';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
@@ -44,10 +45,13 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [installingServer, setInstallingServer] = useState<MarketplaceCatalogEntry | null>(null);
-  const [uninstallTarget, setUninstallTarget] = useState<MarketplaceCatalogEntry | null>(null);
+  // Both a catalog entry and an unlisted install answer to the same uninstall:
+  // the endpoint keys off the row name, so one flow serves both.
+  const [uninstallTarget, setUninstallTarget] = useState<{ id: string; name: string } | null>(null);
   const [uninstalling, setUninstalling] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const api = useApi();
+  const unlisted = useUnlistedInstalls();
 
   // Filter servers
   const filtered = servers.filter((s) => {
@@ -185,6 +189,45 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
               actionsDisabled={!actionsEnabled}
             />
           ))}
+        </div>
+      )}
+
+      {/* Installs the catalog no longer lists. Rendered below the grid because
+          it is a footnote about what is already on the machine, not part of
+          what is on offer. */}
+      {unlisted.length > 0 && (
+        <div className="flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
+          <div className="flex items-center gap-2 text-amber-400">
+            <PackageX size={12} />
+            <span className="text-[11px] font-mono">{t('marketplace.unlisted_title')}</span>
+          </div>
+          <p className="text-[10px] font-sans text-content-tertiary">{t('marketplace.unlisted_hint')}</p>
+          <div className="flex flex-col gap-1">
+            {unlisted.map((item) => (
+              <div
+                key={item.name}
+                className="flex items-center justify-between gap-3 rounded border border-border-subtle px-2 py-1.5"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[11px] font-mono truncate">{item.name}</span>
+                  {item.installed_version && (
+                    <span className="text-[10px] font-mono text-content-tertiary">{item.installed_version}</span>
+                  )}
+                  {item.running && (
+                    <span className="text-[9px] font-mono text-emerald-400">{t('marketplace.unlisted_running')}</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  disabled={!actionsEnabled}
+                  onClick={() => setUninstallTarget({ id: item.name, name: item.name })}
+                  className="text-[10px] font-mono text-red-400 hover:text-red-300 disabled:opacity-40"
+                >
+                  {t('marketplace.uninstall')}
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
