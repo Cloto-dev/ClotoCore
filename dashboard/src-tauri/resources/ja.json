@@ -62,7 +62,19 @@
     "error_boundary_title": "システムエラー",
     "error_boundary_message": "予期しないエラーが発生しました",
     "error_boundary_restart": "再起動",
-    "skeleton_thinking": "思考中..."
+    "skeleton_thinking": "思考中...",
+    "error_boundary_report": "報告",
+    "diagnostics_title": "バグ報告",
+    "diagnostics_description": "カーネルが把握している障害の情報から生成しています。投稿前に内容を確認してください。ここで編集でき、公開 issue に届く前の最後の確認になります。",
+    "diagnostics_level_safe": "安全版",
+    "diagnostics_level_full": "完全版",
+    "diagnostics_full_warning": "完全版はログとスタックを省略せず、パスもそのまま残します。認証情報は伏せられますが、投稿前に本文を確認してください。",
+    "diagnostics_kernel_unreachable": "カーネルが応答しなかったため、ブラウザ側の情報のみです。ログ・インストール記録・秘密情報のマスクは含まれません。",
+    "diagnostics_loading": "レポートを生成しています…",
+    "diagnostics_copy": "コピー",
+    "diagnostics_copied": "コピーしました",
+    "diagnostics_close": "閉じる",
+    "diagnostics_masked": "{{n}} 件の秘密情報を伏せ字にしました。"
   },
   "agents": {
     "title": "エージェント",

@@ -1048,3 +1048,64 @@ export function createAuthenticatedApi(apiKey: string) {
 }
 
 export type AuthenticatedApi = ReturnType<typeof createAuthenticatedApi>;
+
+/** Session storage slot the API key lives in (see `useApiKeyProvider`). */
+const API_KEY_STORAGE = 'cloto-api-key';
+
+/** How much of the machine's own record a diagnostic report carries. */
+export type DiagnosticsMode = 'safe' | 'full';
+
+export interface DiagnosticsRequest {
+  /** The surface that failed, as the UI names it. */
+  context?: string;
+  /** The message the UI displayed. */
+  message?: string;
+  /** React component stack, when an ErrorBoundary caught the failure. */
+  component_stack?: string;
+  mode: DiagnosticsMode;
+}
+
+export interface DiagnosticsReport {
+  /** Ready to paste into a GitHub issue. */
+  markdown: string;
+  mode: DiagnosticsMode;
+  /** How many secret values were masked out of the text. */
+  masked: number;
+  log_lines: number;
+}
+
+/**
+ * Read the API key straight out of session storage.
+ *
+ * `ErrorBoundary` mounts *outside* `ApiKeyProvider` — it has to, to catch a
+ * crash in the provider itself — so it cannot reach the key through context.
+ */
+export function readStoredApiKey(): string {
+  try {
+    return sessionStorage.getItem(API_KEY_STORAGE) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Ask the kernel to compose a pasteable report for a failure.
+ *
+ * The report is composed kernel-side: the version, the install receipt and the
+ * log live there, and the log cannot be read from here at all.
+ */
+export async function fetchDiagnosticsReport(
+  apiKey: string,
+  request: DiagnosticsRequest,
+  signal?: AbortSignal,
+): Promise<DiagnosticsReport> {
+  const res = await fetch(`${API_BASE}/system/diagnostics`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+    body: JSON.stringify(request),
+    signal: signal ?? AbortSignal.timeout(API_TIMEOUT_MS),
+  });
+  await throwIfNotOk(res, 'compose a diagnostic report');
+  const body = await res.json();
+  return body.data as DiagnosticsReport;
+}

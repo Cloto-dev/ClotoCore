@@ -1,6 +1,7 @@
-import { AlertTriangle, RotateCcw } from 'lucide-react';
+import { AlertTriangle, FileText, RotateCcw } from 'lucide-react';
 import { Component, type ReactNode } from 'react';
 import i18n from '../i18n';
+import { DiagnosticsModal } from './DiagnosticsModal';
 
 interface Props {
   children: ReactNode;
@@ -9,26 +10,30 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  /** Kept, not just logged: it is the most useful part of a bug report. */
+  componentStack: string | null;
+  showReport: boolean;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, componentStack: null, showReport: false };
   }
 
-  static getDerivedStateFromError(error: Error): State {
+  static getDerivedStateFromError(error: Error): Partial<State> {
     return { hasError: true, error };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('Cloto ErrorBoundary caught:', error, info.componentStack);
+    this.setState({ componentStack: info.componentStack ?? null });
   }
 
   private async handleRestart() {
     if (import.meta.env.DEV) {
       // Dev: soft restart (Vite may be down, show guidance if reload fails)
-      this.setState({ hasError: false, error: null });
+      this.setState({ hasError: false, error: null, componentStack: null, showReport: false });
       window.location.href = '/';
     } else {
       // Release: full process restart via Tauri
@@ -37,7 +42,7 @@ export class ErrorBoundary extends Component<Props, State> {
         await relaunch();
       } catch {
         // Fallback if plugin unavailable
-        this.setState({ hasError: false, error: null });
+        this.setState({ hasError: false, error: null, componentStack: null, showReport: false });
         window.location.href = '/';
       }
     }
@@ -69,14 +74,32 @@ export class ErrorBoundary extends Component<Props, State> {
                 <code className="bg-surface-secondary px-1 rounded">npx tauri dev</code> in the terminal.
               </p>
             )}
-            <button
-              onClick={() => this.handleRestart()}
-              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white bg-brand rounded hover:bg-[#1e3dd6] transition-colors"
-            >
-              <RotateCcw size={12} />
-              {i18n.t('common:error_boundary_restart')}
-            </button>
+            <div className="flex items-center justify-center gap-2">
+              <button
+                onClick={() => this.handleRestart()}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white bg-brand rounded hover:bg-[#1e3dd6] transition-colors"
+              >
+                <RotateCcw size={12} />
+                {i18n.t('common:error_boundary_restart')}
+              </button>
+              <button
+                onClick={() => this.setState({ showReport: true })}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-widest text-content-tertiary border border-edge rounded hover:border-brand hover:text-content-primary transition-colors"
+              >
+                <FileText size={12} />
+                {i18n.t('common:error_boundary_report')}
+              </button>
+            </div>
           </div>
+
+          {this.state.showReport && (
+            <DiagnosticsModal
+              context={i18n.t('common:error_boundary_title')}
+              message={errorMsg || undefined}
+              componentStack={this.state.componentStack ?? undefined}
+              onClose={() => this.setState({ showReport: false })}
+            />
+          )}
         </div>
       );
     }

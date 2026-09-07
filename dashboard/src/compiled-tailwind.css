@@ -1087,6 +1087,10 @@ video {
   margin-top: auto;
 }
 
+.mt-px {
+  margin-top: 1px;
+}
+
 .line-clamp-2 {
   overflow: hidden;
   display: -webkit-box;
@@ -1196,6 +1200,10 @@ video {
   height: 1.75rem;
 }
 
+.h-72 {
+  height: 18rem;
+}
+
 .h-8 {
   height: 2rem;
 }
@@ -1266,6 +1274,10 @@ video {
 
 .max-h-\[90vh\] {
   max-height: 90vh;
+}
+
+.max-h-full {
+  max-height: 100%;
 }
 
 .min-h-0 {
@@ -1410,6 +1422,10 @@ video {
 
 .min-w-\[200px\] {
   min-width: 200px;
+}
+
+.max-w-3xl {
+  max-width: 48rem;
 }
 
 .max-w-\[220px\] {
