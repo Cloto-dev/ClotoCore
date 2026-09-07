@@ -33,8 +33,18 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 FEED_TAG = "updater-feed"
-SEMVER_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)(?:-(alpha|beta|rc)\.(\d+))?$")
-STAGE_RANK = {"alpha": 0, "beta": 1, "rc": 2}
+# Two pre-release spellings are accepted, and they mean the same thing:
+#   long  — `0.6.8-beta.7`   (what every tag before 0.6.9 uses)
+#   short — `0.6.9-b7`       (the 0.6.9+ house style, the closest legal semver
+#                             to the `2.5.12a1` form the Python projects use)
+# The long form must stay parseable forever: the feed indexes every past
+# release, so dropping it would erase the history from the manifest.
+SEMVER_RE = re.compile(
+    r"^v?(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
+    r"(?:-(?:(?P<long_stage>alpha|beta|rc)\.(?P<long_num>\d+)"
+    r"|(?P<short_stage>a|b|rc)(?P<short_num>\d+)))?$"
+)
+STAGE_RANK = {"alpha": 0, "a": 0, "beta": 1, "b": 1, "rc": 2}
 KERNEL_RE = re.compile(r"^cloto-.+-((?:linux|macos|windows)-(?:x64|arm64))\.(?:tar\.gz|zip)$")
 
 
@@ -49,18 +59,44 @@ def parse_version(tag: str):
     a final release sorts above every pre-release of the same version,
     matching semver precedence for the grammar this repo uses.
     Returns None for tags outside that grammar.
+
+    The two spellings of a stage collapse onto the same rank, so `0.6.9-b1`
+    and `0.6.9-beta.1` sort identically. Nothing stops a line from mixing
+    them; nothing gains from it either.
     """
     m = SEMVER_RE.match(tag)
     if not m:
         return None
-    major, minor, patch = int(m[1]), int(m[2]), int(m[3])
-    if m[4] is None:
+    major, minor, patch = int(m["major"]), int(m["minor"]), int(m["patch"])
+    stage = m["long_stage"] or m["short_stage"]
+    if stage is None:
         return (major, minor, patch, 1, 0, 0)
-    return (major, minor, patch, 0, STAGE_RANK[m[4]], int(m[5]))
+    num = m["long_num"] if m["long_stage"] else m["short_num"]
+    return (major, minor, patch, 0, STAGE_RANK[stage], int(num))
 
 
 def is_final(key) -> bool:
     return key[3] == 1
+
+
+def partition_releases(releases):
+    """Split releases into (indexable, rejected tag names).
+
+    A tag outside the version grammar is not an error — it is simply absent
+    from every channel and from the manifest, which is the one outcome no
+    consumer can detect. The caller reports what came back in `rejected`.
+    The feed tag itself is expected here and is not reported.
+    """
+    indexable, rejected = [], []
+    for r in releases:
+        tag = r["tag_name"]
+        if tag == FEED_TAG:
+            continue
+        if parse_version(tag) is None:
+            rejected.append(tag)
+        else:
+            indexable.append(r)
+    return indexable, rejected
 
 
 def line_of(key) -> str:
@@ -249,12 +285,13 @@ def generate(
 ) -> None:
     stable_line = lifecycle.get("stable_line")
 
-    releases = [
-        r
-        for r in list_releases(repo)
-        if r["tag_name"] != FEED_TAG and parse_version(r["tag_name"]) is not None
-    ]
+    releases, rejected = partition_releases(list_releases(repo))
     log(f"{len(releases)} releases to index")
+    if rejected:
+        # A tag the grammar rejects is not an error here — it is simply absent
+        # from every channel and from the manifest. Absence is the one failure
+        # nothing downstream can notice, so name it.
+        log(f"  warn: {len(rejected)} tag(s) outside the version grammar, indexed nowhere: {', '.join(rejected)}")
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         entries = [e for e in pool.map(build_entry, releases) if e]
@@ -299,11 +336,44 @@ def selftest() -> None:
     keys = [parse_version(t) for t in order]
     assert keys == sorted(keys), "semver precedence ladder broken"
 
+    # short pre-release spelling (0.6.9+ house style) parses to the same key
+    # shape, and to the *same key* as the long spelling it replaces
+    assert parse_version("v0.6.9-a1") == (0, 6, 9, 0, 0, 1)
+    assert parse_version("0.6.9-b7") == (0, 6, 9, 0, 1, 7)
+    assert parse_version("v0.6.9-rc1") == (0, 6, 9, 0, 2, 1)
+    assert parse_version("0.6.9-a1") == parse_version("0.6.9-alpha.1")
+    assert parse_version("0.6.9-b7") == parse_version("0.6.9-beta.7")
+    short_order = ["v0.6.8", "v0.6.9-a1", "v0.6.9-a2", "v0.6.9-b1", "v0.6.9-rc1", "v0.6.9"]
+    short_keys = [parse_version(t) for t in short_order]
+    assert short_keys == sorted(short_keys), "short-form precedence ladder broken"
+
+    # spellings the grammar must keep rejecting. `0.6.9a1` is the PEP 440 form
+    # the Python projects use: it is not semver, so Cargo and Tauri refuse it
+    # and the updater cannot parse it out of the feed — it must never index.
+    assert parse_version("0.6.9a1") is None
+    assert parse_version("v0.6.9a1") is None
+    assert parse_version("0.6.9-a.1") is None
+    assert parse_version("0.6.9-alpha1") is None
+
     # tier derivation
     assert tier_of(parse_version("v0.6.8-beta.1"), None) == "experimental"
     assert tier_of(parse_version("v0.6.7"), None) == "current"
     assert tier_of(parse_version("v0.6.7"), "0.6") == "stable"
     assert tier_of(parse_version("v0.7.0"), "0.6") == "current"
+    # the structural isolation the whole feed rests on: a pre-release reaches
+    # experimental and nothing else, in either spelling
+    assert not is_final(parse_version("v0.6.9-a1"))
+    assert tier_of(parse_version("v0.6.9-a1"), None) == "experimental"
+    assert tier_of(parse_version("v0.6.9-b1"), "0.6") == "experimental"
+    assert tier_of(parse_version("v0.6.9-rc1"), "0.6") == "experimental"
+
+    # a tag the grammar rejects comes back named, not silently dropped —
+    # and the feed's own tag is expected, so it is not reported as a reject
+    indexable, rejected = partition_releases(
+        [{"tag_name": t} for t in ("v0.6.8", FEED_TAG, "0.6.9a1", "v0.6.9-a1", "nightly")]
+    )
+    assert [r["tag_name"] for r in indexable] == ["v0.6.8", "v0.6.9-a1"]
+    assert rejected == ["0.6.9a1", "nightly"]
 
     # platform mapping (mirrors release.yml globs)
     assert desktop_platform("ClotoCore_0.6.7_x64-setup.nsis.zip") == "windows-x86_64"
@@ -335,6 +405,14 @@ def selftest() -> None:
     with_070 = entries + [entry("v0.7.0")]
     assert resolve_channel(with_070, "stable", "0.6")["version"] == "0.6.7"  # pinned line
     assert resolve_channel(with_070, "current", "0.6")["version"] == "0.7.0"
+    # a short-form pre-release must not be reachable from stable or current,
+    # however new it is — this is the assertion that fails if the grammar
+    # change ever lets the house style through as a final
+    with_a1 = entries + [entry("v0.6.9-a1")]
+    assert resolve_channel(with_a1, "experimental", None)["version"] == "0.6.9-a1"
+    assert resolve_channel(with_a1, "current", None)["version"] == "0.6.7"
+    assert resolve_channel(with_a1, "stable", "0.6")["version"] == "0.6.7"
+
     # a release whose desktop artifacts are unsigned is not view-eligible
     unsigned_newest = entries + [entry("v0.7.0", sig=False)]
     assert resolve_channel(unsigned_newest, "current", None)["version"] == "0.6.7"
