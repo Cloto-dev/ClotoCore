@@ -57,5 +57,17 @@
   "error_boundary_title": "System Error",
   "error_boundary_message": "An unexpected error occurred",
   "error_boundary_restart": "Restart",
-  "skeleton_thinking": "Thinking..."
+  "skeleton_thinking": "Thinking...",
+  "error_boundary_report": "Report",
+  "diagnostics_title": "Bug report",
+  "diagnostics_description": "This is composed from what the kernel knows about the failure. Read it before posting — you can edit it here, and this is the last check before it reaches a public issue.",
+  "diagnostics_level_safe": "Safe",
+  "diagnostics_level_full": "Full",
+  "diagnostics_full_warning": "The full level keeps the log and stack at full length and leaves paths intact. Credentials are still masked, but read the text before posting it.",
+  "diagnostics_kernel_unreachable": "The kernel did not answer, so this carries only what the browser knows: no log, no install receipt, and no secret masking.",
+  "diagnostics_loading": "Composing the report…",
+  "diagnostics_copy": "Copy",
+  "diagnostics_copied": "Copied",
+  "diagnostics_close": "Close",
+  "diagnostics_masked": "{{n}} secret value(s) masked."
 }

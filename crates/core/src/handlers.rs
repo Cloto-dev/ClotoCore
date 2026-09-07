@@ -10,6 +10,7 @@ pub mod chat;
 pub(crate) mod command_approval;
 pub mod commands;
 pub mod cron;
+pub mod diagnostics;
 pub mod events;
 pub mod health;
 pub mod llm;
