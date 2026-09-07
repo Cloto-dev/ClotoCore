@@ -572,7 +572,10 @@
       "seal_verified": "検証済み",
       "seal_verified_tooltip": "Magic Seal あり — カーネルは宣言されたトラストレベルを尊重します。",
       "seal_unverified": "未検証",
-      "seal_unverified_tooltip": "Magic Seal なし — カーネルは実行時にトラストレベルを untrusted に強制します (MGP v0.6.3 §10 不変条件 3)。"
+      "seal_unverified_tooltip": "Magic Seal なし — カーネルは実行時にトラストレベルを untrusted に強制します (MGP v0.6.3 §10 不変条件 3)。",
+      "unlisted_title": "現在のカタログにありません",
+      "unlisted_hint": "このマシンにインストールされていますが、カタログのどのエントリとも一致しません。多くは配布元でコネクタが廃止された、または移動した場合です。カタログは以前の名前を記録していないため、これらの代わりになるものをお伝えすることはできません。削除するまで動作し続けます。",
+      "unlisted_running": "実行中"
     },
     "status_connecting": "起動中"
   },
