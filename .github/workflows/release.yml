@@ -27,10 +27,25 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Node 24 in all four jobs of this workflow, matching ci.yml.
+      #
+      # 20 left support on 2026-04-30, and these jobs are the ones that build
+      # the installers users receive. It still worked: of the packages whose
+      # `engines` 20.20.2 fails, all are dev-only (the jsdom tree), and the
+      # build path -- vite, rolldown, plugin-react -- accepts `^20.19.0`. But
+      # that is one patch line of headroom, and it runs out at whatever moment
+      # vite next drops 20, which would be a release-day failure in the one
+      # workflow no PR exercises.
+      #
+      # The reason to move now is drift, not breakage. ci.yml validates on 24;
+      # leaving this on 20 means a regression that only appears on 20 is
+      # invisible until a release. That is the same version split that made a
+      # jsdom 30 failure look like a library incompatibility for three months,
+      # just relocated from local-vs-CI to CI-vs-release.
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
 
@@ -290,7 +305,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
 
@@ -399,7 +414,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
 
@@ -509,7 +524,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
 
