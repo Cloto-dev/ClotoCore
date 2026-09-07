@@ -4539,6 +4539,18 @@
       "status": "fixed",
       "notes": "Found by comparing this script against the three sibling implementations that grew from the same original: each had hardened against a different failure and none had converged. The registry carried no empty pattern at the time, so the defect was latent rather than active. FIXED: an entry whose pattern is empty is refused before the file is opened — no file content can make an empty pattern meaningful — and counted as an error, so the run cannot end green with such an entry in the registry. The entry above pins the guard: deleting it makes this row STALE and the Issue Registry job red.",
       "github_issue": 546
+    },
+    {
+      "id": "bug-511",
+      "summary": "MEDIUM: verify-issues.sh reported success for a registry that declares zero entries. The extractor indexes data['issues'], so a missing key raises and a malformed file fails to parse -- but a file carrying a literal empty list produced no rows, no error, and reached the `total -eq 0` early return, which printed 'No issues found in registry' and exited 0. A registry with no entries verifies nothing, so that is the same fail-open shape as bug-494: the gate reporting success at the moment it lost its subject. A registry gets there by being truncated or overwritten, which is exactly when the gate is most needed. Measured on 2026-09-08: a registry of {\"issues\": []} exited 0 before this change and 1 after.",
+      "severity": "MEDIUM",
+      "discovered": "2026-09-08T00:00:00Z",
+      "version": "0.6.8",
+      "file": "scripts/verify-issues.sh",
+      "pattern": "Registry declares zero issues",
+      "expected": "present",
+      "status": "fixed",
+      "notes": "Distinct from the legitimate empty selection, which still passes: `--filter open` against a registry holding nothing open is a real answer about a registry that WAS read, and it exits 0 as before -- measured both ways. That branch now names which question got the empty answer ('No issues matched this run (registry holds N)') rather than saying the registry is empty when it is not. FIXED: the row-count trailer emitted by the extractor is checked for zero after the transport reconciliation and before the bucket accounting, so an empty registry fails rather than reaching the early return. bug-511 pins the message: deleting the guard makes this row STALE and the Issue Registry job red."
     }
   ]
 }
