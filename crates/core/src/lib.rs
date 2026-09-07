@@ -401,6 +401,66 @@ fn recoverable_corrupt_db_path(
     path.exists().then(|| path.to_path_buf())
 }
 
+/// Rename `from` to `to`, retrying while the old owner still holds the file
+/// open.
+///
+/// Windows refuses to rename a file with a live handle
+/// (`ERROR_SHARING_VIOLATION`, `os error 32`), and the handle we are racing is
+/// one we cannot wait on: sqlx opens the SQLite file on a per-connection worker
+/// thread, and a connection that fails its setup PRAGMAs — which is exactly how
+/// a corrupt DB reports itself — is *dropped*, not closed. Drop cannot await, so
+/// `sqlite3_close` lands on that worker thread some time after the error has
+/// already been handed back to us. There is no completion to synchronise on, so
+/// the close is waited out instead. POSIX renames over open handles, which is
+/// why this only ever bit Windows.
+///
+/// Bounded: after ~2 s the error is returned unchanged, so a genuinely locked
+/// file (AV scanner, another running instance) still reports rather than hangs.
+fn rename_waiting_for_release(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    const ATTEMPTS: u32 = 40;
+    const BACKOFF: std::time::Duration = std::time::Duration::from_millis(50);
+
+    retry_while_sharing_violation(ATTEMPTS, BACKOFF, || std::fs::rename(from, to))
+}
+
+/// Run `op`, retrying it while it reports the file as still open elsewhere.
+///
+/// The retry policy is a parameter rather than a constant so it can be driven
+/// from a test: on POSIX the sharing violation this exists for cannot be
+/// produced at all, and a retry loop that no platform exercises is
+/// indistinguishable from one that never retries.
+fn retry_while_sharing_violation<F>(
+    attempts: u32,
+    backoff: std::time::Duration,
+    mut op: F,
+) -> std::io::Result<()>
+where
+    F: FnMut() -> std::io::Result<()>,
+{
+    debug_assert!(attempts >= 1, "at least one attempt must be made");
+    for attempt in 1..=attempts {
+        match op() {
+            Ok(()) => return Ok(()),
+            // Every attempt but the last is a candidate for retry; the last
+            // error is returned as-is so the caller's context still describes it.
+            Err(e) if attempt < attempts && is_sharing_violation(&e) => {
+                std::thread::sleep(backoff);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!("the final attempt returns either Ok or Err")
+}
+
+/// Whether `e` is the "someone else still has this file open" class that a
+/// pending close can clear. Windows reports it as `os error 32`
+/// (`ERROR_SHARING_VIOLATION`); `PermissionDenied` is what Rust maps it to.
+/// Other errors (missing file, cross-device, a real ACL denial) are permanent
+/// here and must not be retried.
+fn is_sharing_violation(e: &std::io::Error) -> bool {
+    e.raw_os_error() == Some(32) || e.kind() == std::io::ErrorKind::PermissionDenied
+}
+
 /// Rename a corrupt SQLite DB file — and its `-wal` / `-shm` sidecars — aside
 /// with a timestamped `.corrupt-<ts>.bak` suffix so a fresh DB can be created
 /// in its place. **Never deletes** (Destructive DB rule): the unreadable data
@@ -412,14 +472,18 @@ fn quarantine_corrupt_db(db_path: &std::path::Path) -> std::io::Result<std::path
         .and_then(|s| s.to_str())
         .unwrap_or("cloto_memories.db");
     let backup = db_path.with_file_name(format!("{file_name}.corrupt-{ts}.bak"));
-    std::fs::rename(db_path, &backup)?;
+    rename_waiting_for_release(db_path, &backup)?;
     // Stale WAL/SHM sidecars would corrupt the freshly created DB — move them
-    // aside too (best-effort; their absence is fine).
+    // aside too (best-effort; their absence is fine). They are held by the same
+    // worker thread as the DB file, so they go through the same wait: the rename
+    // above having succeeded means the handles are already released, but a
+    // best-effort `rename` here would silently leave a stale WAL beside the new
+    // database if it lost the race on its own.
     for ext in ["-wal", "-shm"] {
         let side = std::path::PathBuf::from(format!("{}{ext}", db_path.display()));
         if side.exists() {
             let side_backup = std::path::PathBuf::from(format!("{}{ext}", backup.display()));
-            let _ = std::fs::rename(&side, &side_backup);
+            let _ = rename_waiting_for_release(&side, &side_backup);
         }
     }
     Ok(backup)
@@ -1760,4 +1824,85 @@ async fn bind_with_retry(
         }
     }
     unreachable!()
+}
+
+#[cfg(test)]
+mod quarantine_retry_tests {
+    use super::{is_sharing_violation, retry_while_sharing_violation};
+    use std::cell::Cell;
+    use std::io::{Error, ErrorKind};
+    use std::time::Duration;
+
+    const NO_WAIT: Duration = Duration::from_millis(0);
+
+    fn sharing_violation() -> Error {
+        // What Windows returns while another handle still has the file open.
+        Error::from_raw_os_error(32)
+    }
+
+    #[test]
+    fn retries_until_the_holder_releases_the_file() {
+        // The race this guards is a handle closing on another thread shortly
+        // after the error reaches us, so the second and third tries succeed.
+        let calls = Cell::new(0);
+        let result = retry_while_sharing_violation(5, NO_WAIT, || {
+            calls.set(calls.get() + 1);
+            if calls.get() < 3 {
+                Err(sharing_violation())
+            } else {
+                Ok(())
+            }
+        });
+        assert!(
+            result.is_ok(),
+            "a released file must be renamed, not reported"
+        );
+        assert_eq!(calls.get(), 3, "it must keep trying until the file is free");
+    }
+
+    #[test]
+    fn gives_up_after_the_bound_and_reports_the_last_error() {
+        // A file locked by something that never lets go (AV, a second instance)
+        // must surface, not hang.
+        let calls = Cell::new(0);
+        let result = retry_while_sharing_violation(4, NO_WAIT, || {
+            calls.set(calls.get() + 1);
+            Err(sharing_violation())
+        });
+        let err = result.expect_err("a permanently locked file must report");
+        assert_eq!(
+            err.raw_os_error(),
+            Some(32),
+            "the original error must survive"
+        );
+        assert_eq!(
+            calls.get(),
+            4,
+            "it must stop at the bound, not loop forever"
+        );
+    }
+
+    #[test]
+    fn a_non_sharing_error_is_returned_without_retrying() {
+        // Retrying a missing file or a real ACL denial only delays the report.
+        let calls = Cell::new(0);
+        let result = retry_while_sharing_violation(5, NO_WAIT, || {
+            calls.set(calls.get() + 1);
+            Err(Error::from(ErrorKind::NotFound))
+        });
+        assert!(result.is_err(), "an unrelated error must propagate");
+        assert_eq!(calls.get(), 1, "an unrelated error must not be retried");
+    }
+
+    #[test]
+    fn only_the_still_open_class_is_treated_as_retryable() {
+        assert!(is_sharing_violation(&sharing_violation()));
+        assert!(is_sharing_violation(&Error::from(
+            ErrorKind::PermissionDenied
+        )));
+        assert!(!is_sharing_violation(&Error::from(ErrorKind::NotFound)));
+        assert!(!is_sharing_violation(&Error::from(
+            ErrorKind::AlreadyExists
+        )));
+    }
 }
