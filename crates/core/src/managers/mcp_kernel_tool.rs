@@ -983,6 +983,37 @@ pub(super) async fn execute_health_status(
 /// disrupt a server another agent depends on (a shared memory / engine server →
 /// system-wide DoS). Independent of `yolo_mode`: YOLO relaxes approval, not
 /// cross-agent resource ownership.
+/// The servers this caller may reach: one Allow server-grant each.
+///
+/// Both shapes of the ownership gate read this. Asking "may I touch this one?"
+/// and asking "which ones may I see?" are the same question, and a listing that
+/// answered it its own way would be free to drift away from the check that
+/// guards the acting tools — which is how an enumeration ends up handing out
+/// the ids to objects its caller is refused any other access to.
+/// An unidentified caller holds none. The listing that reads this then shows
+/// nothing rather than everything, which is the safe direction and keeps a
+/// read-only tool reachable — the anti-spoofing shim forces `agent_id` on the
+/// authenticated path, and the acting tools refuse on their own when it is
+/// missing, so failing the listing here would only guard a case that leaks
+/// nothing while breaking one that is offered on every turn.
+async fn granted_servers(
+    manager: &McpClientManager,
+    args: &Value,
+) -> Result<std::collections::HashSet<String>> {
+    let Some(agent_id) = args.get("agent_id").and_then(|v| v.as_str()) else {
+        return Ok(std::collections::HashSet::new());
+    };
+    let entries = crate::db::get_access_entries_for_agent(manager.pool(), agent_id).await?;
+    Ok(entries
+        .into_iter()
+        .filter(|e| {
+            e.entry_type == crate::db::mcp::EntryType::ServerGrant
+                && e.permission == crate::db::mcp::PermissionLevel::Allow
+        })
+        .map(|e| e.server_id)
+        .collect())
+}
+
 async fn require_server_access(
     manager: &McpClientManager,
     args: &Value,
@@ -992,12 +1023,7 @@ async fn require_server_access(
         .get("agent_id")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow::anyhow!("Missing required parameter: agent_id"))?;
-    let entries = crate::db::get_access_entries_for_agent(manager.pool(), agent_id).await?;
-    let authorized = entries.iter().any(|e| {
-        e.server_id == server_id
-            && e.entry_type == crate::db::mcp::EntryType::ServerGrant
-            && e.permission == crate::db::mcp::PermissionLevel::Allow
-    });
+    let authorized = granted_servers(manager, args).await?.contains(server_id);
     if !authorized {
         return Err(anyhow::anyhow!(
             "Access denied: agent '{agent_id}' has no grant for server \
@@ -1303,14 +1329,25 @@ pub(super) async fn execute_events_replay(
     Ok(super::mcp_events::replay(manager, args).await?)
 }
 
-/// Execute mgp.events.pending_callbacks — list pending (unresponded) callbacks.
+/// Execute mgp.events.pending_callbacks — list the caller's pending callbacks.
+///
+/// Scoped to the servers the caller holds a grant for. Unscoped, this listing
+/// was the discovery half of a hijack: it handed out every outstanding callback
+/// id in the process, and `mgp.callback.respond` — which does check ownership —
+/// only ever sees an id, so the isolation the human-in-the-loop mechanism is
+/// meant to provide (MGP §13) depended on the ids being hard to come by.
+///
+/// A caller with no grants sees an empty list rather than an error: nothing is
+/// being refused, there is simply nothing addressed to it.
 pub(super) async fn execute_events_pending_callbacks(
     manager: &McpClientManager,
-    _args: Value,
+    args: Value,
 ) -> Result<Value> {
+    let granted = granted_servers(manager, &args).await?;
     let pending = manager.events.pending_callbacks();
     let items: Vec<Value> = pending
         .into_iter()
+        .filter(|(_, server_id, _, _, _)| granted.contains(server_id))
         .map(|(id, server_id, message, options, age_secs)| {
             serde_json::json!({
                 "callback_id": id,
@@ -2161,6 +2198,119 @@ mod ownership_gate_tests {
         assert_eq!(
             value.get("removed").and_then(serde_json::Value::as_bool),
             Some(false)
+        );
+    }
+
+    async fn grant(mgr: &McpClientManager, agent_id: &str, server_id: &str) {
+        crate::db::save_access_control_entry(
+            mgr.pool(),
+            &crate::db::AccessControlEntry {
+                id: None,
+                entry_type: crate::db::mcp::EntryType::ServerGrant,
+                agent_id: agent_id.to_string(),
+                server_id: server_id.to_string(),
+                tool_name: None,
+                permission: crate::db::mcp::PermissionLevel::Allow,
+                granted_by: Some("test".to_string()),
+                granted_at: chrono::Utc::now().to_rfc3339(),
+                expires_at: None,
+                justification: None,
+                metadata: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn pending_ids(mgr: &McpClientManager, agent_id: &str) -> Vec<String> {
+        let out =
+            execute_events_pending_callbacks(mgr, serde_json::json!({ "agent_id": agent_id }))
+                .await
+                .expect("enumeration should answer, not refuse");
+        out["pending"]
+            .as_array()
+            .expect("pending is a list")
+            .iter()
+            .map(|c| c["callback_id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// The discovery half of the hijack. Answering a callback is authorized
+    /// against its server, but the answer only ever names an opaque id — so
+    /// while this listing returned every outstanding callback in the process,
+    /// the isolation rested on the ids being hard to come by rather than on
+    /// anything checked.
+    #[tokio::test]
+    async fn a_caller_sees_only_the_pending_callbacks_it_could_answer() {
+        let mgr = manager().await;
+        assert!(mgr.events.register_callback(
+            "cb-mine",
+            "my.server",
+            "elicitation",
+            "pick one",
+            None,
+        ));
+        assert!(mgr.events.register_callback(
+            "cb-theirs",
+            "someone.elses.server",
+            "elicitation",
+            "pick one",
+            None,
+        ));
+        grant(&mgr, "agent.one_grant", "my.server").await;
+
+        assert_eq!(
+            pending_ids(&mgr, "agent.one_grant").await,
+            vec!["cb-mine".to_string()],
+            "the listing named a callback the caller has no grant for"
+        );
+
+        // The scoping hides it; it does not consume it. The callback its own
+        // server is waiting on must still be there to be answered.
+        assert!(mgr.events.callback_server("cb-theirs").is_some());
+    }
+
+    #[tokio::test]
+    async fn a_caller_with_no_grants_sees_an_empty_list_rather_than_an_error() {
+        let mgr = manager().await;
+        assert!(mgr.events.register_callback(
+            "cb-theirs",
+            "someone.elses.server",
+            "elicitation",
+            "pick one",
+            None,
+        ));
+
+        // Nothing is being refused here — there is simply nothing addressed to
+        // this caller, and an error would say something untrue about why.
+        assert!(pending_ids(&mgr, "agent.zero_grants").await.is_empty());
+    }
+
+    /// Refusing an unattributed listing was the first thing tried here, and
+    /// `capability_gate_test` caught it: `agent_id` is forced in by the
+    /// anti-spoofing shim, not by the registry, so a call arriving through the
+    /// registry carries none — and this tool is read-only and offered on every
+    /// turn. Showing nothing is the safe direction and keeps it reachable.
+    #[tokio::test]
+    async fn an_unattributed_listing_shows_nothing_rather_than_everything() {
+        let mgr = manager().await;
+        assert!(mgr.events.register_callback(
+            "cb-theirs",
+            "someone.elses.server",
+            "elicitation",
+            "pick one",
+            None,
+        ));
+
+        let out = execute_events_pending_callbacks(&mgr, serde_json::json!({}))
+            .await
+            .expect("a read-only listing must stay reachable");
+        assert!(
+            out["pending"]
+                .as_array()
+                .expect("pending is a list")
+                .is_empty(),
+            "an unidentified caller was shown someone else's callbacks: {out}"
         );
     }
 
