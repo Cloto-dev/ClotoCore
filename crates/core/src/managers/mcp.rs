@@ -17,6 +17,7 @@ use cloto_shared::ToolFailure;
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, RwLock};
@@ -48,6 +49,108 @@ fn clamp_instructions(text: &str, limit: usize) -> String {
     }
     let head: String = text.chars().take(limit).collect();
     format!("{head}… [truncated by the kernel at {limit} characters]")
+}
+
+/// The always-loaded files an agent may carry, in the order they are placed in
+/// the prompt. The list is fixed rather than a directory listing: the order a
+/// filesystem hands back its entries is not stable, and an unstable order
+/// defeats prompt caching and makes two dispatches impossible to diff — the
+/// same reason [`McpClientManager::compose_server_instructions`] sorts.
+const AGENT_INSTRUCTION_FILES: [&str; 3] = ["CLAUDE.md", "AGENTS.md", "MEMORY.md"];
+
+/// Per-file ceiling, matching the per-server allowance: one source's share of
+/// the prompt is one source's share, whoever wrote it.
+const AGENT_INSTRUCTIONS_PER_FILE_CHARS: usize = 3_000;
+
+/// Ceiling on the whole composed block — the three files above at full size.
+/// This text is the operator's own, so it is not bounded because it is
+/// untrusted; it is bounded because it rides on every dispatch.
+const AGENT_INSTRUCTIONS_TOTAL_CHARS: usize = 9_000;
+
+/// Whether `id` may be used as a single path segment.
+///
+/// The agent id becomes a directory name under the data dir, so an id that
+/// could climb out of it (`..`, a separator, a NUL) must never reach the
+/// filesystem. Ids are kernel-assigned (`agent.<name>`), so a rejection here
+/// means something upstream is wrong rather than that an operator picked an
+/// awkward name — which is why the caller treats it as "this agent has no
+/// instruction directory" instead of surfacing an error.
+fn is_safe_path_segment(id: &str) -> bool {
+    !id.is_empty()
+        && id != "."
+        && id != ".."
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Directory holding every agent's always-loaded instruction files.
+fn agent_instructions_root() -> PathBuf {
+    crate::config::data_dir().join("agents")
+}
+
+/// Compose an agent's always-loaded instruction block from `base/<agent_id>/`.
+///
+/// Returns `None` when the agent has no readable, non-empty instruction file —
+/// the common case, and the one that has to cost nothing.
+///
+/// Takes the base directory rather than reading [`crate::config::data_dir`]
+/// itself, so the composition can be tested against a temporary tree.
+async fn compose_agent_instructions_in(base: &Path, agent_id: &str) -> Option<String> {
+    if !is_safe_path_segment(agent_id) {
+        warn!(
+            agent_id,
+            "agent id is not usable as a path segment; no instruction files were read"
+        );
+        return None;
+    }
+    let dir = base.join(agent_id);
+
+    let mut sections: Vec<String> = Vec::new();
+    let mut used = 0usize;
+    let mut omitted = 0usize;
+    for name in AGENT_INSTRUCTION_FILES {
+        let Ok(text) = tokio::fs::read_to_string(dir.join(name)).await else {
+            continue;
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let body = clamp_instructions(text, AGENT_INSTRUCTIONS_PER_FILE_CHARS);
+        let cost = body.chars().count();
+        if used + cost > AGENT_INSTRUCTIONS_TOTAL_CHARS {
+            omitted += 1;
+            continue;
+        }
+        used += cost;
+        sections.push(format!("## {name}\n\n{body}"));
+    }
+
+    if sections.is_empty() {
+        return None;
+    }
+
+    let mut block = String::from(
+        "# Operator Instructions\n\n\
+         The following files were placed by your operator in this agent's \
+         instruction directory. Each section below names the file it came from.\n",
+    );
+    for section in sections {
+        block.push('\n');
+        block.push_str(&section);
+        block.push('\n');
+    }
+    if omitted > 0 {
+        use std::fmt::Write as _;
+        let plural = if omitted == 1 { "" } else { "s" };
+        let _ = write!(
+            block,
+            "\n({omitted} further instruction file{plural} did not fit the prompt \
+             budget and were left out.)\n"
+        );
+    }
+    Some(block)
 }
 
 /// Identity of the caller requesting a tool / engine execution, threaded into
@@ -232,8 +335,10 @@ impl McpClientManager {
     /// `serde_json::to_value(&agent)`, so everything added here reaches the
     /// Python `build_system_prompt` and nothing here is persisted.
     ///
-    /// Two enrichers today: the operator's response language, and the
-    /// instructions the connected servers supplied at handshake.
+    /// Three enrichers today: the operator's response language, the
+    /// instructions the connected servers supplied at handshake, and the
+    /// always-loaded files the operator placed in this agent's instruction
+    /// directory.
     pub async fn enrich_agent_for_dispatch(
         &self,
         agent: &cloto_shared::AgentMetadata,
@@ -255,6 +360,19 @@ impl McpClientManager {
             enriched
                 .metadata
                 .insert("mcp_server_instructions".to_string(), block);
+        }
+
+        // Placed after the server block on the rendering side, so that when the
+        // two disagree the operator's own files are the ones the model read
+        // last. The kernel owns this composition for the same reason it owns
+        // the server one: only the kernel knows where an agent's files live.
+        if let Some(block) =
+            compose_agent_instructions_in(&agent_instructions_root(), &agent.id).await
+        {
+            // `build_system_prompt` reads metadata["agent_instructions"].
+            enriched
+                .metadata
+                .insert("agent_instructions".to_string(), block);
         }
 
         enriched
@@ -4234,6 +4352,175 @@ mod tests {
             "a clipped instruction must say it was clipped, got tail: {}",
             &block[block.len().saturating_sub(120)..]
         );
+    }
+
+    // --- always-loaded operator instruction files -------------------------
+
+    /// Write `files` into `base/<agent_id>/` and return the composed block.
+    async fn compose_from(
+        base: &std::path::Path,
+        agent_id: &str,
+        files: &[(&str, &str)],
+    ) -> Option<String> {
+        let dir = base.join(agent_id);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, body) in files {
+            std::fs::write(dir.join(name), body).unwrap();
+        }
+        compose_agent_instructions_in(base, agent_id).await
+    }
+
+    /// The prompt has to be byte-identical across two dispatches that read the
+    /// same files, so the order is the declared one and never the filesystem's.
+    #[tokio::test]
+    async fn instruction_files_are_placed_in_the_declared_order() {
+        let base = tempfile::tempdir().unwrap();
+        // Written in an order that is not the declared one, so a directory
+        // listing would have a chance of preserving it.
+        let block = compose_from(
+            base.path(),
+            "agent.ordered",
+            &[
+                ("MEMORY.md", "memory body"),
+                ("AGENTS.md", "agents body"),
+                ("CLAUDE.md", "claude body"),
+            ],
+        )
+        .await
+        .expect("three readable files must compose");
+
+        let claude = block.find("## CLAUDE.md").expect("CLAUDE.md section");
+        let agents = block.find("## AGENTS.md").expect("AGENTS.md section");
+        let memory = block.find("## MEMORY.md").expect("MEMORY.md section");
+        assert!(
+            claude < agents && agents < memory,
+            "sections must follow AGENT_INSTRUCTION_FILES, got: {block}"
+        );
+    }
+
+    /// The overwhelmingly common case is an agent with no files at all, and it
+    /// must not put anything in the prompt.
+    #[tokio::test]
+    async fn an_agent_without_files_composes_nothing() {
+        let base = tempfile::tempdir().unwrap();
+        assert!(
+            compose_agent_instructions_in(base.path(), "agent.bare")
+                .await
+                .is_none(),
+            "a missing instruction directory must compose nothing"
+        );
+        // An empty directory, and a file with nothing but whitespace in it,
+        // are both "no instructions" rather than an empty section.
+        let block = compose_from(base.path(), "agent.blank", &[("CLAUDE.md", "   \n\t\n")]).await;
+        assert!(
+            block.is_none(),
+            "a whitespace-only file is not a section, got {block:?}"
+        );
+    }
+
+    /// An operator who pastes a huge file cannot spend the whole prompt, and
+    /// the clip says so rather than ending mid-sentence.
+    #[tokio::test]
+    async fn an_oversized_instruction_file_is_clamped_and_says_so() {
+        let base = tempfile::tempdir().unwrap();
+        // Multi-byte on purpose: the clamp counts characters, and a byte-wise
+        // cut through this text would not be valid UTF-8.
+        let flood: String = "あ".repeat(AGENT_INSTRUCTIONS_PER_FILE_CHARS + 500);
+        let block = compose_from(base.path(), "agent.verbose", &[("CLAUDE.md", &flood)])
+            .await
+            .expect("an oversized file still composes");
+        assert_eq!(
+            block.matches('あ').count(),
+            AGENT_INSTRUCTIONS_PER_FILE_CHARS,
+            "exactly the per-file allowance survives"
+        );
+        assert!(
+            block.contains("truncated by the kernel"),
+            "a clipped file must say it was clipped"
+        );
+    }
+
+    /// Dropping a file silently is the one failure a reader cannot detect, so
+    /// the block names how many it left out.
+    #[tokio::test]
+    async fn files_beyond_the_total_budget_are_named_as_left_out() {
+        let base = tempfile::tempdir().unwrap();
+        // Three files at the per-file ceiling exactly fill the total, so a
+        // fourth would not fit — but only three are ever read. Make each one
+        // large enough that the third cannot fit instead.
+        let big: String = "x".repeat(AGENT_INSTRUCTIONS_PER_FILE_CHARS);
+        let block = compose_from(
+            base.path(),
+            "agent.greedy",
+            &[
+                ("CLAUDE.md", &big),
+                ("AGENTS.md", &big),
+                ("MEMORY.md", &big),
+            ],
+        )
+        .await
+        .expect("the first files still compose");
+        assert!(
+            !block.contains("left out"),
+            "three files at the ceiling fit the total exactly"
+        );
+
+        // Push one over: now the last file cannot fit and must be announced.
+        let over = format!("{big}yyy");
+        let block = compose_from(
+            base.path(),
+            "agent.overflowing",
+            &[
+                ("CLAUDE.md", &over),
+                ("AGENTS.md", &over),
+                ("MEMORY.md", &over),
+            ],
+        )
+        .await
+        .expect("the files that fit still compose");
+        assert!(
+            block.contains("did not fit the prompt"),
+            "an omitted file must be announced, got tail: {}",
+            &block[block.len().saturating_sub(200)..]
+        );
+    }
+
+    /// The agent id becomes a directory name, so an id carrying `..` must not
+    /// reach the filesystem. The sibling file is deliberately readable through
+    /// a legitimate id, so this test fails if the guard is removed rather than
+    /// passing because the file was missing.
+    #[tokio::test]
+    async fn an_agent_id_that_could_escape_the_root_reads_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("agents");
+        std::fs::create_dir_all(&base).unwrap();
+
+        // A file outside `base`, reachable only by climbing out of it.
+        let outside = root.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("CLAUDE.md"), "escaped content").unwrap();
+
+        assert!(
+            compose_agent_instructions_in(&base, "../outside")
+                .await
+                .is_none(),
+            "an id containing `..` must not be turned into a path"
+        );
+        for hostile in ["..", ".", "", "a/b", "a\\b", "agent\u{0}null"] {
+            assert!(
+                compose_agent_instructions_in(&base, hostile)
+                    .await
+                    .is_none(),
+                "id {hostile:?} must be refused as a path segment"
+            );
+        }
+
+        // The same bytes are reachable under a legitimate id — so the
+        // assertions above are about the guard, not about an absent file.
+        let reachable = compose_from(&base, "agent.legit", &[("CLAUDE.md", "escaped content")])
+            .await
+            .expect("a well-formed id reads its own directory");
+        assert!(reachable.contains("escaped content"));
     }
 
     #[tokio::test]
