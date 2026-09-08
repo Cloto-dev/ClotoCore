@@ -403,10 +403,47 @@ def check_document(path: Path, counts: dict[str, int], versions: dict[str, str],
             )
 
 
+def check_release_title(version: str | None) -> None:
+    """The changelog section for the current version must declare a title.
+
+    The release workflow composes the GitHub Release title from that
+    declaration and refuses to publish without it. Checked here as well so the
+    requirement lands on the pull request that bumps the version, rather than
+    on the person cutting the release — by then the fix is a commit on top of a
+    tag that has already frozen the tree.
+
+    Skipped when the changelog has no section for the version yet: between a
+    release and the next bump that is the normal state, and failing on it would
+    make the gate red for a condition nobody can act on.
+    """
+    if version is None:
+        return
+    changelog = ROOT / "docs" / "CHANGELOG.md"
+    if not changelog.is_file():
+        fail("docs/CHANGELOG.md is missing — release titles are declared there")
+        return
+    text = changelog.read_text(encoding="utf-8")
+    if not re.search(rf"^## \[{re.escape(version)}\]", text, re.M):
+        return
+    sys.path.insert(0, str(ROOT / "scripts"))
+    try:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "release_title", ROOT / "scripts" / "release-title.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        module.compose(text, version)
+    except Exception as e:  # noqa: BLE001 - the message is the point
+        fail(f"docs/CHANGELOG.md: {e}")
+
+
 def main() -> int:
     counts = measured_test_counts()
     cross_check_against_ratchet(counts)
     versions = measured_versions()
+    check_release_title(versions.get("current"))
     env_defaults, env_seen = measured_env()
 
     if not env_seen:

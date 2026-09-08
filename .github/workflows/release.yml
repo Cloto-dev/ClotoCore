@@ -182,6 +182,14 @@ jobs:
             exit 1
           fi
 
+      # The release title is composed from the changelog section for this
+      # version, and the Create Release step cannot run without it. Checked
+      # here, in the first job, so a missing declaration costs seconds rather
+      # than three platforms' worth of builds.
+      - name: Validate the changelog declares a release title
+        shell: bash
+        run: python3 scripts/release-title.py --version "${{ steps.version.outputs.version }}"
+
       - name: Install cross
         if: matrix.cross
         run: cargo install cross --git https://github.com/cross-rs/cross
@@ -633,6 +641,21 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
 
+      # `<version> — <sentence>`, no `v` prefix: the tag keeps its `v` because
+      # the installer and the asset names are built from it, while the title is
+      # read by people. The sentence is declared in the changelog section for
+      # this version; see scripts/release-title.py for why it is not extracted
+      # from the prose.
+      - name: Compose release title
+        id: title
+        run: |
+          TITLE=$(python3 scripts/release-title.py --version "${{ steps.version.outputs.version }}")
+          # Single-line assignment is safe because the composer refuses a title
+          # that spans lines; a multi-line value here would need a heredoc
+          # delimiter and would silently truncate without one.
+          echo "title=${TITLE}" >> "$GITHUB_OUTPUT"
+          echo "Release title: ${TITLE}"
+
       - name: Download all artifacts
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
@@ -889,7 +912,7 @@ jobs:
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: "v${{ steps.version.outputs.version }}"
+          name: ${{ steps.title.outputs.title }}
           draft: false
           # A semver version is a pre-release exactly when it carries a
           # pre-release component, i.e. when it contains a hyphen. Naming the
@@ -909,6 +932,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # No `name:` here on purpose. This step updates the release the step
+      # above created, and the action's update path resolves the name as
+      # `config.input_name || existingRelease.name || tag` (src/github.ts at the
+      # pinned sha) — so omitting it keeps the title, while a second copy of the
+      # expression would be a second place to keep in step. That reading is safe
+      # to rely on only because the action is pinned by sha: it cannot change
+      # under us without a deliberate bump. Until the title differed from the
+      # tag this was unobservable, since both resolutions produced `v<version>`.
       - name: Append latest.json (auto-update indicator, after all binaries)
         if: github.event.inputs.draft_only != 'true' && hashFiles('release-indicator/latest.json') != ''
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v2

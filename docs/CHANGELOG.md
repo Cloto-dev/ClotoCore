@@ -8,6 +8,7 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 ---
 
 ## [0.6.9-a.1] — 2026-09-08
+<!-- release-title: an agent gets files it always reads, and skills it loads when it needs them -->
 
 The first pre-release of the 0.6.9 line, and the first to use the shortened
 spelling: `0.6.9-a.1` where the 0.6.8 line wrote `0.6.8-alpha.1`. The stage and

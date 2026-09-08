@@ -322,6 +322,12 @@ jobs:
         # for documentation drift that only fires on documentation edits
         # cannot see the edit that caused the drift.
         run: python3 scripts/check-docs-facts.py
+      - name: Self-test the release-title composer
+        # The gate above uses this script to check the changelog declares a
+        # title, and release.yml uses it to compose one. A script that decides
+        # what gets published needs its own rules checked on every pull
+        # request, not only on the day of a release.
+        run: python3 scripts/release-title.py --selftest
 
   nsis-hook-gate:
     name: NSIS Hook Gate
