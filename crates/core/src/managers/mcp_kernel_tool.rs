@@ -7,7 +7,14 @@
 //! gate can dispatch them with a single prefix check instead of carrying a
 //! hand-maintained allowlist (closes bug-287).
 
-use super::mcp::McpClientManager;
+use super::mcp::{Caller, McpClientManager};
+
+/// MGP-prefixed name for the kernel-native skill loader.
+///
+/// A `pub` constant for the same reason as the one below: the dispatcher, the
+/// schema gate and the tests should reference one symbol rather than repeat a
+/// wire name three times.
+pub const TOOL_NAME_SKILL_LOAD: &str = "mgp.skill.load";
 
 /// MGP-prefixed name for the kernel-native MCP server creation tool.
 /// Kept as a `pub` constant so callers across the kernel (dispatcher, agentic
@@ -21,7 +28,7 @@ use super::mcp_tool_validator::{
 use cloto_shared::{RejectionCode, ToolFailure, ToolRejection};
 use serde_json::Value;
 use std::sync::atomic::Ordering;
-use tracing::info;
+use tracing::{info, warn};
 
 /// Local alias shadowing `anyhow::Result`. Kernel tool functions return
 /// `Result<Value>` = `std::result::Result<Value, ToolFailure>` so that
@@ -92,6 +99,85 @@ pub(super) fn llm_meta_tool_schemas() -> Vec<Value> {
         super::mcp_tool_discovery::tools_discover_schema(),
         super::mcp_tool_discovery::tools_request_schema(),
     ]
+}
+
+/// Schema for the kernel-native skill loader.
+///
+/// Not part of [`kernel_tool_schemas`]: those are privileged tools gated on
+/// YOLO mode, and reading a file the operator wrote for this agent is not a
+/// privilege. It is injected per agent, and only when that agent has a skill to
+/// load — see `McpClientManager::collect_tool_schemas_for_agent`.
+pub(super) fn skill_load_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": TOOL_NAME_SKILL_LOAD,
+            "description": "Read one of your operator's skills in full. The skills available to you, \
+                            and what each is for, are listed under 'Skills' in your instructions; \
+                            this returns the procedure itself. Follow what it returns rather than \
+                            acting on the one-line description alone.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "skill_id": {
+                        "type": "string",
+                        "description": "The id of the skill to load, exactly as it appears in the Skills list."
+                    }
+                },
+                "required": ["skill_id"]
+            }
+        }
+    })
+}
+
+/// Execute `mgp.skill.load` — return one skill's body to the agent that asked.
+///
+/// The agent is the caller, never an argument: an `agent_id` parameter would be
+/// a way to read another agent's skills, and nothing about this tool needs one.
+/// [`Caller::System`] has no skill directory, so it gets the same "not found"
+/// answer as an unknown id rather than a special case.
+///
+/// An unknown id returns `found: false` plus the ids that do exist rather than
+/// an error, following `mgp.health.status`: the model can correct itself on the
+/// next turn, which an error string does not let it do.
+pub(super) async fn execute_skill_load(caller: &Caller, args: Value) -> Result<Value> {
+    let skill_id = args
+        .get("skill_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: skill_id"))?;
+
+    let Caller::Agent(agent_id) = caller else {
+        return Ok(serde_json::json!({
+            "skill_id": skill_id,
+            "found": false,
+            "available": Vec::<String>::new(),
+            "detail": "Skills belong to an agent, and this call was not made by one.",
+        }));
+    };
+
+    let root = super::mcp::agent_instructions_root();
+    if let Some(content) =
+        super::mcp_agent_skills::read_skill_body_in(&root, agent_id, skill_id).await
+    {
+        info!(agent_id, skill_id, "skill loaded");
+        return Ok(serde_json::json!({
+            "skill_id": skill_id,
+            "found": true,
+            "content": content,
+        }));
+    }
+
+    let available: Vec<String> = super::mcp_agent_skills::list_skills_in(&root, agent_id)
+        .await
+        .into_iter()
+        .map(|s| s.id)
+        .collect();
+    warn!(agent_id, skill_id, "no such skill");
+    Ok(serde_json::json!({
+        "skill_id": skill_id,
+        "found": false,
+        "available": available,
+    }))
 }
 
 fn access_query_schema() -> Value {

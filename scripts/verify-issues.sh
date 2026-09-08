@@ -99,7 +99,7 @@ fi
 # the data again, and the accounting check after the loop catches any other
 # route by which a row could reach no check at all.
 if ! PYTHONUTF8=1 $PYTHON_CMD -c "
-import json, sys
+import json, os, sys
 sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 SEP = '\x1f'
 FIELDS = ('id', 'severity', 'file', 'pattern', 'expected', 'status', 'summary')
@@ -111,6 +111,33 @@ FORBIDDEN = (
 )
 with open('$_REGISTRY_PY', encoding='utf-8') as f:
     data = json.load(f)
+
+# The registry names the document that describes its shape. Nothing read that
+# field for months, and the path it held pointed at a file this repository does
+# not contain, so the pointer was free to be wrong in the one way that matters:
+# a reader following it arrived nowhere. It is repo-relative on purpose -- a URL
+# cannot be checked from here, and a sibling registry's URL had already rotted
+# into a 404 while its own gate stayed green.
+schema_rel = data.get('\$schema')
+if not schema_rel:
+    sys.exit(
+        'registry names no \$schema. That field is the only pointer from the data to '
+        'the document saying what its shape is; without it the shape is whatever the '
+        'reader assumes'
+    )
+if '://' in schema_rel or os.path.isabs(schema_rel):
+    sys.exit(
+        '\$schema is {!r}; it must be a path relative to the repository root, because '
+        'that is the only form this check can follow'.format(schema_rel)
+    )
+_root = os.path.dirname(os.path.dirname(os.path.abspath('$_REGISTRY_PY')))
+_schema = os.path.normpath(os.path.join(_root, schema_rel))
+if not (_schema.startswith(_root + os.sep) and os.path.isfile(_schema)):
+    sys.exit(
+        '\$schema points at {!r}, which is not a file in this repository'
+        .format(schema_rel)
+    )
+
 issues = data['issues']
 for index, issue in enumerate(issues):
     row = []
@@ -153,6 +180,20 @@ while IFS=$'\037' read -r id severity file pattern expected status summary; do
     fi
 
     total=$((total + 1))
+
+    # An empty pattern is not a check. `grep -c ""` matches every line, so an
+    # entry carrying one is reported VERIFIED against a file whose contents were
+    # never consulted -- the same shape as bug-494 and bug-509 before it: a row
+    # that passes without being checked. It is refused before the file is opened,
+    # because no file content can make an empty pattern meaningful, and counted
+    # as an error so the run cannot end green with it in the registry.
+    if [[ -z "$pattern" ]]; then
+        echo -e "  ${RED}[ERROR]${NC} $id ($severity): empty verification pattern"
+        echo -e "           An empty pattern matches every line — this entry would pass without checking anything"
+        errors=$((errors + 1))
+        continue
+    fi
+
     full_path="$PROJECT_ROOT/$file"
 
     # Check file exists
@@ -216,6 +257,22 @@ elif [[ "$rows_read" -ne "$declared_count" ]]; then
     errors=$((errors + 1))
 fi
 
+# A registry that declares no entries verifies nothing. The extractor indexes
+# `data['issues']`, so a missing key already raises; reaching here with a count
+# of zero means the file itself declares an empty list — a truncated or
+# overwritten registry, not a clean bill of health. Without this, that file took
+# the `total -eq 0` early return below and exited 0, which is the same fail-open
+# shape as bug-494: the gate reporting success at the moment it lost its subject.
+# Distinct from the `total -eq 0` case, which is a real answer about a registry
+# that was read — `--filter open` against a registry with nothing open.
+if [[ "$declared_count" == "0" ]]; then
+    echo ""
+    echo -e "${RED}[ERROR]${NC} Registry declares zero issues."
+    echo -e "         A registry with no entries verifies nothing, so this is reported"
+    echo -e "         as a failure rather than as nothing-to-check."
+    exit 1
+fi
+
 # Every entry counted in `total` must have landed in exactly one bucket. The
 # trailer check above proves the rows arrived; this proves they were checked.
 # bug-509 satisfied the trailer check and exited 0 precisely because a dropped
@@ -246,7 +303,9 @@ fi
 
 if [[ $total -eq 0 ]]; then
     echo ""
-    echo -e "${YELLOW}No issues found in registry.${NC}"
+    # Name which question got the empty answer: the registry WAS read and holds
+    # $declared_count entries; none of them survived the filter / obsolete skip.
+    echo -e "${YELLOW}No issues matched this run (registry holds $declared_count).${NC}"
     exit 0
 fi
 

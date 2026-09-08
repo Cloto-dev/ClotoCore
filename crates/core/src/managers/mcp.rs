@@ -17,6 +17,7 @@ use cloto_shared::ToolFailure;
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex, RwLock};
@@ -42,12 +43,114 @@ const INSTRUCTIONS_TOTAL_CHARS: usize = 9_000;
 /// Truncate `text` to at most `limit` characters, marking the cut so a reader
 /// can tell a clipped instruction from a short one. Counts characters, not
 /// bytes: instructions are prose and are routinely not ASCII.
-fn clamp_instructions(text: &str, limit: usize) -> String {
+pub(super) fn clamp_instructions(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text.to_string();
     }
     let head: String = text.chars().take(limit).collect();
     format!("{head}… [truncated by the kernel at {limit} characters]")
+}
+
+/// The always-loaded files an agent may carry, in the order they are placed in
+/// the prompt. The list is fixed rather than a directory listing: the order a
+/// filesystem hands back its entries is not stable, and an unstable order
+/// defeats prompt caching and makes two dispatches impossible to diff — the
+/// same reason [`McpClientManager::compose_server_instructions`] sorts.
+const AGENT_INSTRUCTION_FILES: [&str; 3] = ["CLAUDE.md", "AGENTS.md", "MEMORY.md"];
+
+/// Per-file ceiling, matching the per-server allowance: one source's share of
+/// the prompt is one source's share, whoever wrote it.
+const AGENT_INSTRUCTIONS_PER_FILE_CHARS: usize = 3_000;
+
+/// Ceiling on the whole composed block — the three files above at full size.
+/// This text is the operator's own, so it is not bounded because it is
+/// untrusted; it is bounded because it rides on every dispatch.
+const AGENT_INSTRUCTIONS_TOTAL_CHARS: usize = 9_000;
+
+/// Whether `id` may be used as a single path segment.
+///
+/// The agent id becomes a directory name under the data dir, so an id that
+/// could climb out of it (`..`, a separator, a NUL) must never reach the
+/// filesystem. Ids are kernel-assigned (`agent.<name>`), so a rejection here
+/// means something upstream is wrong rather than that an operator picked an
+/// awkward name — which is why the caller treats it as "this agent has no
+/// instruction directory" instead of surfacing an error.
+pub(super) fn is_safe_path_segment(id: &str) -> bool {
+    !id.is_empty()
+        && id != "."
+        && id != ".."
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+}
+
+/// Directory holding every agent's always-loaded instruction files.
+pub(super) fn agent_instructions_root() -> PathBuf {
+    crate::config::data_dir().join("agents")
+}
+
+/// Compose an agent's always-loaded instruction block from `base/<agent_id>/`.
+///
+/// Returns `None` when the agent has no readable, non-empty instruction file —
+/// the common case, and the one that has to cost nothing.
+///
+/// Takes the base directory rather than reading [`crate::config::data_dir`]
+/// itself, so the composition can be tested against a temporary tree.
+async fn compose_agent_instructions_in(base: &Path, agent_id: &str) -> Option<String> {
+    if !is_safe_path_segment(agent_id) {
+        warn!(
+            agent_id,
+            "agent id is not usable as a path segment; no instruction files were read"
+        );
+        return None;
+    }
+    let dir = base.join(agent_id);
+
+    let mut sections: Vec<String> = Vec::new();
+    let mut used = 0usize;
+    let mut omitted = 0usize;
+    for name in AGENT_INSTRUCTION_FILES {
+        let Ok(text) = tokio::fs::read_to_string(dir.join(name)).await else {
+            continue;
+        };
+        let text = text.trim();
+        if text.is_empty() {
+            continue;
+        }
+        let body = clamp_instructions(text, AGENT_INSTRUCTIONS_PER_FILE_CHARS);
+        let cost = body.chars().count();
+        if used + cost > AGENT_INSTRUCTIONS_TOTAL_CHARS {
+            omitted += 1;
+            continue;
+        }
+        used += cost;
+        sections.push(format!("## {name}\n\n{body}"));
+    }
+
+    if sections.is_empty() {
+        return None;
+    }
+
+    let mut block = String::from(
+        "# Operator Instructions\n\n\
+         The following files were placed by your operator in this agent's \
+         instruction directory. Each section below names the file it came from.\n",
+    );
+    for section in sections {
+        block.push('\n');
+        block.push_str(&section);
+        block.push('\n');
+    }
+    if omitted > 0 {
+        use std::fmt::Write as _;
+        let plural = if omitted == 1 { "" } else { "s" };
+        let _ = write!(
+            block,
+            "\n({omitted} further instruction file{plural} did not fit the prompt \
+             budget and were left out.)\n"
+        );
+    }
+    Some(block)
 }
 
 /// Identity of the caller requesting a tool / engine execution, threaded into
@@ -232,8 +335,10 @@ impl McpClientManager {
     /// `serde_json::to_value(&agent)`, so everything added here reaches the
     /// Python `build_system_prompt` and nothing here is persisted.
     ///
-    /// Two enrichers today: the operator's response language, and the
-    /// instructions the connected servers supplied at handshake.
+    /// Four enrichers today: the operator's response language, the
+    /// instructions the connected servers supplied at handshake, the
+    /// always-loaded files the operator placed in this agent's instruction
+    /// directory, and the index of the skills placed alongside them.
     pub async fn enrich_agent_for_dispatch(
         &self,
         agent: &cloto_shared::AgentMetadata,
@@ -255,6 +360,32 @@ impl McpClientManager {
             enriched
                 .metadata
                 .insert("mcp_server_instructions".to_string(), block);
+        }
+
+        // Placed after the server block on the rendering side, so that when the
+        // two disagree the operator's own files are the ones the model read
+        // last. The kernel owns this composition for the same reason it owns
+        // the server one: only the kernel knows where an agent's files live.
+        if let Some(block) =
+            compose_agent_instructions_in(&agent_instructions_root(), &agent.id).await
+        {
+            // `build_system_prompt` reads metadata["agent_instructions"].
+            enriched
+                .metadata
+                .insert("agent_instructions".to_string(), block);
+        }
+
+        // The index of what the agent could load, as opposed to what it always
+        // carries. Composed here rather than left to the renderer for the same
+        // reason as the two blocks above: only the kernel knows where an
+        // agent's files live. The bodies stay on disk until `mgp.skill.load`
+        // asks for one — an index line is what choosing costs, and choosing is
+        // all this block is for.
+        let skills =
+            super::mcp_agent_skills::list_skills_in(&agent_instructions_root(), &agent.id).await;
+        if let Some(block) = super::mcp_agent_skills::compose_skill_index(&skills) {
+            // `build_system_prompt` reads metadata["agent_skills"].
+            enriched.metadata.insert("agent_skills".to_string(), block);
         }
 
         enriched
@@ -2058,6 +2189,24 @@ impl McpClientManager {
     /// Deduplicates tool names — if multiple servers provide the same tool name,
     /// only the first encountered is included (bug-341).
     pub async fn collect_tool_schemas_for_agent(&self, agent_id: &str) -> Vec<Value> {
+        // Resolved before the state lock is taken: this reads the filesystem,
+        // and the lock is not held across I/O here for the same reason
+        // `compose_server_instructions` does not hold it across the grant
+        // lookups.
+        let offers_skills =
+            !super::mcp_agent_skills::list_skills_in(&agent_instructions_root(), agent_id)
+                .await
+                .is_empty()
+                && !matches!(
+                    crate::db::resolve_explicit_permission(
+                        &self.pool,
+                        agent_id,
+                        "kernel",
+                        super::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                    )
+                    .await,
+                    Ok(Some(crate::db::mcp::PermissionLevel::Deny))
+                );
         let state = self.state.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
             // L2: Filter kernel tools by per-agent RBAC (server_id="kernel").
@@ -2089,6 +2238,13 @@ impl McpClientManager {
         };
         // §16: Always include LLM meta-tools for dynamic discovery
         schemas.extend(super::mcp_kernel_tool::llm_meta_tool_schemas());
+        // The skill loader is offered only to an agent that has skills. The
+        // schema and the index in the system prompt come from the same scan, so
+        // an agent with nothing to load is never told about a tool whose only
+        // honest answer would be "no such skill".
+        if offers_skills {
+            schemas.push(super::mcp_kernel_tool::skill_load_schema());
+        }
         // Track seen tool names to prevent duplicates sent to LLM (bug-341)
         let mut seen_tool_names: std::collections::HashSet<String> = schemas
             .iter()
@@ -2273,6 +2429,10 @@ impl McpClientManager {
             }
             "mgp.tools.session.evict" => {
                 return super::mcp_tool_discovery::execute_tools_session_evict(self, args).await;
+            }
+            // Operator-authored skills
+            super::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD => {
+                return super::mcp_kernel_tool::execute_skill_load(caller, args).await;
             }
             // Inter-agent delegation
             "mgp.agent.ask" => {
@@ -4192,6 +4352,258 @@ mod tests {
         );
     }
 
+    /// A scratch skill directory under the **real** [`agent_instructions_root`].
+    ///
+    /// The composition itself is tested against a temporary tree in
+    /// `mcp_agent_skills`. These tests are about the wiring instead, so they
+    /// must not hand the production code a base of their own: a test that did
+    /// would stay green with the enricher pointed at the wrong root, which is
+    /// the one mistake only the wiring can make. The id carries the process id
+    /// so parallel test binaries cannot collide, and cannot be mistaken for a
+    /// real agent.
+    struct ScratchSkills {
+        agent_id: String,
+        dir: PathBuf,
+    }
+
+    impl ScratchSkills {
+        fn new(tag: &str) -> Self {
+            let agent_id = format!("agent.test-skills-{}-{tag}", std::process::id());
+            let dir = agent_instructions_root().join(&agent_id);
+            Self { agent_id, dir }
+        }
+
+        fn write(&self, skill_id: &str, description: &str, body: &str) {
+            let dir = self.dir.join("skills").join(skill_id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("SKILL.md"),
+                format!("---\ndescription: {description}\n---\n\n{body}\n"),
+            )
+            .unwrap();
+        }
+    }
+
+    impl Drop for ScratchSkills {
+        fn drop(&mut self) {
+            // Only the directory this test created, and only if it is there.
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    async fn skills_manager() -> McpClientManager {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let manager = McpClientManager::new(pool, false, 120, 30);
+        manager
+            .configure_response_language(false, String::new())
+            .await;
+        manager
+    }
+
+    fn tool_names(schemas: &[Value]) -> Vec<String> {
+        schemas
+            .iter()
+            .filter_map(|s| {
+                s.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    .map(String::from)
+            })
+            .collect()
+    }
+
+    /// The index and the loader come from one scan, so they arrive together or
+    /// not at all. An agent with no skills pays for neither — which is the
+    /// whole reason the body is not always-loaded in the first place.
+    #[tokio::test]
+    async fn the_index_and_the_loader_arrive_together_and_only_with_skills() {
+        const KEY: &str = "agent_skills";
+
+        let scratch = ScratchSkills::new("pair");
+        scratch.write(
+            "release",
+            "cut a release the way this operator does",
+            "1. tag",
+        );
+        let manager = skills_manager().await;
+
+        let enriched = manager
+            .enrich_agent_for_dispatch(&bare_agent(&scratch.agent_id))
+            .await;
+        let index = enriched
+            .metadata
+            .get(KEY)
+            .expect("build_system_prompt reads metadata[\"agent_skills\"]");
+        assert!(
+            index.contains("- release: cut a release the way this operator does"),
+            "the index must name the skill and what it is for, got: {index}"
+        );
+        assert!(
+            !index.contains("1. tag"),
+            "the body belongs behind the loader, not in every prompt: {index}"
+        );
+        assert!(
+            tool_names(
+                &manager
+                    .collect_tool_schemas_for_agent(&scratch.agent_id)
+                    .await
+            )
+            .contains(&crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD.to_string()),
+            "an agent with skills must be given the tool that loads them"
+        );
+
+        // An agent with no skill directory: neither half appears.
+        let bare = manager
+            .enrich_agent_for_dispatch(&bare_agent("agent.test-skills-none"))
+            .await;
+        assert!(!bare.metadata.contains_key(KEY));
+        assert!(
+            !tool_names(
+                &manager
+                    .collect_tool_schemas_for_agent("agent.test-skills-none")
+                    .await
+            )
+            .contains(&crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD.to_string()),
+            "a tool whose only honest answer is \"no such skill\" must not be offered"
+        );
+    }
+
+    /// Reading a file the operator wrote for this agent is not a privilege.
+    /// Filing the loader under the YOLO-gated set would take skills away from
+    /// every normally-configured agent, so that is pinned here rather than left
+    /// to whoever next edits the schema list.
+    #[test]
+    fn the_loader_is_not_gated_on_privileged_mode() {
+        let schema = crate::managers::mcp_kernel_tool::skill_load_schema();
+        assert_eq!(
+            schema["function"]["name"],
+            crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD
+        );
+        assert_eq!(schema["function"]["parameters"]["required"][0], "skill_id");
+        assert!(
+            !tool_names(&crate::managers::mcp_kernel_tool::kernel_tool_schemas())
+                .contains(&crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD.to_string()),
+            "the loader must not join the privileged set — it would then exist \
+             only in YOLO mode"
+        );
+    }
+
+    /// The caller decides whose skills are read. There is no `agent_id`
+    /// parameter, so a model cannot ask for another agent's directory, and a
+    /// hostile id is answered with the ids that do exist rather than with a
+    /// traversal.
+    #[tokio::test]
+    async fn a_skill_is_read_from_the_callers_own_directory() {
+        let mine = ScratchSkills::new("mine");
+        mine.write("deploy", "ships it", "## Steps\n\n1. build");
+        let theirs = ScratchSkills::new("theirs");
+        theirs.write("secret", "not yours", "the other agent's procedure");
+        let manager = skills_manager().await;
+
+        let loaded = manager
+            .execute_tool_internal(
+                &Caller::Agent(mine.agent_id.clone()),
+                crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                serde_json::json!({ "skill_id": "deploy" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(loaded["found"], true);
+        assert!(
+            loaded["content"].as_str().unwrap().starts_with("## Steps"),
+            "the procedure arrives without its frontmatter: {loaded}"
+        );
+
+        // Climbing to the other agent's directory reads nothing, and the answer
+        // names what this agent does have so the model can correct itself.
+        let hostile = manager
+            .execute_tool_internal(
+                &Caller::Agent(mine.agent_id.clone()),
+                crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                serde_json::json!({
+                    "skill_id": format!("../../{}/skills/secret", theirs.agent_id)
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hostile["found"], false);
+        assert_eq!(hostile["available"], serde_json::json!(["deploy"]));
+
+        // The same bytes are reachable to the agent they belong to, so the
+        // assertion above fails if the guard goes away rather than passing
+        // because there was nothing to find.
+        let theirs_own = manager
+            .execute_tool_internal(
+                &Caller::Agent(theirs.agent_id.clone()),
+                crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                serde_json::json!({ "skill_id": "secret" }),
+            )
+            .await
+            .unwrap();
+        assert!(theirs_own["content"]
+            .as_str()
+            .unwrap()
+            .contains("the other agent's procedure"));
+
+        // A kernel-internal caller has no skill directory to read.
+        let system = manager
+            .execute_tool_internal(
+                &Caller::System,
+                crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                serde_json::json!({ "skill_id": "deploy" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(system["found"], false);
+    }
+
+    /// The loader is a kernel tool, so it obeys the kernel's Deny-only RBAC:
+    /// an operator who revokes it revokes both halves, and the agent is not
+    /// left looking at an index it cannot act on.
+    #[tokio::test]
+    async fn an_explicit_deny_takes_away_the_loader_and_its_index_entry() {
+        let scratch = ScratchSkills::new("denied");
+        scratch.write("audit", "checks things", "look at it");
+        let manager = skills_manager().await;
+        // The grant row references a server by name; kernel tools hang off the
+        // synthetic 'kernel' server the same way they do in production.
+        register_server_row(&manager.pool, "kernel", "opt-in").await;
+        sqlx::query(
+            "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_at) \
+             VALUES ('tool_grant', ?, 'kernel', ?, 'deny', 't0')",
+        )
+        .bind(&scratch.agent_id)
+        .bind(crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD)
+        .execute(&manager.pool)
+        .await
+        .unwrap();
+
+        assert!(
+            !tool_names(
+                &manager
+                    .collect_tool_schemas_for_agent(&scratch.agent_id)
+                    .await
+            )
+            .contains(&crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD.to_string()),
+            "a denied tool must not be advertised"
+        );
+        assert!(
+            manager
+                .execute_tool_internal(
+                    &Caller::Agent(scratch.agent_id.clone()),
+                    crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                    serde_json::json!({ "skill_id": "audit" }),
+                )
+                .await
+                .is_err(),
+            "and the gate must refuse it if called anyway"
+        );
+    }
+
     /// A server that ignores the size guidance cannot spend the prompt budget
     /// it likes: the text is clipped, and the clip says so rather than ending
     /// mid-sentence as if the server had stopped there.
@@ -4234,6 +4646,175 @@ mod tests {
             "a clipped instruction must say it was clipped, got tail: {}",
             &block[block.len().saturating_sub(120)..]
         );
+    }
+
+    // --- always-loaded operator instruction files -------------------------
+
+    /// Write `files` into `base/<agent_id>/` and return the composed block.
+    async fn compose_from(
+        base: &std::path::Path,
+        agent_id: &str,
+        files: &[(&str, &str)],
+    ) -> Option<String> {
+        let dir = base.join(agent_id);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (name, body) in files {
+            std::fs::write(dir.join(name), body).unwrap();
+        }
+        compose_agent_instructions_in(base, agent_id).await
+    }
+
+    /// The prompt has to be byte-identical across two dispatches that read the
+    /// same files, so the order is the declared one and never the filesystem's.
+    #[tokio::test]
+    async fn instruction_files_are_placed_in_the_declared_order() {
+        let base = tempfile::tempdir().unwrap();
+        // Written in an order that is not the declared one, so a directory
+        // listing would have a chance of preserving it.
+        let block = compose_from(
+            base.path(),
+            "agent.ordered",
+            &[
+                ("MEMORY.md", "memory body"),
+                ("AGENTS.md", "agents body"),
+                ("CLAUDE.md", "claude body"),
+            ],
+        )
+        .await
+        .expect("three readable files must compose");
+
+        let claude = block.find("## CLAUDE.md").expect("CLAUDE.md section");
+        let agents = block.find("## AGENTS.md").expect("AGENTS.md section");
+        let memory = block.find("## MEMORY.md").expect("MEMORY.md section");
+        assert!(
+            claude < agents && agents < memory,
+            "sections must follow AGENT_INSTRUCTION_FILES, got: {block}"
+        );
+    }
+
+    /// The overwhelmingly common case is an agent with no files at all, and it
+    /// must not put anything in the prompt.
+    #[tokio::test]
+    async fn an_agent_without_files_composes_nothing() {
+        let base = tempfile::tempdir().unwrap();
+        assert!(
+            compose_agent_instructions_in(base.path(), "agent.bare")
+                .await
+                .is_none(),
+            "a missing instruction directory must compose nothing"
+        );
+        // An empty directory, and a file with nothing but whitespace in it,
+        // are both "no instructions" rather than an empty section.
+        let block = compose_from(base.path(), "agent.blank", &[("CLAUDE.md", "   \n\t\n")]).await;
+        assert!(
+            block.is_none(),
+            "a whitespace-only file is not a section, got {block:?}"
+        );
+    }
+
+    /// An operator who pastes a huge file cannot spend the whole prompt, and
+    /// the clip says so rather than ending mid-sentence.
+    #[tokio::test]
+    async fn an_oversized_instruction_file_is_clamped_and_says_so() {
+        let base = tempfile::tempdir().unwrap();
+        // Multi-byte on purpose: the clamp counts characters, and a byte-wise
+        // cut through this text would not be valid UTF-8.
+        let flood: String = "あ".repeat(AGENT_INSTRUCTIONS_PER_FILE_CHARS + 500);
+        let block = compose_from(base.path(), "agent.verbose", &[("CLAUDE.md", &flood)])
+            .await
+            .expect("an oversized file still composes");
+        assert_eq!(
+            block.matches('あ').count(),
+            AGENT_INSTRUCTIONS_PER_FILE_CHARS,
+            "exactly the per-file allowance survives"
+        );
+        assert!(
+            block.contains("truncated by the kernel"),
+            "a clipped file must say it was clipped"
+        );
+    }
+
+    /// Dropping a file silently is the one failure a reader cannot detect, so
+    /// the block names how many it left out.
+    #[tokio::test]
+    async fn files_beyond_the_total_budget_are_named_as_left_out() {
+        let base = tempfile::tempdir().unwrap();
+        // Three files at the per-file ceiling exactly fill the total, so a
+        // fourth would not fit — but only three are ever read. Make each one
+        // large enough that the third cannot fit instead.
+        let big: String = "x".repeat(AGENT_INSTRUCTIONS_PER_FILE_CHARS);
+        let block = compose_from(
+            base.path(),
+            "agent.greedy",
+            &[
+                ("CLAUDE.md", &big),
+                ("AGENTS.md", &big),
+                ("MEMORY.md", &big),
+            ],
+        )
+        .await
+        .expect("the first files still compose");
+        assert!(
+            !block.contains("left out"),
+            "three files at the ceiling fit the total exactly"
+        );
+
+        // Push one over: now the last file cannot fit and must be announced.
+        let over = format!("{big}yyy");
+        let block = compose_from(
+            base.path(),
+            "agent.overflowing",
+            &[
+                ("CLAUDE.md", &over),
+                ("AGENTS.md", &over),
+                ("MEMORY.md", &over),
+            ],
+        )
+        .await
+        .expect("the files that fit still compose");
+        assert!(
+            block.contains("did not fit the prompt"),
+            "an omitted file must be announced, got tail: {}",
+            &block[block.len().saturating_sub(200)..]
+        );
+    }
+
+    /// The agent id becomes a directory name, so an id carrying `..` must not
+    /// reach the filesystem. The sibling file is deliberately readable through
+    /// a legitimate id, so this test fails if the guard is removed rather than
+    /// passing because the file was missing.
+    #[tokio::test]
+    async fn an_agent_id_that_could_escape_the_root_reads_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("agents");
+        std::fs::create_dir_all(&base).unwrap();
+
+        // A file outside `base`, reachable only by climbing out of it.
+        let outside = root.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("CLAUDE.md"), "escaped content").unwrap();
+
+        assert!(
+            compose_agent_instructions_in(&base, "../outside")
+                .await
+                .is_none(),
+            "an id containing `..` must not be turned into a path"
+        );
+        for hostile in ["..", ".", "", "a/b", "a\\b", "agent\u{0}null"] {
+            assert!(
+                compose_agent_instructions_in(&base, hostile)
+                    .await
+                    .is_none(),
+                "id {hostile:?} must be refused as a path segment"
+            );
+        }
+
+        // The same bytes are reachable under a legitimate id — so the
+        // assertions above are about the guard, not about an absent file.
+        let reachable = compose_from(&base, "agent.legit", &[("CLAUDE.md", "escaped content")])
+            .await
+            .expect("a well-formed id reads its own directory");
+        assert!(reachable.contains("escaped content"));
     }
 
     #[tokio::test]
