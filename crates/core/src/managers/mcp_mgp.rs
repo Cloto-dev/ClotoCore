@@ -333,14 +333,30 @@ pub enum CodeSafetyLevel {
 }
 
 impl CodeSafetyLevel {
-    /// Parse a code safety level string. Unknown values map to `Standard`.
+    /// Parse a code safety level string. Unknown values map to
+    /// [`CodeSafetyLevel::Readonly`], the most restrictive tier — fail-closed,
+    /// the same rule [`TrustLevel::from_str_lossy`] follows for the same
+    /// question (MGP §4.0).
+    ///
+    /// It did not always. Unknown used to land on `Standard`, the
+    /// second-*least* restrictive of the four, which read as a default rather
+    /// than a decision. Nothing in production parsed a level, so nothing was
+    /// exposed by it — but the caller that would change that is a server
+    /// declaring its own `code_safety`, and a value the kernel failed to
+    /// recognise would then have bought a laxer check than the operator's own
+    /// default, which is precisely backwards.
+    ///
+    /// Note the explicit `"standard"` arm: it used to be reached through the
+    /// fallback, so tightening the fallback without naming it would have
+    /// silently promoted every standard-level server to readonly.
     #[must_use]
     pub fn from_str_lossy(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "unrestricted" => Self::Unrestricted,
+            "standard" => Self::Standard,
             "strict" => Self::Strict,
             "readonly" => Self::Readonly,
-            _ => Self::Standard,
+            _ => Self::Readonly,
         }
     }
 }
@@ -879,13 +895,37 @@ mod tests {
             CodeSafetyLevel::from_str_lossy("readonly"),
             CodeSafetyLevel::Readonly
         );
+        // The arm that used to be reached only through the fallback. Naming it
+        // is what keeps the tightening below from promoting every
+        // standard-level server to readonly.
+        assert_eq!(
+            CodeSafetyLevel::from_str_lossy("standard"),
+            CodeSafetyLevel::Standard
+        );
+        // Fail-closed, matching TrustLevel: a value the kernel does not
+        // recognise must not buy a laxer check than the operator's default.
         assert_eq!(
             CodeSafetyLevel::from_str_lossy("unknown"),
-            CodeSafetyLevel::Standard
+            CodeSafetyLevel::Readonly
         );
         assert_eq!(
             CodeSafetyLevel::from_str_lossy(""),
-            CodeSafetyLevel::Standard
+            CodeSafetyLevel::Readonly
+        );
+    }
+
+    /// The two parsers answer the same question — "the declaration is not one
+    /// I know" — and they answered it in opposite directions until 0.6.9. The
+    /// pairing is asserted here so that reverting either one fails visibly.
+    #[test]
+    fn unknown_declarations_fail_closed_in_both_parsers() {
+        assert_eq!(
+            TrustLevel::from_str_lossy("something-new"),
+            TrustLevel::Untrusted
+        );
+        assert_eq!(
+            CodeSafetyLevel::from_str_lossy("something-new"),
+            CodeSafetyLevel::Readonly
         );
     }
 

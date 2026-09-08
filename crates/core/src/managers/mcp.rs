@@ -224,6 +224,11 @@ pub struct McpClientManager {
     llm_proxy_port: u16,
     /// Per-boot token children present to the LLM proxy (llm_proxy.rs module doc).
     llm_proxy_token: String,
+    /// Overrides where vendored connectors are looked for when reading their
+    /// manifests. `None` in production, where the location is resolved fresh on
+    /// each connect — a boot-time snapshot would miss every server installed
+    /// after boot, which on a first run is all of them.
+    servers_root_override: Option<PathBuf>,
     /// URL a child process should use to reach this kernel, handed to every
     /// spawned server so none of them carries a copy of the port.
     kernel_child_url: String,
@@ -288,6 +293,7 @@ impl McpClientManager {
             kernel_event_tx: Mutex::new(None),
             llm_proxy_port: 8082,
             llm_proxy_token: String::new(),
+            servers_root_override: None,
             // Overwritten by `configure_isolation` at boot from the real
             // config; this default only keeps a manager built for a test from
             // holding an empty string that would look like a valid URL.
@@ -333,6 +339,25 @@ impl McpClientManager {
     /// they want and what they would otherwise have to opt out of.
     pub fn configure_agent_tokens(&mut self, store: Arc<super::agent_token::AgentTokenStore>) {
         self.agent_tokens = Some(store);
+    }
+
+    /// Where to look for a vendored connector's manifest.
+    ///
+    /// Resolved per call rather than cached at boot: on a first run the
+    /// directory does not exist yet, and a manager that had already answered
+    /// `None` would go on answering it for every server installed afterwards.
+    fn servers_root(&self) -> Option<PathBuf> {
+        self.servers_root_override
+            .clone()
+            .or_else(super::mcp_venv::resolve_servers_dir_from_config)
+    }
+
+    /// Point manifest reading at a directory a test controls, so the refusal
+    /// can be driven through `connect_server` itself rather than asserted on
+    /// the helper it calls.
+    #[cfg(test)]
+    pub(crate) fn set_servers_root_for_test(&mut self, root: PathBuf) {
+        self.servers_root_override = Some(root);
     }
 
     /// Configure isolation settings from AppConfig (called once at startup).
@@ -1224,6 +1249,21 @@ impl McpClientManager {
         let _connect_guard = connect_lock.lock().await;
 
         let is_http_transport = config.transport == "streamable-http";
+
+        // ──── What this connector says it is ────
+        // Refused before anything is launched, and before the duplicate check,
+        // so an unrunnable type never reaches a state where it looks connected.
+        // A connector that says nothing is the type that existed before
+        // manifests, which is every connector shipping today — see
+        // `connector_manifest` for why an unknown type is refused rather than
+        // downgraded.
+        if let Some(servers_root) = self.servers_root() {
+            let declaration = super::connector_manifest::read_declaration(&servers_root, &id);
+            if let Err(reason) = super::connector_manifest::check_supported(&declaration) {
+                warn!(id = %id, "refusing to start connector: {reason}");
+                return Err(anyhow::anyhow!("MCP server '{id}': {reason}"));
+            }
+        }
 
         // Validate command against whitelist (skip for HTTP transport)
         if !is_http_transport {
@@ -4418,6 +4458,111 @@ mod tests {
             metadata: std::collections::HashMap::new(),
             agent_type: "agent".to_string(),
         }
+    }
+
+    // ── what a connector says it is, at the point it would be started ──
+    //
+    // Driven through `connect_server` rather than through the manifest reader,
+    // because the question is whether the kernel *acts* on the declaration.
+    // The reader has its own tests; a green reader proves nothing about a
+    // call site that never consults it.
+
+    async fn manager_rooted_at(root: &Path) -> McpClientManager {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let mut manager = McpClientManager::new(pool, false, 120, 30);
+        manager.set_servers_root_for_test(root.to_path_buf());
+        manager
+    }
+
+    fn stdio_config(id: &str) -> McpServerConfig {
+        McpServerConfig {
+            id: id.to_string(),
+            command: "definitely-not-a-real-binary".to_string(),
+            ..Default::default()
+        }
+    }
+
+    fn write_manifest(root: &Path, id: &str, body: &str) {
+        let dir = root.join(id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("cloto-connector.json"), body).unwrap();
+    }
+
+    /// The refusal has to happen at the kernel, not only in the reader — and it
+    /// has to happen before anything is launched.
+    #[tokio::test]
+    async fn a_connector_declaring_an_unknown_type_is_not_started() {
+        let root = tempfile::tempdir().unwrap();
+        write_manifest(
+            root.path(),
+            "dash",
+            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+        );
+        let manager = manager_rooted_at(root.path()).await;
+
+        let err = manager
+            .connect_server(stdio_config("dash"))
+            .await
+            .expect_err("a type the kernel cannot run must not be started");
+
+        let text = err.to_string();
+        assert!(
+            text.contains("ui_module"),
+            "the refusal must name the type: {text}"
+        );
+        assert!(
+            text.contains("newer ClotoCore"),
+            "and must say what would run it: {text}"
+        );
+    }
+
+    /// The other half, and the one that would break every installation if it
+    /// regressed: the refusal must not fire for what ships today. The command
+    /// is bogus on purpose — reaching *command validation* is proof the
+    /// declaration check let it through.
+    #[tokio::test]
+    async fn a_connector_declaring_the_known_type_gets_past_the_check() {
+        let root = tempfile::tempdir().unwrap();
+        write_manifest(
+            root.path(),
+            "cpersona",
+            r#"{"spec_version":1,"connector_type":"mgp_server"}"#,
+        );
+        let manager = manager_rooted_at(root.path()).await;
+
+        let text = manager
+            .connect_server(stdio_config("cpersona"))
+            .await
+            .expect_err("the bogus command still fails, further along")
+            .to_string();
+
+        assert!(
+            !text.contains("newer ClotoCore"),
+            "must not be refused on its declaration: {text}"
+        );
+    }
+
+    /// Ten of the seventeen connectors in the registry ship no manifest at all.
+    /// If absence were treated as strange, reading the declaration would be a
+    /// breaking change wearing the clothes of a check.
+    #[tokio::test]
+    async fn a_connector_with_no_manifest_is_not_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let manager = manager_rooted_at(root.path()).await;
+
+        let text = manager
+            .connect_server(stdio_config("legacy"))
+            .await
+            .expect_err("the bogus command still fails, further along")
+            .to_string();
+
+        assert!(
+            !text.contains("newer ClotoCore"),
+            "silence is not a declaration: {text}"
+        );
     }
 
     // ── the environment a spawned child receives (Task #1306) ──
