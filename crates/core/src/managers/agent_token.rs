@@ -57,6 +57,15 @@ pub const AGENT_TOKEN_HEADER: &str = "X-Agent-Token";
 /// `McpClientManager::enrich_agent_for_dispatch`.
 pub const METADATA_AGENT_TOKEN: &str = "agent_token";
 
+/// Environment variable naming the kernel's own address, injected into every
+/// spawned MCP server.
+///
+/// A child that was handed a token still has to know where to present it, and
+/// the kernel is the only party that knows what it bound. The name matches the
+/// one the coordinator template already reads, so a server written against
+/// either finds it.
+pub const KERNEL_URL_ENV: &str = "CLOTO_KERNEL_URL";
+
 /// MGP extension a server declares to ask for [`METADATA_AGENT_TOKEN`].
 ///
 /// Negotiation intersects this with the kernel's own list, so declaring it is

@@ -8,7 +8,7 @@ pub use super::mcp_client::{McpClient, McpNotification};
 pub use super::mcp_events::CallbackHandleResult;
 pub use super::mcp_types::*;
 
-use super::agent_token::{AGENT_TOKEN_EXTENSION, METADATA_AGENT_TOKEN};
+use super::agent_token::{AGENT_TOKEN_EXTENSION, KERNEL_URL_ENV, METADATA_AGENT_TOKEN};
 use super::mcp_mgp::{self, ToolSecurityMetadata};
 use super::mcp_protocol::{McpConfigFile, McpServerConfig, ToolContent};
 use super::mcp_tool_validator::validate_tool_arguments;
@@ -224,6 +224,9 @@ pub struct McpClientManager {
     llm_proxy_port: u16,
     /// Per-boot token children present to the LLM proxy (llm_proxy.rs module doc).
     llm_proxy_token: String,
+    /// URL a child process should use to reach this kernel, handed to every
+    /// spawned server so none of them carries a copy of the port.
+    kernel_child_url: String,
     /// Store the kernel mints agent-scoped tokens from, for engines that
     /// negotiated the `agent_token` extension.
     ///
@@ -285,6 +288,10 @@ impl McpClientManager {
             kernel_event_tx: Mutex::new(None),
             llm_proxy_port: 8082,
             llm_proxy_token: String::new(),
+            // Overwritten by `configure_isolation` at boot from the real
+            // config; this default only keeps a manager built for a test from
+            // holding an empty string that would look like a valid URL.
+            kernel_child_url: String::new(),
             agent_tokens: None,
             sensitive_env_keys: Vec::new(),
             yolo_exceptions: Vec::new(),
@@ -331,6 +338,7 @@ impl McpClientManager {
     /// Configure isolation settings from AppConfig (called once at startup).
     pub fn configure_isolation(&mut self, config: &crate::config::AppConfig) {
         self.llm_proxy_port = config.llm_proxy_port;
+        self.kernel_child_url = config.kernel_child_url();
         self.llm_proxy_token = config.llm_proxy_token.clone();
         self.isolation_enabled = config.isolation_enabled;
         self.allow_unsigned = config.allow_unsigned;
@@ -1572,7 +1580,7 @@ impl McpClientManager {
                     // Only injected when the user hasn't already set the var
                     // via mcp.toml or DB env. Non-engine servers are left
                     // untouched (no matching llm_providers row).
-                    let augmented_env = self.augment_engine_env(&id, &config.env).await;
+                    let augmented_env = self.child_env_for(&id, &config.env).await;
                     McpClient::connect(
                         &id,
                         &config.command,
@@ -3722,6 +3730,31 @@ impl McpClientManager {
     /// The server-side reasoning/thinking auto-detection
     /// (`common/llm_provider.py::_model_suggests_reasoning`) wants that
     /// signal at startup — this helper bridges the gap.
+    /// The environment a spawned server actually receives: the operator's
+    /// configured env, plus what only the kernel can supply.
+    ///
+    /// One method rather than a sequence at the call site, because the two
+    /// contributions have different shapes — the engine model is conditional
+    /// and returns early, the kernel address is unconditional — and a reader
+    /// who added a third would otherwise have to notice that the early return
+    /// exists before deciding where to put it.
+    async fn child_env_for(
+        &self,
+        id: &str,
+        base_env: &HashMap<String, String>,
+    ) -> HashMap<String, String> {
+        let mut env = self.augment_engine_env(id, base_env).await;
+        // Where to reach the kernel, for a child that was handed a credential
+        // to present to it. `entry` rather than `insert`: an operator who set
+        // this in mcp.toml or the DB meant it, and a kernel behind a proxy is
+        // exactly the case where the address it binds is not the one to dial.
+        if !self.kernel_child_url.is_empty() {
+            env.entry(KERNEL_URL_ENV.to_string())
+                .or_insert_with(|| self.kernel_child_url.clone());
+        }
+        env
+    }
+
     async fn augment_engine_env(
         &self,
         id: &str,
@@ -4385,6 +4418,64 @@ mod tests {
             metadata: std::collections::HashMap::new(),
             agent_type: "agent".to_string(),
         }
+    }
+
+    // ── the environment a spawned child receives (Task #1306) ──
+
+    async fn manager_with_child_url(url: &str) -> McpClientManager {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let mut manager = McpClientManager::new(pool, false, 120, 30);
+        manager.kernel_child_url = url.to_string();
+        manager
+    }
+
+    /// Every spawned server is told where the kernel is, so that a child
+    /// holding a credential does not also have to hold a copy of the port.
+    #[tokio::test]
+    async fn a_spawned_child_is_told_where_the_kernel_is() {
+        let manager = manager_with_child_url("http://127.0.0.1:8081").await;
+
+        let env = manager.child_env_for("srv.any", &HashMap::new()).await;
+
+        assert_eq!(
+            env.get(KERNEL_URL_ENV).map(String::as_str),
+            Some("http://127.0.0.1:8081")
+        );
+    }
+
+    /// The operator outranks the kernel here. A kernel behind a proxy binds one
+    /// address and is reached at another, and only the operator knows that.
+    #[tokio::test]
+    async fn a_configured_kernel_url_is_not_overwritten() {
+        let manager = manager_with_child_url("http://127.0.0.1:8081").await;
+        let mut base = HashMap::new();
+        base.insert(
+            KERNEL_URL_ENV.to_string(),
+            "http://gateway:9443".to_string(),
+        );
+
+        let env = manager.child_env_for("srv.any", &base).await;
+
+        assert_eq!(
+            env.get(KERNEL_URL_ENV).map(String::as_str),
+            Some("http://gateway:9443"),
+            "an operator who set this meant it"
+        );
+    }
+
+    /// A manager the kernel never configured has no address to give, and an
+    /// empty string is not one — a child would read it as a URL and dial
+    /// nothing, which is harder to diagnose than an absent variable.
+    #[tokio::test]
+    async fn an_unconfigured_manager_supplies_no_kernel_url() {
+        let manager = manager_with_child_url("").await;
+
+        let env = manager.child_env_for("srv.any", &HashMap::new()).await;
+
+        assert!(!env.contains_key(KERNEL_URL_ENV));
     }
 
     // ── agent token on dispatch (Task #1306) ──
