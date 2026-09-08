@@ -891,7 +891,14 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "v${{ steps.version.outputs.version }}"
           draft: false
-          prerelease: ${{ contains(steps.version.outputs.version, 'alpha') || contains(steps.version.outputs.version, 'beta') || contains(steps.version.outputs.version, 'rc') }}
+          # A semver version is a pre-release exactly when it carries a
+          # pre-release component, i.e. when it contains a hyphen. Naming the
+          # stages instead ('alpha'/'beta'/'rc') silently mis-flags any
+          # spelling outside that list — `0.6.9-a.1` contains none of them and
+          # would ship as a full release, which GitHub then serves as "latest"
+          # to `install.ps1`. The version is already asserted equal to the
+          # Cargo.toml version, so it is valid semver by the time we get here.
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
           body_path: release-body.md
           append_body: true
           # Notes are generated in the "Append generated release notes" step
