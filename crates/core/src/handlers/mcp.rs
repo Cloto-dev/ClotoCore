@@ -905,7 +905,11 @@ pub async fn call_mcp_tool(
     headers: HeaderMap,
     Json(body): Json<CallMcpToolRequest>,
 ) -> AppResult<Json<serde_json::Value>> {
-    check_auth(&state, &headers)?;
+    // Which caller this runs as is decided by the credential presented, not by
+    // anything in the body — see `resolve_tool_caller`. An agent token names one
+    // agent and keeps the per-agent capability gate; the admin key is the
+    // coordinator credential and still runs as System.
+    let caller = crate::handlers::resolve_tool_caller(&state, &headers).await?;
 
     // Pre-flight: reject immediately if server is known-dead (bug-354)
     if !state.mcp_manager.is_server_alive(&body.server_id).await {
@@ -915,17 +919,13 @@ pub async fn call_mcp_tool(
         )));
     }
 
-    // Admin-authenticated coordinator endpoint → System. Per-agent scoping for
-    // this path flows only through an `_mgp.delegation` envelope (original_actor),
-    // handled inside resolve_tool_call_target, not a body agent_id.
+    // Under the admin key this is System, and per-agent scoping flows only
+    // through an `_mgp.delegation` envelope (original_actor) handled inside
+    // resolve_tool_call_target, never a body agent_id. Under an agent token the
+    // caller is that agent and `enforce_caller_grant` applies directly.
     let result = state
         .mcp_manager
-        .call_server_tool(
-            &crate::managers::Caller::System,
-            &body.server_id,
-            &body.tool_name,
-            body.arguments,
-        )
+        .call_server_tool(&caller, &body.server_id, &body.tool_name, body.arguments)
         .await
         .map_err(
             |e| match e.downcast::<crate::managers::mcp_mgp::MgpError>() {

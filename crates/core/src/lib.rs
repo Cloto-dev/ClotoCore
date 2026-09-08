@@ -175,6 +175,11 @@ pub struct AppState {
     /// swapped in place by POST /api/system/regenerate-key so a rotation
     /// takes effect without a restart (std RwLock: sync readers in check_auth).
     pub admin_api_key: std::sync::RwLock<Option<String>>,
+    /// Agent-scoped tokens for callers the kernel must not let name themselves
+    /// (see [`managers::agent_token`]). Empty until something mints one; a
+    /// restart drops them all, which is correct — the runs holding them did not
+    /// survive it either.
+    pub agent_tokens: Arc<managers::agent_token::AgentTokenStore>,
     /// Pending command approval requests (kernel ↔ API handler bridge).
     pub pending_command_approvals: handlers::command_approval::PendingApprovals,
     /// Session-scoped trusted command names (cleared on restart).
@@ -955,6 +960,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     };
 
     let app_state = Arc::new(AppState {
+        agent_tokens: Arc::new(managers::agent_token::AgentTokenStore::new()),
         tx: tx.clone(),
         registry: registry_arc.clone(),
         event_tx: event_tx.clone(),

@@ -185,6 +185,48 @@ pub(crate) fn check_auth(state: &AppState, headers: &HeaderMap) -> AppResult<()>
     check_auth_with_query(state, headers, &std::collections::HashMap::new())
 }
 
+/// Decide, from the credentials on a request, which [`Caller`] a tool call runs as.
+///
+/// Two credentials, and they are not interchangeable:
+///
+/// - An **agent token** ([`AGENT_TOKEN_HEADER`]) names one agent. The kernel reads
+///   the identity out of the token rather than out of the request, so the caller
+///   never gets to say who it is, and the per-agent capability gate applies.
+/// - The **admin key** is the coordinator credential and still runs as
+///   [`Caller::System`], which bypasses that gate. Unchanged.
+///
+/// A token that is present but does not resolve is **refused**, never retried as
+/// admin. Falling through would make a bad token indistinguishable from no token,
+/// and "no token" is the path that skips the gate — the one outcome a failed
+/// authentication must never produce.
+pub(crate) async fn resolve_tool_caller(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> AppResult<crate::managers::Caller> {
+    use crate::managers::agent_token::AGENT_TOKEN_HEADER;
+
+    if let Some(raw) = headers.get(AGENT_TOKEN_HEADER) {
+        let Ok(token) = raw.to_str() else {
+            warn!("🔒 agent token: header is not valid text — denying");
+            return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                cloto_shared::Permission::AdminAccess,
+            )));
+        };
+        let Some(agent_id) = state.agent_tokens.resolve(token).await else {
+            // No token echo, and no distinction drawn between "expired" and
+            // "never existed" — see `AgentTokenStore::resolve`.
+            warn!("🔒 agent token: unknown or expired — denying");
+            return Err(AppError::Cloto(cloto_shared::ClotoError::PermissionDenied(
+                cloto_shared::Permission::AdminAccess,
+            )));
+        };
+        return Ok(crate::managers::Caller::Agent(agent_id));
+    }
+
+    check_auth(state, headers)?;
+    Ok(crate::managers::Caller::System)
+}
+
 pub(crate) fn spawn_admin_audit(
     pool: sqlx::SqlitePool,
     event_type: &str,
@@ -1484,5 +1526,125 @@ mod tests {
 
         let result = check_auth(&state, &headers);
         assert!(result.is_err(), "API key should be case-sensitive");
+    }
+    // ─────────── which caller a credential resolves to ───────────
+    //
+    // These call `resolve_tool_caller` itself. Asserting on the store and the
+    // gate separately does not cover it: both were already correct, and the
+    // decision that was missing lives in this function. A version that resolved
+    // every valid token to `System` passed a suite that never called it.
+
+    fn header(name: &str, value: &str) -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert(
+            axum::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
+            HeaderValue::from_str(value).unwrap(),
+        );
+        h
+    }
+
+    #[tokio::test]
+    async fn a_valid_agent_token_resolves_to_that_agent_and_not_to_system() {
+        let state = create_test_app_state(Some("admin-key".to_string())).await;
+        let token = state.agent_tokens.mint_default("agent.scoped").await;
+
+        let Ok(caller) = resolve_tool_caller(&state, &header("X-Agent-Token", &token)).await else {
+            panic!("a valid token must authenticate")
+        };
+        match caller {
+            crate::managers::Caller::Agent(id) => assert_eq!(id, "agent.scoped"),
+            crate::managers::Caller::System => {
+                panic!("a token resolved to System — that skips the per-agent gate entirely")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unknown_agent_token_is_refused_and_never_falls_through_to_system() {
+        let state = create_test_app_state(Some("admin-key".to_string())).await;
+        state.agent_tokens.mint_default("agent.real").await;
+
+        let outcome = resolve_tool_caller(&state, &header("X-Agent-Token", "forged")).await;
+        assert!(
+            outcome.is_err(),
+            "a bad token must be refused, not retried as another credential"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_expired_agent_token_is_refused() {
+        let state = create_test_app_state(Some("admin-key".to_string())).await;
+        let token = state
+            .agent_tokens
+            .mint("agent.stale", chrono::Duration::seconds(-1))
+            .await;
+
+        assert!(
+            resolve_tool_caller(&state, &header("X-Agent-Token", &token))
+                .await
+                .is_err(),
+            "an expired token must be refused"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_token_presented_alongside_the_admin_key_still_resolves_to_the_agent() {
+        // The narrower credential wins. Otherwise a caller holding both could
+        // pick the ungated one, which is the escalation this whole path exists
+        // to remove.
+        let state = create_test_app_state(Some("admin-key".to_string())).await;
+        let token = state.agent_tokens.mint_default("agent.scoped").await;
+        let mut headers = header("X-Agent-Token", &token);
+        headers.insert("X-API-Key", HeaderValue::from_static("admin-key"));
+
+        let Ok(caller) = resolve_tool_caller(&state, &headers).await else {
+            panic!("a valid token must authenticate even beside the admin key")
+        };
+        match caller {
+            crate::managers::Caller::Agent(id) => assert_eq!(id, "agent.scoped"),
+            crate::managers::Caller::System => {
+                panic!("presenting the admin key must not widen a scoped caller")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn a_bad_token_is_refused_even_when_the_admin_key_is_also_present() {
+        let state = create_test_app_state(Some("admin-key".to_string())).await;
+        let mut headers = header("X-Agent-Token", "forged");
+        headers.insert("X-API-Key", HeaderValue::from_static("admin-key"));
+
+        assert!(
+            resolve_tool_caller(&state, &headers).await.is_err(),
+            "a failed authentication must not resolve to the ungated caller"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_admin_key_alone_still_resolves_to_system() {
+        // The coordinator path, unchanged.
+        let state = create_test_app_state(Some("admin-key".to_string())).await;
+        let headers = header("X-API-Key", "admin-key");
+
+        let Ok(caller) = resolve_tool_caller(&state, &headers).await else {
+            panic!("the admin key must authenticate")
+        };
+        match caller {
+            crate::managers::Caller::System => {}
+            crate::managers::Caller::Agent(id) => {
+                panic!("the admin key must still be System, got agent {id}")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn no_credential_at_all_is_refused() {
+        let state = create_test_app_state(Some("admin-key".to_string())).await;
+        assert!(
+            resolve_tool_caller(&state, &HeaderMap::new())
+                .await
+                .is_err(),
+            "an unauthenticated request must not reach a tool call"
+        );
     }
 }

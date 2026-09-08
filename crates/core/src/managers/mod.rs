@@ -3,6 +3,7 @@
 //! Contains the plugin manager, agent manager, MCP client manager, LLM proxy,
 //! scheduler, and supporting modules for MCP transport, protocol, and health monitoring.
 
+pub mod agent_token;
 mod agents;
 pub mod capability_dispatcher;
 pub mod installer;
