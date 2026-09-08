@@ -7,11 +7,13 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
-## [0.6.9-a.1] — 2026-09-08
+## [0.6.9a1] — 2026-09-08
 <!-- release-title: an agent gets files it always reads, and skills it loads when it needs them -->
 
 The first pre-release of the 0.6.9 line, and the first to use the shortened
-spelling: `0.6.9-a.1` where the 0.6.8 line wrote `0.6.8-alpha.1`. The stage and
+spelling: `0.6.9a1` where the 0.6.8 line wrote `0.6.8-alpha.1`. Inside the
+build it is `0.6.9-a.1`, because Cargo, Tauri and the updater all parse semver
+and semver has no spelling without the punctuation. The stage and
 the number are the same thing they were — only the spelling is shorter, to sit
 closer to the form the project's Python packages use. Nothing about how a
 version is ordered or which channel it reaches has changed, and the older

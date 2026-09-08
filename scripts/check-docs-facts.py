@@ -67,6 +67,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from version_display import to_display  # noqa: E402
+
 # Docs that claim CURRENT state and therefore must track the code.
 DOC_FILES = [
     ROOT / "README.md",
@@ -303,8 +306,14 @@ LATEST_RELEASE = re.compile(r"Latest release:\s*(v?\d+\.\d+\.\d+)")
 # version numbers are assertions, so the document says so. The cost is that a
 # new claim is only covered once someone marks it — which is visible in the
 # source, unlike a checker that silently guessed wrong.
+# Both spellings must be *recognised* here even though only one is accepted
+# below. A claim the pattern does not match is not a claim that fails — it is a
+# claim that stops being graded, silently, which is the failure this file
+# exists to prevent. The display spelling (`0.6.9a1`) has no hyphen before its
+# stage, so the older alternative alone would have skipped straight past every
+# line the new convention produces.
 MARKED_VERSION = re.compile(
-    r"(v?\d+\.\d+\.\d+(?:-[\w.]+)?)\s*<!--\s*docs-facts:\s*([a-z-]+)\s*-->"
+    r"(v?\d+\.\d+\.\d+(?:-[\w.]+|(?:a|b|rc)\d+)?)\s*<!--\s*docs-facts:\s*([a-z-]+)\s*-->"
 )
 MARKER_SOURCES = {
     "latest-prerelease": "latest_prerelease",
@@ -378,10 +387,18 @@ def check_document(path: Path, counts: dict[str, int], versions: dict[str, str],
             continue
         if key not in versions:
             continue  # the source of truth was unavailable and already reported
-        if stated.lstrip("v") != versions[key].lstrip("v"):
+        # Graded against the *display* spelling, not the tag's. These lines are
+        # prose a reader sees, and the project shows `0.6.9a1` where the tag
+        # says `v0.6.9-a.1`. Comparing against the tag would force the internal
+        # spelling into the documentation; comparing against either would let
+        # the two drift apart unnoticed, which is the state this gate exists to
+        # prevent. For a final release and for the older long spelling the two
+        # are the same string, so nothing already written moves.
+        expected = expected_claim(versions[key])
+        if stated.lstrip("v") != expected:
             fail(
                 f"{name}: `{stated}` is marked {marker}, "
-                f"but that is {versions[key]}"
+                f"but that is {expected}"
             )
 
     for var, stated in ENV_ROW.findall(text):
@@ -401,6 +418,37 @@ def check_document(path: Path, counts: dict[str, int], versions: dict[str, str],
                 f"{name}: documents {var} default as `{value}`, "
                 f"the source says `{env_defaults[var]}`"
             )
+
+
+def expected_claim(tag_value: str) -> str:
+    """The spelling a marked version claim must use, given the tag it names.
+
+    A function rather than an expression at the comparison site so the rule can
+    be asserted: with only long-spelling tags in the repository today, the
+    display mapping is invisible at that site — `0.6.8-beta.7` maps to itself —
+    and a change that dropped it would pass every check until the first short
+    tag existed, months from now.
+    """
+    return to_display(tag_value.lstrip("v"))
+
+
+def selftest() -> None:
+    """Check the rules this file enforces that its own inputs cannot show yet."""
+    assert expected_claim("v0.6.9-a.1") == "0.6.9a1", "claims must use the display spelling"
+    assert expected_claim("0.6.9-b.7") == "0.6.9b7"
+    # Unchanged for a final and for the older long spelling, so nothing already
+    # written in the documentation moves.
+    assert expected_claim("v0.6.8") == "0.6.8"
+    assert expected_claim("v0.6.8-beta.7") == "0.6.8-beta.7"
+    # Both spellings must be recognised as claims. A claim the pattern misses
+    # is not one that fails — it is one that stops being graded.
+    for line in (
+        "0.6.9a1 <!-- docs-facts: latest-prerelease -->",
+        "0.6.8-beta.7 <!-- docs-facts: latest-prerelease -->",
+        "v0.6.8 <!-- docs-facts: latest-release -->",
+    ):
+        assert MARKED_VERSION.search(line), line
+    print("selftest: OK")
 
 
 def check_release_title(version: str | None) -> None:
@@ -440,6 +488,9 @@ def check_release_title(version: str | None) -> None:
 
 
 def main() -> int:
+    if "--selftest" in sys.argv:
+        selftest()
+        return 0
     counts = measured_test_counts()
     cross_check_against_ratchet(counts)
     versions = measured_versions()

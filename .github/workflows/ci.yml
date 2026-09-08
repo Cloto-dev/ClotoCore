@@ -328,6 +328,14 @@ jobs:
         # what gets published needs its own rules checked on every pull
         # request, not only on the day of a release.
         run: python3 scripts/release-title.py --selftest
+      - name: Self-test the version display mapping
+        run: python3 scripts/version_display.py --selftest
+      - name: Self-test the documented-facts rules
+        # Rules the repository's own inputs cannot exercise yet: with only
+        # long-spelling tags in existence, the display mapping is invisible in
+        # a normal run and a change that dropped it would pass every check
+        # until the first short tag existed.
+        run: python3 scripts/check-docs-facts.py --selftest
 
   nsis-hook-gate:
     name: NSIS Hook Gate
