@@ -7,6 +7,73 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [0.6.9-a.1] — 2026-09-08
+
+The first pre-release of the 0.6.9 line, and the first to use the shortened
+spelling: `0.6.9-a.1` where the 0.6.8 line wrote `0.6.8-alpha.1`. The stage and
+the number are the same thing they were — only the spelling is shorter, to sit
+closer to the form the project's Python packages use. Nothing about how a
+version is ordered or which channel it reaches has changed, and the older
+spelling remains valid forever, because the update feed indexes every past
+release.
+
+What this pre-release adds is a place to put standing instructions for an
+agent, and a place to put the procedures it should not have to carry in every
+prompt.
+
+### Added
+
+- **An agent can be given files it always operates under.** `CLAUDE.md`,
+  `AGENTS.md` and `MEMORY.md`, placed in an agent's instruction directory, are
+  composed into its system prompt on every dispatch — after the connected
+  servers' instructions, so where the two disagree the operator's own files are
+  what the model read last. Each file is clamped, the block is clamped, and a
+  file that does not fit is named rather than dropped in silence.
+- **Skills: procedures an agent loads when it needs them.** A skill is a
+  `SKILL.md` in the agent's skill directory. Only a one-line index of them
+  rides on every prompt — an id and what each is for — and the procedure itself
+  arrives when the agent asks for it by id. An agent with no skills is offered
+  neither the index nor the tool, so it costs nothing to leave the directory
+  empty. Reading them is not a privileged operation, but an operator who
+  revokes the tool for an agent removes its index entry too, rather than
+  leaving it looking at a list it cannot act on.
+
+### Changed
+
+- **A pre-release is now flagged as one because it is one.** The release
+  workflow decided by looking for the words `alpha`, `beta` or `rc` in the
+  version. Any other spelling — including this release's — would have been
+  published as a full release, which is what the install script resolves when
+  asked for the latest. The flag now tests for the pre-release component
+  itself.
+- **The update feed says what it could not index.** A tag outside the version
+  grammar was dropped from every channel and from the manifest with nothing
+  printed to say so — the one failure no consumer can detect. Such tags are now
+  named in the run's output.
+
+### Fixed
+
+- **Corrupt-database quarantine no longer loses a race on Windows.** The
+  recovery path could find the file still held open and give up; it now waits
+  the handle out. (The regression was intermittent, and the pull request that
+  introduced it stayed green: the Windows leg of the test matrix is advisory,
+  so a Windows-only failure does not fail a pull request.)
+
+### Internal
+
+- The issue registry — the mechanism that checks bug claims against the code —
+  no longer accepts an empty verification pattern, a registry that declares no
+  entries, or a name whose schema does not exist. Each of those read as proof
+  of something while checking nothing.
+- Release builds now use the same Node version as CI. They had drifted apart,
+  which meant a regression that only appeared on the older one could not fail a
+  pull request.
+- Dependency updates: `tauri-plugin-updater`, `tauri-plugin-global-shortcut`,
+  `dashmap`, `futures`, `chrono`, and the dashboard's TypeScript, jsdom,
+  Vite React plugin and testing-library packages.
+
+---
+
 ## [0.6.8] — 2026-09-07
 
 The final of the 0.6.8 line. This is the release the stable channel carries, so
