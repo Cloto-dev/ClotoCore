@@ -30,6 +30,42 @@ If a proposed change conflicts with any of these, flag it before proceeding.
 
 **MUST (pre-push lint for Rust changes):** before pushing any change under `crates/`, run **both** `cargo fmt --all -- --check` **and** clippy locally — the CI **Lint** job gates on both and a formatting/clippy diff fails the PR. Running the dashboard `biome` check alone does **not** cover the Rust Lint job. `scripts/lint-rust.sh` reads the clippy invocation out of the CI Lint job and runs it, so the local gate reproduces CI byte-for-byte and cannot disagree with it on which lints are enabled — do not hand-copy the `-A clippy::*` allowlist or `--all-targets` anywhere. It is expected to be **green**; a red local gate means a real regression, not a known-bad baseline. `.github/workflows/ci.yml` is the authoritative gate. Two things keep it that way and should be kept: the CI clippy step passes `--all-targets` (so lint rot in tests, benches and examples fails a PR rather than accumulating unseen), and the **lint-rust.sh self-check** step asserts the derivation still works — reshaping the clippy step so the script cannot parse it will fail CI, not just break the tool quietly on someone's machine.
 
+## Hard-Coding Rules (CRITICAL)
+
+`docs/ARCHITECTURE.md` §1.1 prohibits hard-coding *functionality* into the kernel, and §1.2 says
+not to branch on plugin ids or names. This section covers the case they do not name: a hard-coded
+**value** — an id, a name, a path, a limit, a model string, a URL, a magic number.
+
+This is a microkernel. Every literal written into kernel source is a decision taken away from
+whoever owns the value — a database row, a migration, a connector manifest, a capability response,
+a config file, or a constant already defined upstream. **Read it from the owner; do not copy it.**
+
+- Hard-coded values under `crates/` are **PROHIBITED by default**. Before writing a literal, find
+  who owns that value and read it from there.
+- **Never** branch on a plugin id, server name, or model name (§1.2). Route by capability.
+- Where a literal is genuinely unavoidable, it MUST carry a marker on the line above it:
+
+  ```rust
+  // HARDCODED(<source of truth>): <why the copy has to exist here>
+  ```
+
+  `<source of truth>` MUST be something the reader can open — `path/to/file.rs::symbol`, a
+  migration filename, a spec section, an upstream crate constant, a protocol document. "The
+  standard", "well known" and "obvious" are not sources of truth. A marker whose reason is
+  missing, or whose source nobody can open, is not a licence — it is an unreviewed copy.
+- Two markers naming the same source of truth are a signal that the value wants to be read,
+  not copied a third time.
+- The same marker is the right form in `dashboard/` and `tools/` whenever a literal there has to
+  mirror a value the kernel or a migration owns.
+
+Rationale: the failure mode is silent divergence, not breakage. A copied value keeps compiling and
+keeps working after its origin moves — it simply becomes wrong, and nothing points the next reader
+back at the original. The codebase already carries this knowledge informally (see the "single
+source of truth" note in `crates/core/src/config.rs` and the "Mirrors" note in
+`crates/core/src/events.rs`), but prose is not greppable and each author words it differently. The
+marker turns an otherwise unanswerable question — "what else copies this?" — into
+`grep -rn 'HARDCODED(' crates/`.
+
 ## SQLx Migration Rules (CRITICAL)
 
 `.gitattributes` enforces **CRLF** line endings for `crates/core/migrations/*.sql`.
