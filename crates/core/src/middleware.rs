@@ -105,8 +105,33 @@ pub fn is_public_api_path(path: &str) -> bool {
     PUBLIC_API_PATHS.contains(&path)
 }
 
+/// Routes that accept a second credential this layer cannot evaluate, and so
+/// decide for themselves who is calling.
+///
+/// `POST /api/mcp/call` is the only one. It takes the admin key — the
+/// coordinator credential, which runs as `Caller::System` — *and* an agent
+/// token, which names one agent and keeps the per-agent capability gate. Only
+/// the handler can resolve a token, so the layer that knows about the first
+/// credential must not be the one that refuses the second.
+///
+/// This is not an exemption. A request reaches the handler through here only by
+/// presenting a token header, and an unresolvable token is refused there —
+/// fail-closed, never retried as admin. A request with no credential at all is
+/// still stopped by this layer, exactly as before.
+pub const AGENT_TOKEN_API_PATHS: &[&str] = &["/mcp/call"];
+
+/// Whether this request is one the handler authenticates itself: a path on
+/// [`AGENT_TOKEN_API_PATHS`], carrying an agent token to be resolved there.
+#[must_use]
+pub fn defers_auth_to_handler(path: &str, headers: &axum::http::HeaderMap) -> bool {
+    let path = path.strip_prefix("/api").unwrap_or(path);
+    AGENT_TOKEN_API_PATHS.contains(&path)
+        && headers.contains_key(crate::managers::agent_token::AGENT_TOKEN_HEADER)
+}
+
 /// Axum middleware: every `/api` route requires the admin key unless it is
-/// on [`PUBLIC_API_PATHS`].
+/// on [`PUBLIC_API_PATHS`] or defers the decision to its handler
+/// ([`AGENT_TOKEN_API_PATHS`]).
 ///
 /// The key is accepted in `X-API-Key` or as `?token=` (browser-initiated
 /// loads such as `EventSource` and `<img src>` cannot set headers). A
@@ -119,6 +144,9 @@ pub async fn auth_middleware(
     next: Next,
 ) -> Response {
     if is_public_api_path(request.uri().path()) {
+        return next.run(request).await;
+    }
+    if defers_auth_to_handler(request.uri().path(), request.headers()) {
         return next.run(request).await;
     }
     let query: HashMap<String, String> = axum::extract::Query::try_from_uri(request.uri())
@@ -231,5 +259,32 @@ mod tests {
         // Same IP should not increase count
         let _ = limiter.check(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)));
         assert_eq!(limiter.tracked_ips(), 2);
+    }
+
+    /// Both halves of the deferral matter, and only one of them is visible in a
+    /// response. Dropping the path check turns an agent token into a key to the
+    /// whole admin surface — a router test catches that. Dropping the *header*
+    /// check does not change any status code, because the handler refuses a
+    /// credential-less call with the same 403 the layer would have: the two are
+    /// indistinguishable from outside. So the header half is asserted here, at
+    /// the level where the difference exists.
+    #[test]
+    fn a_credential_less_request_never_defers_even_on_the_deferring_path() {
+        let empty = axum::http::HeaderMap::new();
+        assert!(
+            !defers_auth_to_handler("/api/mcp/call", &empty),
+            "with no token to resolve there is nothing for the handler to decide"
+        );
+
+        let mut with_token = axum::http::HeaderMap::new();
+        with_token.insert(
+            crate::managers::agent_token::AGENT_TOKEN_HEADER,
+            axum::http::HeaderValue::from_static("t"),
+        );
+        assert!(defers_auth_to_handler("/api/mcp/call", &with_token));
+        assert!(
+            !defers_auth_to_handler("/api/agents", &with_token),
+            "the deferral is scoped to the route that can resolve a token"
+        );
     }
 }
