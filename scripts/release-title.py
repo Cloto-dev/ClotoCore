@@ -2,8 +2,10 @@
 """Compose the GitHub Release title for a version.
 
 The title is `<version> — <one sentence about what the version did>`, with no
-`v` prefix — the form the project's Python packages use, so a reader moving
-between the two repositories sees one convention instead of two.
+`v` prefix and the version in its display spelling (`0.6.9a1`, not
+`0.6.9-a.1`) — the form the project's Python packages use, so a reader moving
+between the two repositories sees one convention instead of two. The mapping
+lives in `version_display.py`; nothing about the internal version changes.
 
 The sentence cannot be derived from the changelog prose. A good release title
 is written, not extracted: the first sentence of a changelog entry explains the
@@ -11,7 +13,7 @@ release to someone already reading it, while the title has to say what changed
 to someone scrolling a list. So the sentence is declared, in the changelog
 section it belongs to:
 
-    ## [0.6.9-a.1] — 2026-09-08
+    ## [0.6.9a1] — 2026-09-08
     <!-- release-title: an agent gets files it always reads -->
 
 Declaring it there rather than in a file of its own is what keeps it honest.
@@ -33,6 +35,9 @@ import argparse
 import re
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from version_display import to_display  # noqa: E402
 
 # Em dash, the separator the sibling project uses. Written as an escape so the
 # byte cannot be mistaken for a hyphen when this file is read or edited.
@@ -103,9 +108,17 @@ def sentence_of(section: str, version: str) -> str:
 
 
 def compose(changelog: str, version: str) -> str:
-    """Compose the release title for `version`, or raise `TitleError`."""
-    sentence = sentence_of(section_of(changelog, version), version)
-    title = f"{version} {SEPARATOR} {sentence}"
+    """Compose the release title for `version`, or raise `TitleError`.
+
+    `version` arrives in the internal spelling — it comes from the tag — and
+    both the changelog heading and the title use the display one, so it is
+    mapped once here and used in both places. A section written under the
+    internal spelling is therefore not found, which is the intended failure:
+    the heading is what a reader sees, and readers get one spelling.
+    """
+    shown = to_display(version)
+    sentence = sentence_of(section_of(changelog, shown), shown)
+    title = f"{shown} {SEPARATOR} {sentence}"
     if len(title) > MAX_TITLE_CHARS:
         raise TitleError(
             f"the {version} release title is {len(title)} characters, over the "
@@ -117,7 +130,7 @@ def compose(changelog: str, version: str) -> str:
 def selftest() -> None:
     good = (
         "# Changelog\n\n"
-        "## [0.6.9-a.1] — 2026-09-08\n"
+        "## [0.6.9a1] — 2026-09-08\n"
         "<!-- release-title: an agent gets files it always reads -->\n\n"
         "Lead paragraph.\n\n"
         "## [0.6.8] — 2026-09-07\n"
@@ -125,10 +138,15 @@ def selftest() -> None:
         "Older.\n"
     )
 
+    # Called with the spelling the tag carries; answers in the spelling a
+    # reader sees, and finds the section under that same one.
     assert (
         compose(good, "0.6.9-a.1")
-        == "0.6.9-a.1 — an agent gets files it always reads"
+        == "0.6.9a1 — an agent gets files it always reads"
     )
+    # Idempotent: handed the display spelling it maps to itself, so a caller
+    # that already converted is not punished for it.
+    assert compose(good, "0.6.9a1") == compose(good, "0.6.9-a.1")
     # No `v`, and an em dash rather than a hyphen: both are the point of the
     # format, so both are asserted rather than left to the reader of the
     # f-string. The separator is checked in place, against the version it
@@ -171,6 +189,15 @@ def selftest() -> None:
         "## [1.0.0] — 2026-01-01\n<!-- release-title: one\nline two -->\n",
         "1.0.0",
         "a title spanning lines",
+    )
+
+    # A heading in the internal spelling is not a heading a reader would see,
+    # so it is not found — the failure that keeps one spelling in the file
+    # rather than two that drift.
+    refuses(
+        "## [0.6.9-a.1] — 2026-09-08\n<!-- release-title: internal spelling -->\n",
+        "0.6.9-a.1",
+        "a heading written in the internal spelling",
     )
 
     # A marker in a *later* section must not be read for an earlier one: the
