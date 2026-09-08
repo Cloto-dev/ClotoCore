@@ -178,6 +178,7 @@ Layer 4 `mgp.*` kernel tools defined in MGP_SPEC §1.6.
 | `mgp.kernel.create_mcp_server` | Dynamic MCP server generation (agent-initiated). See MGP §16.6 for the equivalent standardized mechanism under `tool_creation: { enabled: true }`. |
 | `gui.map` | Retrieve the dashboard component map for UI-aware agents. |
 | `gui.read` | Read dashboard state. |
+| `mgp.skill.load` | Return one of the operator's skills to the agent that asked for it. See "Agent instruction and skill directory" below. |
 
 (`mgp.agent.ask` was listed here in an earlier revision. It is part of
 MGP spec Layer 4 (`mgp.agent.*`) and is therefore documented in
@@ -187,6 +188,46 @@ These tools are invoked via standard `tools/call` and follow ClotoCore's
 access control policies (§5). They are excluded from LLM tool context by
 default per MGP §1.6.3 visibility rules for administrative tools, and
 are surfaced to operators via the dashboard or programmatic API.
+
+`mgp.skill.load` is the exception, and deliberately so: it is not an
+administrative tool but the read half of a feature the operator configures for
+the agent, and a skill the agent cannot see is a skill it cannot use. It is
+injected per agent, and only when that agent has at least one skill — so an
+agent with none is never offered a tool whose only honest answer would be "no
+such skill". Being kernel-native, it obeys the same Deny-only RBAC as the rows
+above: an explicit `deny` on the synthetic `kernel` server removes both the
+tool and its index entry.
+
+#### Agent instruction and skill directory
+
+The kernel owns a directory per agent under its data directory:
+
+```text
+<data_dir>/agents/<agent_id>/
+    CLAUDE.md          always-loaded, in this order
+    AGENTS.md
+    MEMORY.md
+    skills/<skill_id>/SKILL.md
+```
+
+The three files at the top are composed into `metadata["agent_instructions"]`
+on every dispatch: each is clamped, the block is clamped, and any file that
+does not fit is named rather than silently dropped. They are what the agent
+always operates under.
+
+Skills are the other half. A procedure needed occasionally does not earn a
+place in every prompt, so only an index is always-loaded
+(`metadata["agent_skills"]`): one line per skill, its id and its
+`description:` frontmatter. The body arrives when the agent calls
+`mgp.skill.load` with the id, and the id is the directory name — the caller's
+own agent is used to resolve it, so there is no parameter through which one
+agent could read another's skills. Both halves come from a single directory
+scan, so the tool and the index it belongs to are always offered together.
+
+The composition lives in `crates/core/src/managers/mcp.rs` and
+`mcp_agent_skills.rs`; the renderer that positions the finished blocks in the
+system prompt is in the connector repository, because the kernel owns *what*
+an agent is told and the renderer owns only *where* it appears.
 
 #### `tools_for_capability` (capability declaration, vendor extension)
 

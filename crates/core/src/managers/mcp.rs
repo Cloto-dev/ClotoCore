@@ -43,7 +43,7 @@ const INSTRUCTIONS_TOTAL_CHARS: usize = 9_000;
 /// Truncate `text` to at most `limit` characters, marking the cut so a reader
 /// can tell a clipped instruction from a short one. Counts characters, not
 /// bytes: instructions are prose and are routinely not ASCII.
-fn clamp_instructions(text: &str, limit: usize) -> String {
+pub(super) fn clamp_instructions(text: &str, limit: usize) -> String {
     if text.chars().count() <= limit {
         return text.to_string();
     }
@@ -75,7 +75,7 @@ const AGENT_INSTRUCTIONS_TOTAL_CHARS: usize = 9_000;
 /// means something upstream is wrong rather than that an operator picked an
 /// awkward name — which is why the caller treats it as "this agent has no
 /// instruction directory" instead of surfacing an error.
-fn is_safe_path_segment(id: &str) -> bool {
+pub(super) fn is_safe_path_segment(id: &str) -> bool {
     !id.is_empty()
         && id != "."
         && id != ".."
@@ -85,7 +85,7 @@ fn is_safe_path_segment(id: &str) -> bool {
 }
 
 /// Directory holding every agent's always-loaded instruction files.
-fn agent_instructions_root() -> PathBuf {
+pub(super) fn agent_instructions_root() -> PathBuf {
     crate::config::data_dir().join("agents")
 }
 
@@ -335,10 +335,10 @@ impl McpClientManager {
     /// `serde_json::to_value(&agent)`, so everything added here reaches the
     /// Python `build_system_prompt` and nothing here is persisted.
     ///
-    /// Three enrichers today: the operator's response language, the
-    /// instructions the connected servers supplied at handshake, and the
+    /// Four enrichers today: the operator's response language, the
+    /// instructions the connected servers supplied at handshake, the
     /// always-loaded files the operator placed in this agent's instruction
-    /// directory.
+    /// directory, and the index of the skills placed alongside them.
     pub async fn enrich_agent_for_dispatch(
         &self,
         agent: &cloto_shared::AgentMetadata,
@@ -373,6 +373,19 @@ impl McpClientManager {
             enriched
                 .metadata
                 .insert("agent_instructions".to_string(), block);
+        }
+
+        // The index of what the agent could load, as opposed to what it always
+        // carries. Composed here rather than left to the renderer for the same
+        // reason as the two blocks above: only the kernel knows where an
+        // agent's files live. The bodies stay on disk until `mgp.skill.load`
+        // asks for one — an index line is what choosing costs, and choosing is
+        // all this block is for.
+        let skills =
+            super::mcp_agent_skills::list_skills_in(&agent_instructions_root(), &agent.id).await;
+        if let Some(block) = super::mcp_agent_skills::compose_skill_index(&skills) {
+            // `build_system_prompt` reads metadata["agent_skills"].
+            enriched.metadata.insert("agent_skills".to_string(), block);
         }
 
         enriched
@@ -2176,6 +2189,24 @@ impl McpClientManager {
     /// Deduplicates tool names — if multiple servers provide the same tool name,
     /// only the first encountered is included (bug-341).
     pub async fn collect_tool_schemas_for_agent(&self, agent_id: &str) -> Vec<Value> {
+        // Resolved before the state lock is taken: this reads the filesystem,
+        // and the lock is not held across I/O here for the same reason
+        // `compose_server_instructions` does not hold it across the grant
+        // lookups.
+        let offers_skills =
+            !super::mcp_agent_skills::list_skills_in(&agent_instructions_root(), agent_id)
+                .await
+                .is_empty()
+                && !matches!(
+                    crate::db::resolve_explicit_permission(
+                        &self.pool,
+                        agent_id,
+                        "kernel",
+                        super::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                    )
+                    .await,
+                    Ok(Some(crate::db::mcp::PermissionLevel::Deny))
+                );
         let state = self.state.read().await;
         let mut schemas = if self.yolo_mode.load(Ordering::Relaxed) {
             // L2: Filter kernel tools by per-agent RBAC (server_id="kernel").
@@ -2207,6 +2238,13 @@ impl McpClientManager {
         };
         // §16: Always include LLM meta-tools for dynamic discovery
         schemas.extend(super::mcp_kernel_tool::llm_meta_tool_schemas());
+        // The skill loader is offered only to an agent that has skills. The
+        // schema and the index in the system prompt come from the same scan, so
+        // an agent with nothing to load is never told about a tool whose only
+        // honest answer would be "no such skill".
+        if offers_skills {
+            schemas.push(super::mcp_kernel_tool::skill_load_schema());
+        }
         // Track seen tool names to prevent duplicates sent to LLM (bug-341)
         let mut seen_tool_names: std::collections::HashSet<String> = schemas
             .iter()
@@ -2391,6 +2429,10 @@ impl McpClientManager {
             }
             "mgp.tools.session.evict" => {
                 return super::mcp_tool_discovery::execute_tools_session_evict(self, args).await;
+            }
+            // Operator-authored skills
+            super::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD => {
+                return super::mcp_kernel_tool::execute_skill_load(caller, args).await;
             }
             // Inter-agent delegation
             "mgp.agent.ask" => {
@@ -4307,6 +4349,258 @@ mod tests {
         assert!(
             agent.metadata.is_empty(),
             "enrichment must not reach back into the agent it was given"
+        );
+    }
+
+    /// A scratch skill directory under the **real** [`agent_instructions_root`].
+    ///
+    /// The composition itself is tested against a temporary tree in
+    /// `mcp_agent_skills`. These tests are about the wiring instead, so they
+    /// must not hand the production code a base of their own: a test that did
+    /// would stay green with the enricher pointed at the wrong root, which is
+    /// the one mistake only the wiring can make. The id carries the process id
+    /// so parallel test binaries cannot collide, and cannot be mistaken for a
+    /// real agent.
+    struct ScratchSkills {
+        agent_id: String,
+        dir: PathBuf,
+    }
+
+    impl ScratchSkills {
+        fn new(tag: &str) -> Self {
+            let agent_id = format!("agent.test-skills-{}-{tag}", std::process::id());
+            let dir = agent_instructions_root().join(&agent_id);
+            Self { agent_id, dir }
+        }
+
+        fn write(&self, skill_id: &str, description: &str, body: &str) {
+            let dir = self.dir.join("skills").join(skill_id);
+            std::fs::create_dir_all(&dir).unwrap();
+            std::fs::write(
+                dir.join("SKILL.md"),
+                format!("---\ndescription: {description}\n---\n\n{body}\n"),
+            )
+            .unwrap();
+        }
+    }
+
+    impl Drop for ScratchSkills {
+        fn drop(&mut self) {
+            // Only the directory this test created, and only if it is there.
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
+    async fn skills_manager() -> McpClientManager {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let manager = McpClientManager::new(pool, false, 120, 30);
+        manager
+            .configure_response_language(false, String::new())
+            .await;
+        manager
+    }
+
+    fn tool_names(schemas: &[Value]) -> Vec<String> {
+        schemas
+            .iter()
+            .filter_map(|s| {
+                s.get("function")
+                    .and_then(|f| f.get("name"))
+                    .and_then(|n| n.as_str())
+                    .map(String::from)
+            })
+            .collect()
+    }
+
+    /// The index and the loader come from one scan, so they arrive together or
+    /// not at all. An agent with no skills pays for neither — which is the
+    /// whole reason the body is not always-loaded in the first place.
+    #[tokio::test]
+    async fn the_index_and_the_loader_arrive_together_and_only_with_skills() {
+        const KEY: &str = "agent_skills";
+
+        let scratch = ScratchSkills::new("pair");
+        scratch.write(
+            "release",
+            "cut a release the way this operator does",
+            "1. tag",
+        );
+        let manager = skills_manager().await;
+
+        let enriched = manager
+            .enrich_agent_for_dispatch(&bare_agent(&scratch.agent_id))
+            .await;
+        let index = enriched
+            .metadata
+            .get(KEY)
+            .expect("build_system_prompt reads metadata[\"agent_skills\"]");
+        assert!(
+            index.contains("- release: cut a release the way this operator does"),
+            "the index must name the skill and what it is for, got: {index}"
+        );
+        assert!(
+            !index.contains("1. tag"),
+            "the body belongs behind the loader, not in every prompt: {index}"
+        );
+        assert!(
+            tool_names(
+                &manager
+                    .collect_tool_schemas_for_agent(&scratch.agent_id)
+                    .await
+            )
+            .contains(&crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD.to_string()),
+            "an agent with skills must be given the tool that loads them"
+        );
+
+        // An agent with no skill directory: neither half appears.
+        let bare = manager
+            .enrich_agent_for_dispatch(&bare_agent("agent.test-skills-none"))
+            .await;
+        assert!(!bare.metadata.contains_key(KEY));
+        assert!(
+            !tool_names(
+                &manager
+                    .collect_tool_schemas_for_agent("agent.test-skills-none")
+                    .await
+            )
+            .contains(&crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD.to_string()),
+            "a tool whose only honest answer is \"no such skill\" must not be offered"
+        );
+    }
+
+    /// Reading a file the operator wrote for this agent is not a privilege.
+    /// Filing the loader under the YOLO-gated set would take skills away from
+    /// every normally-configured agent, so that is pinned here rather than left
+    /// to whoever next edits the schema list.
+    #[test]
+    fn the_loader_is_not_gated_on_privileged_mode() {
+        let schema = crate::managers::mcp_kernel_tool::skill_load_schema();
+        assert_eq!(
+            schema["function"]["name"],
+            crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD
+        );
+        assert_eq!(schema["function"]["parameters"]["required"][0], "skill_id");
+        assert!(
+            !tool_names(&crate::managers::mcp_kernel_tool::kernel_tool_schemas())
+                .contains(&crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD.to_string()),
+            "the loader must not join the privileged set — it would then exist \
+             only in YOLO mode"
+        );
+    }
+
+    /// The caller decides whose skills are read. There is no `agent_id`
+    /// parameter, so a model cannot ask for another agent's directory, and a
+    /// hostile id is answered with the ids that do exist rather than with a
+    /// traversal.
+    #[tokio::test]
+    async fn a_skill_is_read_from_the_callers_own_directory() {
+        let mine = ScratchSkills::new("mine");
+        mine.write("deploy", "ships it", "## Steps\n\n1. build");
+        let theirs = ScratchSkills::new("theirs");
+        theirs.write("secret", "not yours", "the other agent's procedure");
+        let manager = skills_manager().await;
+
+        let loaded = manager
+            .execute_tool_internal(
+                &Caller::Agent(mine.agent_id.clone()),
+                crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                serde_json::json!({ "skill_id": "deploy" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(loaded["found"], true);
+        assert!(
+            loaded["content"].as_str().unwrap().starts_with("## Steps"),
+            "the procedure arrives without its frontmatter: {loaded}"
+        );
+
+        // Climbing to the other agent's directory reads nothing, and the answer
+        // names what this agent does have so the model can correct itself.
+        let hostile = manager
+            .execute_tool_internal(
+                &Caller::Agent(mine.agent_id.clone()),
+                crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                serde_json::json!({
+                    "skill_id": format!("../../{}/skills/secret", theirs.agent_id)
+                }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(hostile["found"], false);
+        assert_eq!(hostile["available"], serde_json::json!(["deploy"]));
+
+        // The same bytes are reachable to the agent they belong to, so the
+        // assertion above fails if the guard goes away rather than passing
+        // because there was nothing to find.
+        let theirs_own = manager
+            .execute_tool_internal(
+                &Caller::Agent(theirs.agent_id.clone()),
+                crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                serde_json::json!({ "skill_id": "secret" }),
+            )
+            .await
+            .unwrap();
+        assert!(theirs_own["content"]
+            .as_str()
+            .unwrap()
+            .contains("the other agent's procedure"));
+
+        // A kernel-internal caller has no skill directory to read.
+        let system = manager
+            .execute_tool_internal(
+                &Caller::System,
+                crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                serde_json::json!({ "skill_id": "deploy" }),
+            )
+            .await
+            .unwrap();
+        assert_eq!(system["found"], false);
+    }
+
+    /// The loader is a kernel tool, so it obeys the kernel's Deny-only RBAC:
+    /// an operator who revokes it revokes both halves, and the agent is not
+    /// left looking at an index it cannot act on.
+    #[tokio::test]
+    async fn an_explicit_deny_takes_away_the_loader_and_its_index_entry() {
+        let scratch = ScratchSkills::new("denied");
+        scratch.write("audit", "checks things", "look at it");
+        let manager = skills_manager().await;
+        // The grant row references a server by name; kernel tools hang off the
+        // synthetic 'kernel' server the same way they do in production.
+        register_server_row(&manager.pool, "kernel", "opt-in").await;
+        sqlx::query(
+            "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_at) \
+             VALUES ('tool_grant', ?, 'kernel', ?, 'deny', 't0')",
+        )
+        .bind(&scratch.agent_id)
+        .bind(crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD)
+        .execute(&manager.pool)
+        .await
+        .unwrap();
+
+        assert!(
+            !tool_names(
+                &manager
+                    .collect_tool_schemas_for_agent(&scratch.agent_id)
+                    .await
+            )
+            .contains(&crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD.to_string()),
+            "a denied tool must not be advertised"
+        );
+        assert!(
+            manager
+                .execute_tool_internal(
+                    &Caller::Agent(scratch.agent_id.clone()),
+                    crate::managers::mcp_kernel_tool::TOOL_NAME_SKILL_LOAD,
+                    serde_json::json!({ "skill_id": "audit" }),
+                )
+                .await
+                .is_err(),
+            "and the gate must refuse it if called anyway"
         );
     }
 

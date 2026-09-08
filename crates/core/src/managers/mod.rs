@@ -8,6 +8,7 @@ pub mod capability_dispatcher;
 pub mod installer;
 pub mod llm_proxy;
 pub mod mcp;
+mod mcp_agent_skills;
 pub mod mcp_client;
 mod mcp_discovery;
 mod mcp_events;
