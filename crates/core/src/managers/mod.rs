@@ -6,6 +6,7 @@
 pub mod agent_token;
 mod agents;
 pub mod capability_dispatcher;
+pub mod connector_manifest;
 pub mod installer;
 pub mod llm_proxy;
 pub mod mcp;
