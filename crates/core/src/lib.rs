@@ -787,6 +787,12 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         }
     };
 
+    // Built here rather than inline in `AppState` because both sides need the
+    // same store: the MCP manager mints from it on dispatch, and the HTTP layer
+    // resolves from it on the way back in. Two stores would mean every token
+    // minted was unknown to the endpoint that has to honour it.
+    let agent_tokens = Arc::new(managers::agent_token::AgentTokenStore::new());
+
     let mut mcp_manager = managers::McpClientManager::new(
         pool.clone(),
         yolo_mode,
@@ -794,6 +800,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         config.mcp_stream_idle_timeout_secs,
     );
     mcp_manager.configure_isolation(&config);
+    mcp_manager.configure_agent_tokens(agent_tokens.clone());
     mcp_manager
         .configure_response_language(inject_response_language, response_language)
         .await;
@@ -960,7 +967,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     };
 
     let app_state = Arc::new(AppState {
-        agent_tokens: Arc::new(managers::agent_token::AgentTokenStore::new()),
+        agent_tokens,
         tx: tx.clone(),
         registry: registry_arc.clone(),
         event_tx: event_tx.clone(),
