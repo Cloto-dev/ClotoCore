@@ -27,6 +27,10 @@ fn create_test_router(state: Arc<AppState>) -> axum::Router {
             post(handlers::approve_permission),
         )
         .route("/permissions/{id}/deny", post(handlers::deny_permission))
+        // The tool-call surface. It is here rather than in `api_routes`
+        // because it is an admin route in the kernel too: what makes it
+        // special is the second credential it accepts, not its placement.
+        .route("/mcp/call", post(handlers::call_mcp_tool))
         // Asset reads: authenticated by header or `?token=` (the browser
         // loads them through `<img src>`), never public.
         .route("/agents/{id}/avatar", get(handlers::get_avatar))
@@ -72,6 +76,133 @@ async fn auth_layer_denies_an_unguarded_route_without_a_key() {
             Request::builder()
                 .method("GET")
                 .uri("/api/unguarded")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+// ---------------------------------------------------------------------------
+// The agent-token path, measured through the layer rather than at the handler.
+//
+// `resolve_tool_caller` was correct and covered from the day it landed, and the
+// feature still did not work: every request carrying only an agent token was
+// refused by `auth_middleware` before the handler ran, because `/api/mcp/call`
+// is not a public path. Calling the handler directly cannot see that — the
+// layer is not in the picture — so these three go through the router.
+//
+// The observable has to be chosen with care. A *bogus* token is refused with
+// the same 403 the layer returns, so it cannot tell "the handler declined" from
+// "the handler never ran". A *resolvable* token can: the caller becomes an
+// agent, the call proceeds, and it fails further in with a 400 for a tool no
+// registered server provides. 400 here means "reached the handler".
+// ---------------------------------------------------------------------------
+
+const AGENT_TOKEN_HEADER: &str = "X-Agent-Token";
+
+fn call_body() -> Body {
+    Body::from(json!({"tool_name": "ping", "arguments": {}}).to_string())
+}
+
+/// A request carrying a resolvable agent token reaches the tool-call handler
+/// without the admin key. This is the regression: it fails with 403 if
+/// `/mcp/call` is not on the deferral list.
+#[tokio::test]
+async fn the_tool_call_route_admits_an_agent_token_without_the_admin_key() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let token = state.agent_tokens.mint_default("agent.harness").await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/mcp/call")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(AGENT_TOKEN_HEADER, token)
+                .body(call_body())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+
+    assert_ne!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "the layer refused an agent token, so the handler never got to resolve it"
+    );
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "expected the handler's own refusal (no server provides the tool)"
+    );
+}
+
+/// The deferral is not an open door: with no credential at all, the layer still
+/// closes the same route.
+#[tokio::test]
+async fn the_tool_call_route_stays_closed_with_no_credential() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/mcp/call")
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(call_body())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+/// With the layer standing aside, the handler's refusal is the only thing left
+/// between an unresolvable token and the tool surface. A token that does not
+/// resolve must not become the coordinator, which is what a fall-through to the
+/// admin check would produce on a host where the admin key is also reachable.
+#[tokio::test]
+async fn an_unresolvable_agent_token_is_refused_rather_than_run_as_coordinator() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/mcp/call")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(AGENT_TOKEN_HEADER, "not-a-token")
+                .body(call_body())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "an unresolvable token must be refused, not run as System"
+    );
+}
+
+/// The deferral is scoped to the one route that can resolve a token. An agent
+/// token is not a key to the rest of the admin surface.
+#[tokio::test]
+async fn an_agent_token_opens_nothing_but_the_tool_call_route() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let token = state.agent_tokens.mint_default("agent.harness").await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded")
+                .header(AGENT_TOKEN_HEADER, token)
                 .body(Body::empty())
                 .expect("build request"),
         )

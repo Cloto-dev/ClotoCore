@@ -229,6 +229,30 @@ impl AppConfig {
             .is_ok_and(|ip| ip.is_loopback())
     }
 
+    /// The URL a child process on this machine should use to reach this kernel.
+    ///
+    /// Not simply the bind address. An unspecified bind (`0.0.0.0`, `::`) is a
+    /// wildcard, and a child that dialled it would be dialling "any address" —
+    /// loopback is the one that always reaches a wildcard listener. A specific
+    /// bind is the opposite case: loopback would *not* reach a kernel listening
+    /// only on a LAN address, so there the bind address is the answer.
+    ///
+    /// Handed to children so they do not each carry a copy of this kernel's
+    /// port. A copied port keeps working right up until someone changes it.
+    #[must_use]
+    pub fn kernel_child_url(&self) -> String {
+        let host = match self.bind_address.parse::<std::net::IpAddr>() {
+            Ok(ip) if ip.is_unspecified() => "127.0.0.1".to_string(),
+            Ok(std::net::IpAddr::V6(ip)) => format!("[{ip}]"),
+            Ok(ip) => ip.to_string(),
+            // Not an address at all — a hostname, or misconfiguration. Loopback
+            // is the honest fallback: it is what a single-host child can try,
+            // and it fails loudly rather than dialling something unintended.
+            Err(_) => "127.0.0.1".to_string(),
+        };
+        format!("http://{host}:{}", self.port)
+    }
+
     #[allow(clippy::too_many_lines)]
     pub fn load() -> anyhow::Result<Self> {
         let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
@@ -931,5 +955,43 @@ mod tests {
         assert_eq!(parse_require_token(Some("")), Some(false));
         assert_eq!(parse_require_token(Some("1")), Some(true));
         assert_eq!(parse_require_token(Some(" TRUE ")), Some(true));
+    }
+
+    // ── the address a child is told to dial ──
+
+    fn url_for(bind_address: &str, port: u16) -> String {
+        let mut config = AppConfig::load().unwrap();
+        config.bind_address = bind_address.to_string();
+        config.port = port;
+        config.kernel_child_url()
+    }
+
+    #[test]
+    fn an_unspecified_bind_sends_children_to_loopback() {
+        // A wildcard is not an address to dial. Handing "0.0.0.0" to a child
+        // would hand it the one host string that cannot be connected to.
+        assert_eq!(url_for("0.0.0.0", 8081), "http://127.0.0.1:8081");
+        assert_eq!(url_for("::", 8081), "http://127.0.0.1:8081");
+    }
+
+    #[test]
+    fn a_specific_bind_is_the_address_children_are_given() {
+        // The inverse case, and the reason this is not just a constant:
+        // loopback does not reach a kernel listening only on a LAN address.
+        assert_eq!(url_for("192.168.0.60", 9000), "http://192.168.0.60:9000");
+        assert_eq!(url_for("127.0.0.1", 8081), "http://127.0.0.1:8081");
+    }
+
+    #[test]
+    fn an_ipv6_bind_is_bracketed_so_the_port_is_still_a_port() {
+        assert_eq!(url_for("::1", 8081), "http://[::1]:8081");
+    }
+
+    #[test]
+    fn something_that_is_not_an_address_falls_back_to_loopback() {
+        // A hostname, or a typo. Loopback is what a same-host child can try;
+        // guessing at the string would dial something nobody chose.
+        assert_eq!(url_for("localhost", 8081), "http://127.0.0.1:8081");
+        assert_eq!(url_for("", 8081), "http://127.0.0.1:8081");
     }
 }

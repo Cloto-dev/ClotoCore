@@ -8,6 +8,7 @@ pub use super::mcp_client::{McpClient, McpNotification};
 pub use super::mcp_events::CallbackHandleResult;
 pub use super::mcp_types::*;
 
+use super::agent_token::{AGENT_TOKEN_EXTENSION, KERNEL_URL_ENV, METADATA_AGENT_TOKEN};
 use super::mcp_mgp::{self, ToolSecurityMetadata};
 use super::mcp_protocol::{McpConfigFile, McpServerConfig, ToolContent};
 use super::mcp_tool_validator::validate_tool_arguments;
@@ -223,6 +224,18 @@ pub struct McpClientManager {
     llm_proxy_port: u16,
     /// Per-boot token children present to the LLM proxy (llm_proxy.rs module doc).
     llm_proxy_token: String,
+    /// URL a child process should use to reach this kernel, handed to every
+    /// spawned server so none of them carries a copy of the port.
+    kernel_child_url: String,
+    /// Store the kernel mints agent-scoped tokens from, for engines that
+    /// negotiated the `agent_token` extension.
+    ///
+    /// `None` until the kernel wires it (`configure_agent_tokens`), and a
+    /// dispatch with no store mints nothing. That is the safe direction of the
+    /// two: an engine that expected a token and got none loses its tools and
+    /// says so, whereas the opposite default would hand one out on a path the
+    /// kernel had not deliberately connected.
+    agent_tokens: Option<Arc<super::agent_token::AgentTokenStore>>,
     /// Env var keys that contain LLM API secrets — stripped from child process env.
     sensitive_env_keys: Vec<String>,
     /// Master switch for OS-level isolation (MGP §8-10).
@@ -275,6 +288,11 @@ impl McpClientManager {
             kernel_event_tx: Mutex::new(None),
             llm_proxy_port: 8082,
             llm_proxy_token: String::new(),
+            // Overwritten by `configure_isolation` at boot from the real
+            // config; this default only keeps a manager built for a test from
+            // holding an empty string that would look like a valid URL.
+            kernel_child_url: String::new(),
+            agent_tokens: None,
             sensitive_env_keys: Vec::new(),
             yolo_exceptions: Vec::new(),
             isolation_enabled: true,
@@ -307,9 +325,20 @@ impl McpClientManager {
         *self.response_language.write().await = language;
     }
 
+    /// Hand the manager the store it mints agent tokens from (called once at
+    /// startup, before the manager is shared).
+    ///
+    /// Separate from `new` so that every other construction site — tests,
+    /// benches, tooling — keeps a manager that mints nothing, which is what
+    /// they want and what they would otherwise have to opt out of.
+    pub fn configure_agent_tokens(&mut self, store: Arc<super::agent_token::AgentTokenStore>) {
+        self.agent_tokens = Some(store);
+    }
+
     /// Configure isolation settings from AppConfig (called once at startup).
     pub fn configure_isolation(&mut self, config: &crate::config::AppConfig) {
         self.llm_proxy_port = config.llm_proxy_port;
+        self.kernel_child_url = config.kernel_child_url();
         self.llm_proxy_token = config.llm_proxy_token.clone();
         self.isolation_enabled = config.isolation_enabled;
         self.allow_unsigned = config.allow_unsigned;
@@ -339,11 +368,31 @@ impl McpClientManager {
     /// instructions the connected servers supplied at handshake, the
     /// always-loaded files the operator placed in this agent's instruction
     /// directory, and the index of the skills placed alongside them.
+    ///
+    /// A fifth key is not enrichment and is documented apart from them: when
+    /// `engine_id` negotiated the `agent_token` extension, the dispatch also
+    /// carries a freshly minted credential. It rides here because this is the
+    /// only per-dispatch channel to an engine that every engine already
+    /// tolerates, and it is minted per dispatch rather than per agent because
+    /// the store is the only thing that has to remember it.
+    ///
+    /// **`METADATA_AGENT_TOKEN` is a secret.** `build_system_prompt` reads a
+    /// fixed set of keys and this is not one of them, which is what keeps it
+    /// out of the model's prompt — an allowlist, not an accident. A renderer
+    /// that ever iterates metadata instead would put a live credential in
+    /// front of the model and into every transcript that quotes it.
     pub async fn enrich_agent_for_dispatch(
         &self,
         agent: &cloto_shared::AgentMetadata,
+        engine_id: &str,
     ) -> cloto_shared::AgentMetadata {
         let mut enriched = agent.clone();
+
+        if let Some(token) = self.mint_agent_token_for(&agent.id, engine_id).await {
+            enriched
+                .metadata
+                .insert(METADATA_AGENT_TOKEN.to_string(), token);
+        }
 
         if self.inject_response_language.load(Ordering::Relaxed) {
             let language = self.response_language.read().await.clone();
@@ -389,6 +438,45 @@ impl McpClientManager {
         }
 
         enriched
+    }
+
+    /// Mint an agent token for this dispatch, or `None` when this engine has
+    /// no business holding one.
+    ///
+    /// Three things must all be true, and each is a different question:
+    /// the kernel wired a store at boot, the engine is connected, and that
+    /// connection negotiated [`AGENT_TOKEN_EXTENSION`]. The last is the one
+    /// that narrows: an engine answers prompts, and only an engine that hands
+    /// the answer to a process the kernel does not control needs its child to
+    /// be able to call back as the agent.
+    ///
+    /// Deliberately keyed on the negotiated extension rather than on the
+    /// engine's id. An id test would be a literal naming one connector, which
+    /// ARCHITECTURE §1.2 rules out for the reason it shows up here: the next
+    /// harness engine would silently not work, and nothing would say why.
+    async fn mint_agent_token_for(&self, agent_id: &str, engine_id: &str) -> Option<String> {
+        let store = self.agent_tokens.as_ref()?;
+
+        let declared = {
+            let state = self.state.read().await;
+            state.servers.get(engine_id).is_some_and(|handle| {
+                handle.mgp_negotiated.as_ref().is_some_and(|mgp| {
+                    mgp.active_extensions
+                        .iter()
+                        .any(|e| e == AGENT_TOKEN_EXTENSION)
+                })
+            })
+        };
+        if !declared {
+            return None;
+        }
+
+        // Not logged with the agent id at info level and never with the token:
+        // the value is a live credential for the length of its TTL, and the
+        // one place it is allowed to exist in the clear is the dispatch it was
+        // minted for.
+        debug!("🔑 minting an agent token for a dispatch to engine '{engine_id}'");
+        Some(store.mint_default(agent_id).await)
     }
 
     /// Compose the block of server-supplied instructions for `agent_id`, or
@@ -1492,7 +1580,7 @@ impl McpClientManager {
                     // Only injected when the user hasn't already set the var
                     // via mcp.toml or DB env. Non-engine servers are left
                     // untouched (no matching llm_providers row).
-                    let augmented_env = self.augment_engine_env(&id, &config.env).await;
+                    let augmented_env = self.child_env_for(&id, &config.env).await;
                     McpClient::connect(
                         &id,
                         &config.command,
@@ -2301,6 +2389,46 @@ impl McpClientManager {
     pub async fn get_tool_server_id(&self, tool_name: &str) -> Option<String> {
         let state = self.state.read().await;
         state.tool_index.get(tool_name).cloned()
+    }
+
+    /// Put one server and its single tool into the maps `register` fills, so a
+    /// test can ask a routing question without a child process to answer it.
+    ///
+    /// The handle carries no client, which is deliberate: a caller that gets
+    /// past routing then fails the liveness pre-flight, and the two outcomes
+    /// are distinguishable in the error text. That is what lets a test tell
+    /// "routing resolved to this server" from "routing found nothing" without
+    /// reaching a real one.
+    #[cfg(test)]
+    pub(crate) async fn insert_test_server_providing(&self, server_id: &str, tool_name: &str) {
+        let handle = McpServerHandle {
+            id: server_id.to_string(),
+            config: McpServerConfig {
+                id: server_id.to_string(),
+                command: "noop".to_string(),
+                ..Default::default()
+            },
+            client: None,
+            tools: vec![super::mcp_protocol::McpTool {
+                name: tool_name.to_string(),
+                description: None,
+                input_schema: serde_json::json!({}),
+                annotations: None,
+            }],
+            handshake: None,
+            mgp_negotiated: None,
+            status: ServerStatus::Connected,
+            audit_seq: Arc::new(AtomicU64::new(0)),
+            connected_at: Some(std::time::Instant::now()),
+            isolation_profile: None,
+            protocol_era: None,
+            instructions: None,
+        };
+        let mut state = self.state.write().await;
+        state
+            .tool_index
+            .insert(tool_name.to_string(), server_id.to_string());
+        state.servers.insert(server_id.to_string(), handle);
     }
 
     /// Check tool access for a specific agent via `resolve_tool_access()`.
@@ -3602,6 +3730,31 @@ impl McpClientManager {
     /// The server-side reasoning/thinking auto-detection
     /// (`common/llm_provider.py::_model_suggests_reasoning`) wants that
     /// signal at startup — this helper bridges the gap.
+    /// The environment a spawned server actually receives: the operator's
+    /// configured env, plus what only the kernel can supply.
+    ///
+    /// One method rather than a sequence at the call site, because the two
+    /// contributions have different shapes — the engine model is conditional
+    /// and returns early, the kernel address is unconditional — and a reader
+    /// who added a third would otherwise have to notice that the early return
+    /// exists before deciding where to put it.
+    async fn child_env_for(
+        &self,
+        id: &str,
+        base_env: &HashMap<String, String>,
+    ) -> HashMap<String, String> {
+        let mut env = self.augment_engine_env(id, base_env).await;
+        // Where to reach the kernel, for a child that was handed a credential
+        // to present to it. `entry` rather than `insert`: an operator who set
+        // this in mcp.toml or the DB meant it, and a kernel behind a proxy is
+        // exactly the case where the address it binds is not the one to dial.
+        if !self.kernel_child_url.is_empty() {
+            env.entry(KERNEL_URL_ENV.to_string())
+                .or_insert_with(|| self.kernel_child_url.clone());
+        }
+        env
+    }
+
     async fn augment_engine_env(
         &self,
         id: &str,
@@ -4022,6 +4175,12 @@ pub(crate) fn detect_external_rejection(text: &str) -> Option<cloto_shared::Tool
 mod tests {
     use super::*;
 
+    /// An engine id no test registers a server under, so
+    /// `enrich_agent_for_dispatch` mints no agent token for it. Used by the
+    /// enricher tests that are about the other four keys — the token path has
+    /// its own tests, which register a server and negotiate the extension.
+    const NO_TOKEN_ENGINE: &str = "engine.not-registered";
+
     // ── normalize_legacy_server_id ──
 
     #[test]
@@ -4156,7 +4315,7 @@ mod tests {
             .await;
         assert!(
             !manager
-                .enrich_agent_for_dispatch(&agent)
+                .enrich_agent_for_dispatch(&agent, NO_TOKEN_ENGINE)
                 .await
                 .metadata
                 .contains_key(KEY),
@@ -4170,7 +4329,7 @@ mod tests {
             .await;
         assert!(
             !manager
-                .enrich_agent_for_dispatch(&agent)
+                .enrich_agent_for_dispatch(&agent, NO_TOKEN_ENGINE)
                 .await
                 .metadata
                 .contains_key(KEY),
@@ -4181,7 +4340,9 @@ mod tests {
         manager
             .configure_response_language(true, "ja".to_string())
             .await;
-        let enriched = manager.enrich_agent_for_dispatch(&agent).await;
+        let enriched = manager
+            .enrich_agent_for_dispatch(&agent, NO_TOKEN_ENGINE)
+            .await;
         assert_eq!(
             enriched.metadata.get(KEY).map(String::as_str),
             Some("ja"),
@@ -4259,6 +4420,235 @@ mod tests {
         }
     }
 
+    // ── the environment a spawned child receives (Task #1306) ──
+
+    async fn manager_with_child_url(url: &str) -> McpClientManager {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let mut manager = McpClientManager::new(pool, false, 120, 30);
+        manager.kernel_child_url = url.to_string();
+        manager
+    }
+
+    /// Every spawned server is told where the kernel is, so that a child
+    /// holding a credential does not also have to hold a copy of the port.
+    #[tokio::test]
+    async fn a_spawned_child_is_told_where_the_kernel_is() {
+        let manager = manager_with_child_url("http://127.0.0.1:8081").await;
+
+        let env = manager.child_env_for("srv.any", &HashMap::new()).await;
+
+        assert_eq!(
+            env.get(KERNEL_URL_ENV).map(String::as_str),
+            Some("http://127.0.0.1:8081")
+        );
+    }
+
+    /// The operator outranks the kernel here. A kernel behind a proxy binds one
+    /// address and is reached at another, and only the operator knows that.
+    #[tokio::test]
+    async fn a_configured_kernel_url_is_not_overwritten() {
+        let manager = manager_with_child_url("http://127.0.0.1:8081").await;
+        let mut base = HashMap::new();
+        base.insert(
+            KERNEL_URL_ENV.to_string(),
+            "http://gateway:9443".to_string(),
+        );
+
+        let env = manager.child_env_for("srv.any", &base).await;
+
+        assert_eq!(
+            env.get(KERNEL_URL_ENV).map(String::as_str),
+            Some("http://gateway:9443"),
+            "an operator who set this meant it"
+        );
+    }
+
+    /// A manager the kernel never configured has no address to give, and an
+    /// empty string is not one — a child would read it as a URL and dial
+    /// nothing, which is harder to diagnose than an absent variable.
+    #[tokio::test]
+    async fn an_unconfigured_manager_supplies_no_kernel_url() {
+        let manager = manager_with_child_url("").await;
+
+        let env = manager.child_env_for("srv.any", &HashMap::new()).await;
+
+        assert!(!env.contains_key(KERNEL_URL_ENV));
+    }
+
+    // ── agent token on dispatch (Task #1306) ──
+
+    /// A Connected handle whose negotiation activated `extensions`.
+    ///
+    /// `mgp_negotiated` is `Some` only after a connect succeeds, which is why
+    /// the mint has no separate liveness test: an engine that never connected
+    /// has nothing negotiated to declare with.
+    fn handle_with_extensions(id: &str, extensions: &[&str]) -> McpServerHandle {
+        let mut handle = handle_with_instructions(id, "think", None);
+        handle.mgp_negotiated = Some(mcp_mgp::NegotiatedMgp {
+            version: mcp_mgp::MGP_VERSION.to_string(),
+            active_extensions: extensions.iter().map(|s| (*s).to_string()).collect(),
+            trust_level: mcp_mgp::TrustLevel::Core,
+        });
+        handle
+    }
+
+    /// Build a manager holding one engine with `extensions` negotiated, and
+    /// the store it would mint from when `wire_store` is set.
+    async fn manager_with_engine(
+        engine_id: &str,
+        extensions: &[&str],
+        wire_store: bool,
+    ) -> (
+        McpClientManager,
+        Arc<super::super::agent_token::AgentTokenStore>,
+    ) {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let store = Arc::new(super::super::agent_token::AgentTokenStore::new());
+        let mut manager = McpClientManager::new(pool, false, 120, 30);
+        if wire_store {
+            manager.configure_agent_tokens(store.clone());
+        }
+        manager
+            .configure_response_language(false, String::new())
+            .await;
+        {
+            let mut state = manager.state.write().await;
+            state.servers.insert(
+                engine_id.to_string(),
+                handle_with_extensions(engine_id, extensions),
+            );
+        }
+        (manager, store)
+    }
+
+    /// The whole point of the mechanism: what the dispatch carries resolves,
+    /// in the kernel's own store, to the agent this dispatch is for. The
+    /// harness never gets to say the name.
+    #[tokio::test]
+    async fn an_engine_that_negotiated_the_extension_is_handed_a_token_naming_the_agent() {
+        let (manager, store) = manager_with_engine(
+            "engine.harness",
+            &["tool_security", AGENT_TOKEN_EXTENSION],
+            true,
+        )
+        .await;
+
+        let enriched = manager
+            .enrich_agent_for_dispatch(&bare_agent("agent.growth"), "engine.harness")
+            .await;
+
+        let token = enriched
+            .metadata
+            .get(METADATA_AGENT_TOKEN)
+            .expect("an engine that asked for a token must be handed one");
+        assert_eq!(
+            store.resolve(token).await.as_deref(),
+            Some("agent.growth"),
+            "the token must resolve, in the kernel's store, to the dispatching agent"
+        );
+    }
+
+    /// The narrowing this design exists for. An engine that only answers
+    /// prompts must not be handed a credential that reaches every tool the
+    /// agent can reach — and the thing that decides is the negotiated
+    /// extension, not the engine's id.
+    #[tokio::test]
+    async fn an_engine_that_did_not_ask_gets_no_token() {
+        let (manager, _store) =
+            manager_with_engine("engine.plain", &["tool_security", "streaming"], true).await;
+
+        let enriched = manager
+            .enrich_agent_for_dispatch(&bare_agent("agent.growth"), "engine.plain")
+            .await;
+
+        assert!(
+            !enriched.metadata.contains_key(METADATA_AGENT_TOKEN),
+            "an engine that never declared the extension must not receive a credential"
+        );
+    }
+
+    /// An engine id that names no connected server resolves to no negotiation
+    /// and therefore to no token, rather than to a token minted on a guess.
+    #[tokio::test]
+    async fn an_unknown_engine_gets_no_token() {
+        let (manager, _store) =
+            manager_with_engine("engine.harness", &[AGENT_TOKEN_EXTENSION], true).await;
+
+        let enriched = manager
+            .enrich_agent_for_dispatch(&bare_agent("agent.growth"), "engine.somewhere-else")
+            .await;
+
+        assert!(
+            !enriched.metadata.contains_key(METADATA_AGENT_TOKEN),
+            "a dispatch to an engine the manager does not hold must mint nothing"
+        );
+    }
+
+    /// A manager the kernel never wired mints nothing even for an engine that
+    /// asked. The engine loses its tools and can say so; the alternative
+    /// default would hand out credentials on a path nobody connected.
+    #[tokio::test]
+    async fn a_manager_with_no_store_mints_nothing() {
+        let (manager, _store) =
+            manager_with_engine("engine.harness", &[AGENT_TOKEN_EXTENSION], false).await;
+
+        let enriched = manager
+            .enrich_agent_for_dispatch(&bare_agent("agent.growth"), "engine.harness")
+            .await;
+
+        assert!(
+            !enriched.metadata.contains_key(METADATA_AGENT_TOKEN),
+            "no store means no mint"
+        );
+    }
+
+    /// Two agents talking to the same engine must not end up holding the same
+    /// credential — a shared answer to "who are you" is the self-declared
+    /// identity this replaces.
+    #[tokio::test]
+    async fn two_agents_on_one_engine_get_tokens_that_name_them_separately() {
+        let (manager, store) =
+            manager_with_engine("engine.harness", &[AGENT_TOKEN_EXTENSION], true).await;
+
+        let a = manager
+            .enrich_agent_for_dispatch(&bare_agent("agent.a"), "engine.harness")
+            .await;
+        let b = manager
+            .enrich_agent_for_dispatch(&bare_agent("agent.b"), "engine.harness")
+            .await;
+
+        let ta = a.metadata.get(METADATA_AGENT_TOKEN).unwrap();
+        let tb = b.metadata.get(METADATA_AGENT_TOKEN).unwrap();
+        assert_ne!(ta, tb, "each dispatch must carry its own secret");
+        assert_eq!(store.resolve(ta).await.as_deref(), Some("agent.a"));
+        assert_eq!(store.resolve(tb).await.as_deref(), Some("agent.b"));
+    }
+
+    /// The enrichment is for the dispatch, not for the agent row — the same
+    /// invariant the response-language test pins, restated for the key that
+    /// would be far worse to persist.
+    #[tokio::test]
+    async fn minting_does_not_write_the_token_back_into_the_agent() {
+        let (manager, _store) =
+            manager_with_engine("engine.harness", &[AGENT_TOKEN_EXTENSION], true).await;
+
+        let agent = bare_agent("agent.growth");
+        let _ = manager
+            .enrich_agent_for_dispatch(&agent, "engine.harness")
+            .await;
+
+        assert!(
+            agent.metadata.is_empty(),
+            "a credential must never be written back into the operator's agent row"
+        );
+    }
+
     /// The half of the contract that lives on this side. The renderer is in
     /// another repository and its tests hand `metadata` in by hand, so they
     /// stay green whether or not anything still produces the key — the same
@@ -4305,7 +4695,7 @@ mod tests {
 
         // Granted (opt-out default, no deny): the guidance arrives, attributed.
         let granted = manager
-            .enrich_agent_for_dispatch(&bare_agent("agent.granted"))
+            .enrich_agent_for_dispatch(&bare_agent("agent.granted"), NO_TOKEN_ENGINE)
             .await;
         let block = granted
             .metadata
@@ -4336,7 +4726,7 @@ mod tests {
         .unwrap();
         assert!(
             !manager
-                .enrich_agent_for_dispatch(&bare_agent("agent.denied"))
+                .enrich_agent_for_dispatch(&bare_agent("agent.denied"), NO_TOKEN_ENGINE)
                 .await
                 .metadata
                 .contains_key(KEY),
@@ -4345,7 +4735,9 @@ mod tests {
 
         // The enrichment is for this dispatch only.
         let agent = bare_agent("agent.granted");
-        let _ = manager.enrich_agent_for_dispatch(&agent).await;
+        let _ = manager
+            .enrich_agent_for_dispatch(&agent, NO_TOKEN_ENGINE)
+            .await;
         assert!(
             agent.metadata.is_empty(),
             "enrichment must not reach back into the agent it was given"
@@ -4431,7 +4823,7 @@ mod tests {
         let manager = skills_manager().await;
 
         let enriched = manager
-            .enrich_agent_for_dispatch(&bare_agent(&scratch.agent_id))
+            .enrich_agent_for_dispatch(&bare_agent(&scratch.agent_id), NO_TOKEN_ENGINE)
             .await;
         let index = enriched
             .metadata
@@ -4457,7 +4849,7 @@ mod tests {
 
         // An agent with no skill directory: neither half appears.
         let bare = manager
-            .enrich_agent_for_dispatch(&bare_agent("agent.test-skills-none"))
+            .enrich_agent_for_dispatch(&bare_agent("agent.test-skills-none"), NO_TOKEN_ENGINE)
             .await;
         assert!(!bare.metadata.contains_key(KEY));
         assert!(
@@ -4631,7 +5023,7 @@ mod tests {
         }
 
         let block = manager
-            .enrich_agent_for_dispatch(&bare_agent("agent.granted"))
+            .enrich_agent_for_dispatch(&bare_agent("agent.granted"), NO_TOKEN_ENGINE)
             .await
             .metadata
             .remove("mcp_server_instructions")

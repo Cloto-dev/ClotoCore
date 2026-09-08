@@ -49,6 +49,29 @@ use tokio::sync::RwLock;
 /// token mirrors it from here.
 pub const AGENT_TOKEN_HEADER: &str = "X-Agent-Token";
 
+/// Agent-metadata key a dispatch carries a minted token in.
+///
+/// The kernel is the source of truth for this name too; an engine that reads
+/// the token mirrors it from here. It shares the metadata map with keys the
+/// system-prompt renderer reads, and is deliberately not one of them — see
+/// `McpClientManager::enrich_agent_for_dispatch`.
+pub const METADATA_AGENT_TOKEN: &str = "agent_token";
+
+/// Environment variable naming the kernel's own address, injected into every
+/// spawned MCP server.
+///
+/// A child that was handed a token still has to know where to present it, and
+/// the kernel is the only party that knows what it bound. The name matches the
+/// one the coordinator template already reads, so a server written against
+/// either finds it.
+pub const KERNEL_URL_ENV: &str = "CLOTO_KERNEL_URL";
+
+/// MGP extension a server declares to ask for [`METADATA_AGENT_TOKEN`].
+///
+/// Negotiation intersects this with the kernel's own list, so declaring it is
+/// a request rather than a grant.
+pub const AGENT_TOKEN_EXTENSION: &str = "agent_token";
+
 /// How long a minted token stays resolvable when the caller asks for the default.
 ///
 /// Long enough that a slow harness run does not lose its tools half-way through,

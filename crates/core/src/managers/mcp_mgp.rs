@@ -27,6 +27,19 @@ pub const CLIENT_EXTENSIONS: &[&str] = &[
     "discovery",      // Tier 4: §15 Server Discovery
     "tool_discovery", // Tier 4: §16 Dynamic Tool Discovery
     "delegation",     // §5.6 Delegated Execution
+    // A server that hands the dispatch to a process the kernel does not
+    // control — an external CLI harness — needs that process to be able to
+    // call back as the agent, and to do it without being trusted to say which
+    // agent it is. Declaring this extension is how a server asks for the
+    // agent-scoped token that answers "who are you" on its child's behalf
+    // (`managers::agent_token`).
+    //
+    // The list is an intersection, so declaring it is a request, not a grant:
+    // the kernel offers it here, and a server that never asks never receives
+    // one. That matters — a token lets its holder reach every tool the agent
+    // may reach, which is exactly what an engine that only answers prompts
+    // should not be handed.
+    "agent_token",
 ];
 
 // ============================================================
@@ -911,7 +924,8 @@ mod tests {
         assert!(CLIENT_EXTENSIONS.contains(&"discovery"));
         assert!(CLIENT_EXTENSIONS.contains(&"tool_discovery"));
         assert!(CLIENT_EXTENSIONS.contains(&"delegation"));
-        assert_eq!(CLIENT_EXTENSIONS.len(), 14);
+        assert!(CLIENT_EXTENSIONS.contains(&super::super::agent_token::AGENT_TOKEN_EXTENSION));
+        assert_eq!(CLIENT_EXTENSIONS.len(), 15);
     }
 
     #[test]

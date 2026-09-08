@@ -891,6 +891,14 @@ pub async fn stop_mcp_server(
 
 #[derive(Deserialize)]
 pub struct CallMcpToolRequest {
+    /// Which server provides the tool. Optional: omit it and the kernel reads
+    /// the answer out of its own tool index.
+    ///
+    /// A coordinator that already holds a server id keeps passing it. A caller
+    /// that only knows a tool name — a bridge forwarding for a harness, which
+    /// was handed schemas and never a topology — should not have to carry a
+    /// mapping the kernel owns and can change under it.
+    #[serde(default)]
     pub server_id: String,
     pub tool_name: String,
     #[serde(default)]
@@ -911,11 +919,30 @@ pub async fn call_mcp_tool(
     // coordinator credential and still runs as System.
     let caller = crate::handlers::resolve_tool_caller(&state, &headers).await?;
 
+    // Resolve the provider when the caller did not name one. The index is the
+    // kernel's own answer to "who serves this tool", and it is the same answer
+    // `collect_tool_schemas_for_agent` deduplicated the agent's tool list by —
+    // so a name that reached a caller through that list resolves to the server
+    // the caller was shown.
+    let server_id = if body.server_id.is_empty() {
+        state
+            .mcp_manager
+            .get_tool_server_id(&body.tool_name)
+            .await
+            .ok_or_else(|| {
+                AppError::Validation(format!(
+                    "No connected MCP server provides tool '{}'",
+                    body.tool_name
+                ))
+            })?
+    } else {
+        body.server_id.clone()
+    };
+
     // Pre-flight: reject immediately if server is known-dead (bug-354)
-    if !state.mcp_manager.is_server_alive(&body.server_id).await {
+    if !state.mcp_manager.is_server_alive(&server_id).await {
         return Err(AppError::Validation(format!(
-            "MCP server '{}' is not connected",
-            body.server_id
+            "MCP server '{server_id}' is not connected"
         )));
     }
 
@@ -925,7 +952,7 @@ pub async fn call_mcp_tool(
     // caller is that agent and `enforce_caller_grant` applies directly.
     let result = state
         .mcp_manager
-        .call_server_tool(&caller, &body.server_id, &body.tool_name, body.arguments)
+        .call_server_tool(&caller, &server_id, &body.tool_name, body.arguments)
         .await
         .map_err(
             |e| match e.downcast::<crate::managers::mcp_mgp::MgpError>() {
@@ -1217,5 +1244,103 @@ mod tests {
         assert!(is_validation(validate_server_name("")));
         assert!(validate_server_name(&"a".repeat(64)).is_ok());
         assert!(is_validation(validate_server_name(&"a".repeat(65))));
+    }
+
+    // ── provider resolution on /api/mcp/call (Task #1306) ──
+    //
+    // These drive the handler, not a helper, because the question is whether
+    // the endpoint consults the index — a caller that never learned a topology
+    // has to be able to omit `server_id` and still reach the right server.
+    //
+    // The two outcomes are told apart by which stage refused: routing speaks
+    // before the liveness pre-flight, so "no connected MCP server provides"
+    // means the index found nothing, and "is not connected" means it resolved
+    // and named what it resolved to. Same distinction `agent_token_caller_test`
+    // relies on one stage further in.
+
+    async fn call_with(
+        state: &Arc<crate::AppState>,
+        token: &str,
+        server_id: &str,
+        tool_name: &str,
+    ) -> String {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::managers::agent_token::AGENT_TOKEN_HEADER,
+            token.parse().unwrap(),
+        );
+        let body = CallMcpToolRequest {
+            server_id: server_id.to_string(),
+            tool_name: tool_name.to_string(),
+            arguments: serde_json::json!({}),
+        };
+        match call_mcp_tool(State(state.clone()), headers, Json(body)).await {
+            Ok(_) => panic!("a handle with no client cannot answer a call"),
+            Err(AppError::Validation(msg)) => msg,
+            // Anything else means the call was refused somewhere other than the
+            // two stages under test — a green assertion here would be measuring
+            // the wrong refusal.
+            Err(AppError::Cloto(e)) => panic!("refused before routing: {e}"),
+            Err(AppError::NotFound(m) | AppError::Conflict(m)) => {
+                panic!("refused before routing: {m}")
+            }
+            Err(AppError::Internal(e)) => panic!("refused before routing: {e}"),
+            Err(AppError::Mgp(e)) => panic!("refused before routing: {e}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn an_omitted_server_id_is_resolved_from_the_tool_index() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        state
+            .mcp_manager
+            .insert_test_server_providing("srv.memory", "recall")
+            .await;
+        let token = state.agent_tokens.mint_default("agent.growth").await;
+
+        let err = call_with(&state, &token, "", "recall").await;
+
+        assert!(
+            err.contains("srv.memory") && err.contains("not connected"),
+            "an omitted server_id must resolve to the indexed provider and get \
+             past routing; got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_omitted_server_id_for_an_unindexed_tool_is_refused_by_name() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        state
+            .mcp_manager
+            .insert_test_server_providing("srv.memory", "recall")
+            .await;
+        let token = state.agent_tokens.mint_default("agent.growth").await;
+
+        let err = call_with(&state, &token, "", "no_such_tool").await;
+
+        assert!(
+            err.contains("No connected MCP server provides tool 'no_such_tool'"),
+            "a tool nothing provides must be refused at routing, not guessed \
+             at; got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_caller_that_names_a_server_is_still_taken_at_its_word() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        state
+            .mcp_manager
+            .insert_test_server_providing("srv.memory", "recall")
+            .await;
+        let token = state.agent_tokens.mint_default("agent.growth").await;
+
+        // The index would have said srv.memory. An explicit id must win, or a
+        // coordinator could be silently rerouted to a server it did not pick.
+        let err = call_with(&state, &token, "srv.elsewhere", "recall").await;
+
+        assert!(
+            err.contains("srv.elsewhere"),
+            "an explicit server_id must not be overridden by the index; got: {err}"
+        );
     }
 }
