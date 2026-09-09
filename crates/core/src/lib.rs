@@ -223,6 +223,11 @@ pub struct AppState {
     /// authorises one; a restart drops them all, and a browser that has to sign
     /// in again after the kernel restarted is being told the truth.
     pub browser_sessions: Arc<managers::browser_session::SessionStore>,
+    /// Verifies Cloudflare Access assertions, so a browser that reached us
+    /// through the edge can be given a session without ever holding the admin
+    /// key (see [`managers::access_assertion`]). Refuses everything unless the
+    /// deployment is configured for it.
+    pub access_verifier: Arc<managers::access_assertion::AccessVerifier>,
     /// Pending command approval requests (kernel ↔ API handler bridge).
     pub pending_command_approvals: handlers::command_approval::PendingApprovals,
     /// Session-scoped trusted command names (cleared on restart).
@@ -836,6 +841,17 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // minted was unknown to the endpoint that has to honour it.
     let agent_tokens = Arc::new(managers::agent_token::AgentTokenStore::new());
     let browser_sessions = Arc::new(managers::browser_session::SessionStore::new());
+    let access_verifier = Arc::new(managers::access_assertion::AccessVerifier::from_env());
+    if let Some(cfg) = access_verifier.config() {
+        tracing::info!(
+            issuer = %cfg.issuer(),
+            "🔓 Access sign-in enabled — a browser reaching us through the edge can mint a session"
+        );
+    } else {
+        tracing::debug!(
+            "Access sign-in disabled (CLOTO_ACCESS_TEAM_DOMAIN / CLOTO_ACCESS_AUD unset)"
+        );
+    }
 
     let mut mcp_manager = managers::McpClientManager::new(
         pool.clone(),
@@ -1013,6 +1029,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     let app_state = Arc::new(AppState {
         agent_tokens,
         browser_sessions,
+        access_verifier,
         tx: tx.clone(),
         registry: registry_arc.clone(),
         event_tx: event_tx.clone(),
@@ -1679,6 +1696,15 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route(
             "/mcp/access/by-agent/{agent_id}",
             get(handlers::get_agent_access),
+        )
+        // Access sign-in. Deliberately outside `admin_routes`: it is the one
+        // /api route that does not take the admin key, because taking it would
+        // defeat the purpose. It is reachable only while carrying an assertion
+        // (`middleware::ACCESS_ASSERTION_API_PATHS`), and the handler verifies
+        // that assertion's signature before anything is minted.
+        .route(
+            middleware::ACCESS_SESSION_PATH,
+            post(handlers::auth::create_session_from_access),
         )
         .merge(admin_routes)
         // Authentication is a property of the router, not of each handler:

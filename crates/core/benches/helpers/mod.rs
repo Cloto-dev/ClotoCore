@@ -59,6 +59,9 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         revoked_keys: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
         agent_tokens: Arc::new(cloto_core::managers::agent_token::AgentTokenStore::new()),
         browser_sessions: Arc::new(cloto_core::managers::browser_session::SessionStore::new()),
+        access_verifier: Arc::new(cloto_core::managers::access_assertion::AccessVerifier::new(
+            None,
+        )),
         pending_command_approvals: Arc::new(dashmap::DashMap::new()),
         session_trusted_commands: Arc::new(dashmap::DashMap::new()),
         active_cron_contexts: Arc::new(dashmap::DashMap::new()),

@@ -7,7 +7,7 @@
 An AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 
-[![Tests](https://img.shields.io/badge/tests-920%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-961%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/sponsor-Cloto--dev-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Cloto-dev)
 
@@ -206,6 +206,9 @@ Copy `.env.example` to `.env` to customize. All settings have sensible defaults.
 | `CLOTO_LLM_PROXY_TOKEN` | (generated per boot) | Token MCP servers present to the LLM proxy; the kernel passes it to the servers it spawns |
 | `CLOTO_LLM_PROXY_REQUIRE_TOKEN` | (earned) | Reject LLM proxy calls without a valid token. Unset, the kernel requires it only once this installation has served at least one proxy request and every one of them carried a valid token; otherwise such calls are served and logged. Set it to `1` or `0` to decide instead of being decided for |
 | `CLOTO_ALLOW_UNAUTHENTICATED_HTTP` | `false` | Allow the kernel to start without `CLOTO_API_KEY` on a non-loopback `BIND_ADDRESS` |
+| `CLOTO_ACCESS_TEAM_DOMAIN` | (none) | Cloudflare Access team hostname (e.g. `example.cloudflareaccess.com`). With `CLOTO_ACCESS_AUD`, lets a browser that reached the kernel through the tunnel sign in with a verified assertion instead of the admin key |
+| `CLOTO_ACCESS_AUD` | (none) | The Access application's AUD tag. Required together with `CLOTO_ACCESS_TEAM_DOMAIN`; with only one of the two set, Access sign-in stays off |
+| `CLOTO_SESSION_COOKIE_SECURE` | (on) | Whether the browser session cookie is marked `Secure`. Set to `0` or `false` only to sign in over plain http — a browser will not send a `Secure` cookie to `http://` |
 | `CONSENSUS_SYNTHESIZER` | (first working engine) | Engine that merges the proposals |
 | `CONSENSUS_MIN_PROPOSALS` | `2` | Minimum proposals before synthesis |
 | `CONSENSUS_SESSION_TIMEOUT_SECS` | `60` | Per-phase timeout (proposal collection / synthesis) |

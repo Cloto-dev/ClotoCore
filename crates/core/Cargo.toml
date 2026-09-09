@@ -35,6 +35,10 @@ chrono = { version = "0.4", features = ["serde"] }
 governor = "0.6"
 dashmap.workspace = true
 sha2 = "0.10"
+# RSA signature verification for Cloudflare Access assertions
+# (`managers::access_assertion`). Already compiled into this binary via
+# rustls (reqwest, sqlx), so naming it here adds a declaration, not a crate.
+ring = "0.17"
 hmac = "0.12"
 hex = "0.4"
 argon2 = "0.5"
