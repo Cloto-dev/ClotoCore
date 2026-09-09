@@ -30,6 +30,26 @@ pub async fn create_test_app_state_in(
     data_dir: std::path::PathBuf,
     admin_api_key: Option<String>,
 ) -> Arc<crate::AppState> {
+    create_test_app_state_with_access(
+        data_dir,
+        admin_api_key,
+        Arc::new(crate::managers::access_assertion::AccessVerifier::new(None)),
+    )
+    .await
+}
+
+/// Like [`create_test_app_state_in`] but with an explicit Access verifier.
+///
+/// The default above is a *disabled* one rather than
+/// [`AccessVerifier::from_env`](crate::managers::access_assertion::AccessVerifier::from_env):
+/// environment variables are process-global and this suite runs in parallel, so
+/// reading them here would make every test's Access behaviour depend on whether
+/// some other test's deployment switch happened to be set.
+pub async fn create_test_app_state_with_access(
+    data_dir: std::path::PathBuf,
+    admin_api_key: Option<String>,
+    access_verifier: Arc<crate::managers::access_assertion::AccessVerifier>,
+) -> Arc<crate::AppState> {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
     crate::db::init_db(&pool, "sqlite::memory:", None)
         .await
@@ -80,6 +100,7 @@ pub async fn create_test_app_state_in(
         admin_api_key: std::sync::RwLock::new(config_admin_key),
         agent_tokens: Arc::new(crate::managers::agent_token::AgentTokenStore::new()),
         browser_sessions: Arc::new(crate::managers::browser_session::SessionStore::new()),
+        access_verifier,
         pending_command_approvals: Arc::new(dashmap::DashMap::new()),
         session_trusted_commands: Arc::new(dashmap::DashMap::new()),
         active_cron_contexts: Arc::new(dashmap::DashMap::new()),

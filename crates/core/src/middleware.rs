@@ -120,13 +120,39 @@ pub fn is_public_api_path(path: &str) -> bool {
 /// still stopped by this layer, exactly as before.
 pub const AGENT_TOKEN_API_PATHS: &[&str] = &["/mcp/call"];
 
+/// Where a browser signs in with a verified Cloudflare Access assertion.
+///
+/// Named rather than spelled twice: the router mounts this exact string and the
+/// list below exempts it, and two spellings that must agree would drift into a
+/// route that silently requires the very key it exists to avoid.
+pub const ACCESS_SESSION_PATH: &str = "/auth/session/access";
+
+/// Routes whose caller proves itself with a signed Cloudflare Access assertion
+/// instead of the admin key.
+///
+/// This is the one credential that cannot be checked here, because checking it
+/// means fetching the team's published keys — an async, network-bound step that
+/// does not belong in the layer every request passes through. The handler does
+/// it (see [`crate::managers::access_assertion`]), and refuses fail-closed.
+///
+/// Like [`AGENT_TOKEN_API_PATHS`], this is not an exemption: a request reaches
+/// the handler through here only by *carrying* an assertion, and one that does
+/// not is refused by the ordinary path exactly as before. Nothing here decides
+/// that the assertion is genuine.
+pub const ACCESS_ASSERTION_API_PATHS: &[&str] = &[ACCESS_SESSION_PATH];
+
 /// Whether this request is one the handler authenticates itself: a path on
-/// [`AGENT_TOKEN_API_PATHS`], carrying an agent token to be resolved there.
+/// [`AGENT_TOKEN_API_PATHS`] carrying an agent token, or one on
+/// [`ACCESS_ASSERTION_API_PATHS`] carrying an Access assertion, to be resolved
+/// there.
 #[must_use]
 pub fn defers_auth_to_handler(path: &str, headers: &axum::http::HeaderMap) -> bool {
     let path = path.strip_prefix("/api").unwrap_or(path);
-    AGENT_TOKEN_API_PATHS.contains(&path)
-        && headers.contains_key(crate::managers::agent_token::AGENT_TOKEN_HEADER)
+    let agent_token = AGENT_TOKEN_API_PATHS.contains(&path)
+        && headers.contains_key(crate::managers::agent_token::AGENT_TOKEN_HEADER);
+    let access_assertion = ACCESS_ASSERTION_API_PATHS.contains(&path)
+        && headers.contains_key(crate::managers::access_assertion::ACCESS_ASSERTION_HEADER);
+    agent_token || access_assertion
 }
 
 /// Axum middleware: every `/api` route requires the admin key unless it is
@@ -241,6 +267,66 @@ pub async fn rate_limit_middleware(
 mod tests {
     use super::*;
     use std::net::Ipv4Addr;
+
+    fn headers_with(name: &str) -> axum::http::HeaderMap {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert(
+            axum::http::HeaderName::from_bytes(name.as_bytes()).expect("header name"),
+            axum::http::HeaderValue::from_static("x"),
+        );
+        headers
+    }
+
+    #[test]
+    fn the_access_route_is_deferred_only_while_it_carries_an_assertion() {
+        let with = headers_with(crate::managers::access_assertion::ACCESS_ASSERTION_HEADER);
+        assert!(defers_auth_to_handler(ACCESS_SESSION_PATH, &with));
+        assert!(defers_auth_to_handler(
+            &format!("/api{ACCESS_SESSION_PATH}"),
+            &with
+        ));
+
+        // Without the header there is nothing for a handler to evaluate, so the
+        // ordinary key check must still run. This is the direction that decides
+        // whether the exemption is a hole.
+        assert!(!defers_auth_to_handler(
+            ACCESS_SESSION_PATH,
+            &axum::http::HeaderMap::new()
+        ));
+    }
+
+    #[test]
+    fn carrying_an_assertion_does_not_open_any_other_route() {
+        let with = headers_with(crate::managers::access_assertion::ACCESS_ASSERTION_HEADER);
+        for path in [
+            "/auth/session",
+            "/agents",
+            "/system/shutdown",
+            "/auth/session/access/../agents",
+            "/auth/session/accessX",
+        ] {
+            assert!(
+                !defers_auth_to_handler(path, &with),
+                "{path} must not be deferred"
+            );
+        }
+    }
+
+    #[test]
+    fn the_two_deferred_families_do_not_lend_each_other_their_headers() {
+        let agent = headers_with(crate::managers::agent_token::AGENT_TOKEN_HEADER);
+        let access = headers_with(crate::managers::access_assertion::ACCESS_ASSERTION_HEADER);
+        assert!(!defers_auth_to_handler(ACCESS_SESSION_PATH, &agent));
+        assert!(!defers_auth_to_handler("/mcp/call", &access));
+        assert!(defers_auth_to_handler("/mcp/call", &agent));
+    }
+
+    #[test]
+    fn the_access_route_is_not_public() {
+        // Being deferred is conditional on a header; being public is not. If the
+        // path ever landed on the public list the assertion would stop mattering.
+        assert!(!is_public_api_path(ACCESS_SESSION_PATH));
+    }
 
     #[test]
     fn test_allows_within_burst() {
