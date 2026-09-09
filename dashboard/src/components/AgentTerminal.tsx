@@ -6,6 +6,7 @@ import {
   Plus,
   Route,
   Settings,
+  Terminal,
   Trash2,
   Upload,
   Users,
@@ -27,6 +28,7 @@ import type { AccessControlEntry, AgentMetadata } from '../types';
 import { AgentConsole } from './AgentConsole';
 import { AgentPluginWorkspace } from './AgentPluginWorkspace';
 import { AgentPowerButton } from './AgentPowerButton';
+import { CliAgentPanel } from './CliAgentPanel';
 import { PowerToggleModal } from './PowerToggleModal';
 
 export interface AgentTerminalProps {
@@ -86,6 +88,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
 
   // Import (deferred: parse into pendingImport, commit on Save)
   const importRef = useRef<HTMLInputElement>(null);
+  const [cliAgentOpen, setCliAgentOpen] = useState(false);
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
   const [isImporting, setIsImporting] = useState(false);
@@ -315,6 +318,8 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
         <PowerToggleModal agent={powerTarget} onClose={() => setPowerTarget(null)} onSuccess={onRefresh} />
       )}
 
+      {cliAgentOpen && <CliAgentPanel onClose={() => setCliAgentOpen(false)} />}
+
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
         <div
@@ -393,6 +398,13 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                 e.target.value = '';
               }}
             />
+            <button
+              onClick={() => setCliAgentOpen(true)}
+              aria-label={t('cli_agent.open')}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+            >
+              <Terminal size={14} /> {t('cli_agent.open')}
+            </button>
             <button
               onClick={() => importRef.current?.click()}
               disabled={pendingImport !== null || isImporting}

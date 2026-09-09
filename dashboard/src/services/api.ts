@@ -495,6 +495,26 @@ export const api = {
     return { status: res.status, body: safeJsonParse(text, text) };
   },
 
+  /** Call one MCP tool directly (MGP §5.6, §19.1).
+   *
+   * `serverId` may be empty: the kernel then resolves the provider out of its
+   * own tool index, which is the same answer it gave whoever was shown the
+   * tool. Pass one only when the caller genuinely knows the topology. */
+  callMcpTool: async (
+    toolName: string,
+    args: Record<string, unknown>,
+    apiKey: string,
+    serverId = '',
+  ): Promise<unknown> => {
+    const res = await fetch(`${API_BASE}/mcp/call`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
+      body: JSON.stringify({ server_id: serverId, tool_name: toolName, arguments: args }),
+    });
+    await throwIfNotOk(res, `call ${toolName}`);
+    return res.json().then((b) => b.data);
+  },
+
   // MCP Server Management (MCP_SERVER_UI_DESIGN.md §4)
   listMcpServers: async (apiKey: string): Promise<{ servers: McpServerInfo[]; count: number }> => {
     const res = await fetch(`${API_BASE}/mcp/servers`, {
@@ -1037,6 +1057,8 @@ export function createAuthenticatedApi(apiKey: string) {
     fetchModuleDocument: (id: string, entry: string) => api.fetchModuleDocument(id, entry, k),
     callForModule: (method: string, path: string) => api.callForModule(method, path, k),
     // MCP servers
+    callMcpTool: (toolName: string, args: Record<string, unknown>, serverId?: string) =>
+      api.callMcpTool(toolName, args, k, serverId),
     listMcpServers: () => api.listMcpServers(k),
     getMcpServerSettings: (name: string) => api.getMcpServerSettings(name, k),
     updateMcpServerSettings: (name: string, settings: Parameters<typeof api.updateMcpServerSettings>[1]) =>

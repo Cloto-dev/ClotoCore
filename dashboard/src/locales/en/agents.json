@@ -136,5 +136,27 @@
     "precision_balanced_hint": "The memory server's default operating point",
     "precision_lenient": "Lenient",
     "precision_lenient_hint": "Higher sensitivity — fewer misses, more contaminants"
+  },
+  "cli_agent": {
+    "title": "Connect a CLI agent",
+    "open": "CLI Agent",
+    "not_installed": "No connected server can run a CLI harness. Install the CLI Agent connector from the marketplace first.",
+    "connector_label": "Connector",
+    "connected": "connected",
+    "offline": "offline",
+    "offline_hint": "The connector is not running, so the host cannot be scanned. Start it from the MCP servers screen.",
+    "rescan": "Scan the host again",
+    "detected": "Harnesses on this host",
+    "none_found": "The connector ran but found no harness on this host.",
+    "active": "in use",
+    "not_found": "not found",
+    "plan_label": "billing",
+    "credential_label": "credential",
+    "metered_warning": "This harness is set up with an API key, so runs are billed per token rather than covered by a subscription.",
+    "working_directory": "Working directory",
+    "options": "Connection options",
+    "restart_note": "Saving restarts the connector: these options are read when its process starts.",
+    "probe_failed": "Could not read the harnesses on this host",
+    "save_failed": "Could not save the connection options"
   }
 }

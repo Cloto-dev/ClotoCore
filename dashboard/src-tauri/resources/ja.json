@@ -74,7 +74,8 @@
     "diagnostics_copy": "コピー",
     "diagnostics_copied": "コピーしました",
     "diagnostics_close": "閉じる",
-    "diagnostics_masked": "{{n}} 件の秘密情報を伏せ字にしました。"
+    "diagnostics_masked": "{{n}} 件の秘密情報を伏せ字にしました。",
+    "unknown": "不明"
   },
   "agents": {
     "title": "エージェント",
@@ -214,6 +215,28 @@
       "precision_balanced_hint": "メモリサーバーの既定の動作点",
       "precision_lenient": "寛容",
       "precision_lenient_hint": "感度重視 — 取りこぼしが減り汚染が増える"
+    },
+    "cli_agent": {
+      "title": "CLI エージェントを接続",
+      "open": "CLI エージェント",
+      "not_installed": "CLI ハーネスを動かせるサーバが接続されていません。先にマーケットプレイスから CLI Agent コネクタを導入してください。",
+      "connector_label": "コネクタ",
+      "connected": "接続済み",
+      "offline": "停止中",
+      "offline_hint": "コネクタが動いていないためホストを調べられません。MCP サーバ画面から起動してください。",
+      "rescan": "ホストを再スキャン",
+      "detected": "このホストのハーネス",
+      "none_found": "コネクタは動きましたが、このホストにハーネスは見つかりませんでした。",
+      "active": "使用中",
+      "not_found": "見つかりません",
+      "plan_label": "課金",
+      "credential_label": "資格情報",
+      "metered_warning": "このハーネスは API キーで設定されています。サブスクリプションではなくトークン従量で課金されます。",
+      "working_directory": "作業ディレクトリ",
+      "options": "接続オプション",
+      "restart_note": "保存するとコネクタを再起動します。これらのオプションはプロセス起動時に読まれます。",
+      "probe_failed": "このホストのハーネスを読み取れませんでした",
+      "save_failed": "接続オプションを保存できませんでした"
     }
   },
   "settings": {
