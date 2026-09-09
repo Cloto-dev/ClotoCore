@@ -68,7 +68,11 @@ export function openVrmWindow(agentId: string, apiKey?: string): Promise<void> {
 }
 
 async function openVrmWindowInner(agentId: string, apiKey?: string): Promise<void> {
-  const keyParam = apiKey ? `?key=${encodeURIComponent(apiKey)}` : '';
+  // The browser popup is same-origin with its opener and shares its cookie jar,
+  // so it is already authenticated and the key would only be adding itself to a
+  // second window's address bar and history. Tauri opens a webview whose origin
+  // is not the API's, where no cookie is sent and the key still has to travel.
+  const keyParam = isTauri && apiKey ? `?key=${encodeURIComponent(apiKey)}` : '';
   const path = `/vrm-viewer/${encodeURIComponent(agentId)}${keyParam}`;
 
   if (isTauri) {

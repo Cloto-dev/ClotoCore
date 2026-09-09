@@ -13,6 +13,7 @@ import { ConnectionProvider, useConnection } from './contexts/ConnectionContext'
 import { UserIdentityProvider } from './contexts/UserIdentityContext';
 import { checkForUpdates, isTauri } from './lib/tauri';
 import { api } from './services/api';
+import { restoreBrowserSession } from './services/session';
 
 import './i18n';
 import { loadExternalLanguages } from './i18n';
@@ -182,6 +183,10 @@ function App() {
 }
 
 async function bootstrap() {
+  // Before the first component mounts, so that the things which cannot carry a
+  // header — the event stream, avatars, the VRM model — have a credential by the
+  // time they are rendered. Deliberately not awaited (see the function's docs).
+  restoreBrowserSession();
   await loadExternalLanguages();
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>

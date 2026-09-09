@@ -1,4 +1,6 @@
 import { useEffect, useRef } from 'react';
+import { isTauri } from '../lib/tauri';
+import { browserSessionReady } from '../services/session';
 
 // Singleton SSE connection shared across all consumers
 // Prevents multiple EventSource instances to the same endpoint
@@ -21,6 +23,20 @@ let sharedApiKey: string | null = null;
 let hasConnectedBefore = false;
 let lastSeenSeqId = 0;
 
+/**
+ * The credential this connection puts in the URL, if any.
+ *
+ * `EventSource` cannot set headers (bug-157), so something has to travel with
+ * the URL — unless the browser is already carrying a cookie for this origin,
+ * which it attaches to the stream by itself. In a browser that is the case
+ * (`services/session`), so the URL stays clean; under Tauri the SPA's origin is
+ * not the API's, no cookie is ever sent, and the query parameter is still the
+ * only channel.
+ */
+function urlToken(apiKey?: string): string | undefined {
+  return isTauri ? apiKey : undefined;
+}
+
 function connect(url: string, apiKey?: string) {
   if (sharedEventSource && sharedEventSource.readyState !== EventSource.CLOSED) {
     return; // Already connected
@@ -28,8 +44,8 @@ function connect(url: string, apiKey?: string) {
 
   sharedUrl = url;
   sharedApiKey = apiKey ?? null;
-  // SSE EventSource cannot set custom headers — pass token via query param (bug-157)
-  const connectUrl = apiKey ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(apiKey)}` : url;
+  const token = urlToken(apiKey);
+  const connectUrl = token ? `${url}${url.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : url;
   if (import.meta.env.DEV) console.log(`📡 Connecting to Event Stream: ${url}`);
   const es = new EventSource(connectUrl);
   sharedEventSource = es;
@@ -108,9 +124,20 @@ export function useEventStream(url: string, onMessage: (data: ServerEvent) => vo
   useEffect(() => {
     const handler: Handler = (data) => handlerRef.current(data);
     subscribers.add(handler);
-    connect(url, apiKey);
+
+    // In a browser the cookie has to be in place before the stream is opened: a
+    // refused EventSource does not retry promptly, it starts backing off, so a
+    // race here would cost seconds of missing events rather than a retry.
+    // `false` means no key has been offered yet — there is nothing to connect
+    // with, and this effect re-runs when one arrives.
+    let cancelled = false;
+    browserSessionReady().then((ready) => {
+      if (cancelled || !ready) return;
+      connect(url, apiKey);
+    });
 
     return () => {
+      cancelled = true;
       subscribers.delete(handler);
       disconnect();
     };
