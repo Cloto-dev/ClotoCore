@@ -793,11 +793,22 @@ pub async fn install_handler(
         // already-Connected handle) can replace the now-Disconnected one. The
         // DB row and grants are untouched (unlike remove_server). A not-running
         // server yields an ignorable error.
-        if is_update {
-            if let Err(e) = state_clone.mcp_manager.stop_server(&entry.id).await {
-                tracing::debug!("update: stop_server({}) before re-vendor: {e}", entry.id);
+        //
+        // Whether this call actually took a server down is the question the
+        // restart below asks, and `stop_server` already answers it: it fails
+        // when the server is absent or already stopped. A server the operator
+        // had stopped stays stopped.
+        let stopped_for_update = if is_update {
+            match state_clone.mcp_manager.stop_server(&entry.id).await {
+                Ok(()) => true,
+                Err(e) => {
+                    tracing::debug!("update: stop_server({}) before re-vendor: {e}", entry.id);
+                    false
+                }
             }
-        }
+        } else {
+            false
+        };
         let result = run_install(&state_clone, &entry, env_overrides, auto_start).await;
         state_clone
             .setup_in_progress
@@ -809,7 +820,7 @@ pub async fn install_handler(
             // takes the connector off the operator's update list. Only on
             // success — a failed re-vendor leaves the old files in place, and
             // with them the reason the connector was listed.
-            Ok(()) => {
+            Ok(InstallOutcome::Installed) => {
                 crate::managers::llm_proxy::forget_untrusted_provider(&entry.id);
                 // The persisted record describes callers that were just
                 // replaced. Keeping it would either hold enforcement off for a
@@ -817,8 +828,55 @@ pub async fn install_handler(
                 // has not spoken yet.
                 crate::managers::llm_proxy::clear_token_evidence(&state_clone.pool).await;
             }
+            // Nothing was replaced, so nothing the proxy recorded is stale.
+            // The reason is already on the progress stream as a `StepError`;
+            // a daemon has nobody subscribed to that, so say it in the log too.
+            Ok(InstallOutcome::NotInstalled) => {
+                warn!("Marketplace install did not install {}", entry.id);
+            }
             Err(e) => error!("Marketplace install failed for {}: {e}", entry.id),
         }
+
+        // An update stops the running server before re-vendoring. When the
+        // re-vendor does not land, that stop is the only thing this request
+        // changed, and leaving it in place turns a failed update into an
+        // outage: the connector is gone from the operator's session while its
+        // files sit there working.
+        //
+        // Safe to undo because of where the install engine does its work. It
+        // extracts, builds and seals a staged tree under `tmp/`, and only a
+        // verified tree ever reaches the servers root — as one rename, after
+        // the old tree is removed. So every failure short of that swap leaves
+        // the previous tree whole, and the swap itself cannot leave a
+        // half-written one.
+        //
+        // The exception is a failure of the swap: `Err` can mean the old tree
+        // was removed and the new one could not be renamed into place. That is
+        // why the directory is checked rather than the error classified — a
+        // check that stays true if the engine's failure modes change, which a
+        // list of them would not.
+        if stopped_for_update && !matches!(result, Ok(InstallOutcome::Installed)) {
+            let install_dir = state_clone
+                .data_dir
+                .join("mcp-servers")
+                .join(effective_install_dir(&entry));
+            if install_dir.is_dir() {
+                match state_clone.mcp_manager.start_server(&entry.id).await {
+                    Ok(_) => info!("{}: restarted after the update failed to install", entry.id),
+                    Err(e) => error!(
+                        "{}: the update failed and the server could not be restarted: {e}",
+                        entry.id
+                    ),
+                }
+            } else {
+                error!(
+                    "{}: the update failed and left no tree at {} — the server stays stopped",
+                    entry.id,
+                    install_dir.display()
+                );
+            }
+        }
+
         // Always emit Complete so the frontend SSE listener can close.
         emit(&state_clone.setup_progress_tx, SetupProgressEvent::Complete);
     });
@@ -1310,6 +1368,28 @@ fn rust_binary_path(server_path: &std::path::Path, entry: &RegistryEntry) -> Pat
 
 // ── Install orchestration ───────────────────────────────────────────
 
+/// Whether an install put a tree in place, as distinct from whether it ran.
+///
+/// Every install failure below the transport layer — an unreachable archive, a
+/// digest that does not match, a dependency step that fails, a tree the engine
+/// refuses as a tamper suspect — is reported as a `StepError` on the progress
+/// stream and still returns `Ok`. So `Result::is_ok` answers "the engine ran to
+/// a verdict", never "the connector is installed", and callers that need the
+/// second question have to be told it.
+///
+/// Reached only through [`finish_registration`], which runs after the install
+/// engine has swapped the staged tree into the servers root. Every other exit
+/// is `NotInstalled`, and the engine builds and verifies the staged tree before
+/// it touches the previous one — so `NotInstalled` also means the tree that was
+/// installed before this run, if any, is still there untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InstallOutcome {
+    /// The tree is in the servers root and the server is registered.
+    Installed,
+    /// No tree was installed. A `StepError` on the progress stream carries why.
+    NotInstalled,
+}
+
 /// Dispatch a marketplace install based on the catalog entry's
 /// `install.source`. `None` falls back to the legacy
 /// `clotohub-servers` monorepo tarball path so pre-v0.2 registries keep
@@ -1322,7 +1402,7 @@ pub async fn run_install(
     entry: &RegistryEntry,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<InstallOutcome> {
     use mgp_sdk::adapters::SourceSpec;
     let result = match entry.install.as_ref().map(|i| &i.source) {
         Some(SourceSpec::Git(spec)) => {
@@ -1339,9 +1419,14 @@ pub async fn run_install(
         }
         None => install_from_monorepo_tarball(state, entry, env_overrides, auto_start).await,
     };
-    if result.is_ok() {
+    if matches!(result, Ok(InstallOutcome::Installed)) {
         // Defender install receipt (DEFENDER_DESIGN.md §3): every footprint
         // mutation updates the ledger. Best-effort by contract.
+        //
+        // Keyed on the outcome, not on `is_ok`: an install that failed its
+        // download or its dependency step also returns `Ok`, and recording a
+        // receipt for it would enter a directory that was never created into
+        // the ledger the defender treats as canonical.
         let install_dir = state
             .data_dir
             .join("mcp-servers")
@@ -1439,7 +1524,7 @@ async fn build_and_register(
     needs_common: bool,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<InstallOutcome> {
     let tx = &state.setup_progress_tx;
     let is_rust = entry.runtime == "rust";
     let servers_dir = resolve_servers_dir(state);
@@ -1465,7 +1550,7 @@ async fn build_and_register(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
         // Ensure the package is not absorbed by a parent workspace.
         // Append [workspace] to Cargo.toml so Cargo treats it as standalone.
@@ -1485,7 +1570,7 @@ async fn build_and_register(
         );
 
         if !cargo_build_server(tx, server_path, &entry.name).await? {
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
 
         let bin_path = rust_binary_path(server_path, entry);
@@ -1498,7 +1583,7 @@ async fn build_and_register(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
 
         emit(
@@ -1659,7 +1744,7 @@ async fn build_and_register(
                         recoverable: true,
                     },
                 );
-                return Ok(());
+                return Ok(InstallOutcome::NotInstalled);
             }
         }
 
@@ -2051,7 +2136,7 @@ async fn register_server(
     args: Vec<String>,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<InstallOutcome> {
     let tx = &state.setup_progress_tx;
 
     emit(
@@ -2086,7 +2171,7 @@ async fn register_server(
                         recoverable: false,
                     },
                 );
-                return Ok(());
+                return Ok(InstallOutcome::NotInstalled);
             }
         };
     finish_registration(state, entry, command, args, seal, env_overrides, auto_start).await
@@ -2104,7 +2189,7 @@ async fn finish_registration(
     seal: Option<String>,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<InstallOutcome> {
     let tx = &state.setup_progress_tx;
 
     // Build env: merge defaults with overrides
@@ -2246,7 +2331,7 @@ async fn finish_registration(
     );
 
     info!("Marketplace install complete: {}", entry.id);
-    Ok(())
+    Ok(InstallOutcome::Installed)
 }
 
 /// Set `agent.cloto_default.metadata.preferred_memory` to the given plugin
@@ -2287,12 +2372,12 @@ async fn install_from_monorepo_tarball(
     entry: &RegistryEntry,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<InstallOutcome> {
     let tx = &state.setup_progress_tx;
     let is_rust = entry.runtime == "rust";
 
     if !ensure_toolchain(state, is_rust).await? {
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     }
 
     // Step 2: Download repo tarball
@@ -2330,7 +2415,7 @@ async fn install_from_monorepo_tarball(
                 recoverable: true,
             },
         );
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     }
 
     // Stream download to file
@@ -2436,12 +2521,12 @@ async fn install_from_git(
     spec: &mgp_sdk::adapters::GitSpec,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<InstallOutcome> {
     let tx = &state.setup_progress_tx;
     let is_rust = entry.runtime == "rust";
 
     if !ensure_toolchain(state, is_rust).await? {
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     }
 
     emit(
@@ -2465,7 +2550,7 @@ async fn install_from_git(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
     };
 
@@ -2522,7 +2607,7 @@ async fn install_from_git(
                     recoverable: true,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
         Ok(Err(e)) => {
             emit(
@@ -2535,7 +2620,7 @@ async fn install_from_git(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
         Err(_) => {
             emit(
@@ -2546,7 +2631,7 @@ async fn install_from_git(
                     recoverable: true,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
     }
 
@@ -2602,7 +2687,7 @@ async fn install_from_raw_url(
     spec: &mgp_sdk::adapters::RawUrlSpec,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<InstallOutcome> {
     let tx = &state.setup_progress_tx;
     let is_rust = entry.runtime == "rust";
 
@@ -2610,11 +2695,11 @@ async fn install_from_raw_url(
     // it there is no install, so it is checked before anything is
     // provisioned for one.
     let Some(installer) = crate::managers::installer::check_for_install(tx).await else {
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     };
 
     if !ensure_toolchain(state, is_rust).await? {
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     }
 
     emit(
@@ -2643,7 +2728,7 @@ async fn install_from_raw_url(
                 recoverable: false,
             },
         );
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     }
     let parsed_url = match reqwest::Url::parse(&spec.url) {
         Ok(u) => u,
@@ -2656,7 +2741,7 @@ async fn install_from_raw_url(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
     };
     let Some(host) = parsed_url.host_str().map(str::to_string) else {
@@ -2668,7 +2753,7 @@ async fn install_from_raw_url(
                 recoverable: false,
             },
         );
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     };
     let port = parsed_url.port_or_known_default().unwrap_or(443);
     let resolved = match crate::capabilities::resolve_unrestricted_addrs(&host, port).await {
@@ -2682,7 +2767,7 @@ async fn install_from_raw_url(
                     recoverable: false,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
     };
 
@@ -2691,7 +2776,7 @@ async fn install_from_raw_url(
     let archive_path = tmp_dir.join(format!("{}-raw-url.tar.gz", entry.id));
 
     if !fetch_raw_url_archive(tx, &installer, entry, &resolved, &archive_path).await? {
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     }
     materialize_with_installer(
         state,
@@ -2760,7 +2845,7 @@ pub async fn materialize_with_installer(
     tmp_dir: &std::path::Path,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<InstallOutcome> {
     let tx = &state.setup_progress_tx;
     let is_rust = entry.runtime == "rust";
 
@@ -2802,7 +2887,7 @@ pub async fn materialize_with_installer(
 
     if result.get("ok").and_then(serde_json::Value::as_bool) != Some(true) {
         // The engine has emitted the StepError and left nothing behind.
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     }
 
     emit(
@@ -2828,7 +2913,7 @@ pub async fn materialize_with_installer(
                     tx,
                     refusal("install engine reported a verified tree without a seal"),
                 );
-                return Ok(());
+                return Ok(InstallOutcome::NotInstalled);
             };
             Some(local.to_string())
         }
@@ -2851,7 +2936,7 @@ pub async fn materialize_with_installer(
                 .unwrap_or("install engine refused the tree without a reason");
             error!("{}: install refused — {message}", entry.id);
             emit(tx, refusal(message));
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
     };
 
@@ -2892,7 +2977,7 @@ async fn install_from_pypi(
     spec: &mgp_sdk::adapters::PypiSpec,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<InstallOutcome> {
     let tx = &state.setup_progress_tx;
 
     if entry.runtime == "rust" {
@@ -2907,11 +2992,11 @@ async fn install_from_pypi(
                 recoverable: false,
             },
         );
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     }
 
     if !ensure_toolchain(state, false).await? {
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     }
 
     emit(
@@ -2992,7 +3077,7 @@ async fn install_from_pypi(
                     recoverable: true,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
         Err(e) => {
             emit(
@@ -3003,7 +3088,7 @@ async fn install_from_pypi(
                     recoverable: true,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
     }
 
@@ -3043,7 +3128,7 @@ async fn install_from_docker(
     spec: &mgp_sdk::adapters::DockerSpec,
     env_overrides: HashMap<String, String>,
     auto_start: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<InstallOutcome> {
     let tx = &state.setup_progress_tx;
 
     if let Err(msg) = spec.check() {
@@ -3055,7 +3140,7 @@ async fn install_from_docker(
                 recoverable: false,
             },
         );
-        return Ok(());
+        return Ok(InstallOutcome::NotInstalled);
     }
 
     emit(
@@ -3095,7 +3180,7 @@ async fn install_from_docker(
                     recoverable: true,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
     }
 
@@ -3139,7 +3224,7 @@ async fn install_from_docker(
                     recoverable: true,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
         Ok(Err(e)) => {
             emit(
@@ -3150,7 +3235,7 @@ async fn install_from_docker(
                     recoverable: true,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
         Err(_) => {
             emit(
@@ -3163,7 +3248,7 @@ async fn install_from_docker(
                     recoverable: true,
                 },
             );
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
     }
 

@@ -29,7 +29,7 @@ use axum::extract::{ConnectInfo, Query, State};
 use axum::http::HeaderMap;
 use cloto_core::handlers::marketplace::{
     catalog_handler, fetch_raw_url_archive, install_handler, materialize_with_installer,
-    run_install, CatalogQuery, InstallRequest, RegistryEntry,
+    run_install, CatalogQuery, InstallOutcome, InstallRequest, RegistryEntry,
 };
 use cloto_core::handlers::setup::SetupProgressEvent;
 use cloto_core::managers::installer::{self, InstallerState};
@@ -297,7 +297,20 @@ impl Harness {
     /// The two stages of `install_from_raw_url`, chained as it chains them,
     /// with the download pinned to the local server's address (the guard
     /// that would refuse it is exercised separately through `run_install`).
-    async fn download_and_materialize(&self, entry: &RegistryEntry) -> anyhow::Result<()> {
+    async fn download_and_materialize(
+        &self,
+        entry: &RegistryEntry,
+    ) -> anyhow::Result<InstallOutcome> {
+        self.download_and_materialize_starting(entry, false).await
+    }
+
+    /// `download_and_materialize` with control over `auto_start`, for the
+    /// tests that need the installed server registered and running.
+    async fn download_and_materialize_starting(
+        &self,
+        entry: &RegistryEntry,
+        auto_start: bool,
+    ) -> anyhow::Result<InstallOutcome> {
         let Some(InstallShape {
             source: SourceSpec::RawUrl(spec),
             ..
@@ -318,7 +331,7 @@ impl Harness {
         )
         .await?
         {
-            return Ok(());
+            return Ok(InstallOutcome::NotInstalled);
         }
         materialize_with_installer(
             &self.state,
@@ -328,7 +341,7 @@ impl Harness {
             &archive_path,
             &tmp_dir,
             HashMap::new(),
-            false,
+            auto_start,
         )
         .await
     }
@@ -1068,6 +1081,17 @@ async fn post_install(
     server_id: &str,
     update: bool,
 ) -> (axum::http::StatusCode, serde_json::Value) {
+    post_install_starting(h, server_id, update, false).await
+}
+
+/// `post_install` with control over `auto_start`, for the tests that need the
+/// server to be running before the request under test.
+async fn post_install_starting(
+    h: &Harness,
+    server_id: &str,
+    update: bool,
+    auto_start: bool,
+) -> (axum::http::StatusCode, serde_json::Value) {
     use axum::response::IntoResponse;
 
     let mut headers = HeaderMap::new();
@@ -1079,7 +1103,7 @@ async fn post_install(
         axum::Json(InstallRequest {
             server_id: server_id.to_string(),
             env: None,
-            auto_start: Some(false),
+            auto_start: Some(auto_start),
             update: Some(update),
         }),
     )
@@ -1175,4 +1199,224 @@ async fn install_still_starts_when_the_engine_is_the_matching_version() {
     if let Some(handle) = handle {
         let _ = handle.await;
     }
+}
+
+// ── a failed update and the server it stopped ────────────────────────────
+
+/// The status as the manager reports it, by name — `Error` carries a message
+/// that differs between two failed connects, and the question here is which
+/// state the server is in, not what the last connect said.
+async fn server_state(h: &Harness, id: &str) -> String {
+    let statuses = h.state.mcp_manager.registered_server_statuses().await;
+    match statuses.get(id) {
+        Some(status) => serde_json::to_value(status)
+            .expect("status serializes")
+            .as_str()
+            .expect("status serializes to a name")
+            .to_string(),
+        None => "absent".to_string(),
+    }
+}
+
+/// Install `demo` for real and leave it registered and started, then hand back
+/// the entry the update will be asked for.
+///
+/// Address-pinned, so the download guard does not refuse the local server, and
+/// registered *unsealed* (the hub key is unreachable) so that starting it is
+/// decided by the connect and not by the seal. A tree seal is verified against
+/// `sandbox_base_dir.parent()/mcp-servers`, and this crate's test `AppState`
+/// never calls `configure_isolation`, so the manager keeps its default relative
+/// sandbox path and cannot find the tree it just installed. Production sets it
+/// (`lib.rs`), so that divergence belongs to the harness — but it would
+/// otherwise decide the outcome of these tests, which are about the update.
+async fn installed_and_started(h: &Harness) -> RegistryEntry {
+    let archive = standalone_archive(SERVER_PY);
+    let url = h.archive_url("demo.tar.gz");
+    let entry = h
+        .hub
+        .entry("demo", "", "1.0.0", SERVER_PY, &archive, &url, None, &[]);
+    h.mock.reset().await;
+    h.serve_archive("demo.tar.gz", archive).await;
+    Mock::given(method("GET"))
+        .and(path("/api/seal/keys"))
+        .respond_with(ResponseTemplate::new(503))
+        .mount(&h.mock)
+        .await;
+    h.serve_catalog(&[&entry]).await;
+    std::env::set_var(installer::ENV_OVERRIDE, install_engine());
+    let outcome = h
+        .download_and_materialize_starting(&entry, true)
+        .await
+        .expect("the first install runs");
+    assert_eq!(
+        outcome,
+        InstallOutcome::Installed,
+        "the test needs a real install to update"
+    );
+    entry
+}
+
+/// Drive an update that cannot land — through the handler, so it takes the
+/// same stop-then-re-vendor path an operator's Update button does. The
+/// download stage refuses the loopback address the archive is served from,
+/// which is a failure before anything touches the installed tree.
+async fn failed_update(h: &Harness) {
+    let (status, body) = post_install_starting(h, "demo", true, true).await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    let handle = h.state.install_task.lock().await.take();
+    if let Some(handle) = handle {
+        let _ = handle.await;
+    }
+}
+
+#[tokio::test]
+async fn a_failed_update_leaves_the_server_it_stopped_in_the_state_it_found_it() {
+    let _guard = ENV_LOCK.lock().await;
+    let h = Harness::new("updfail", false).await;
+    let entry = installed_and_started(&h).await;
+
+    let before = server_state(&h, "demo").await;
+    assert_ne!(
+        before, "Disconnected",
+        "the test measures nothing unless the update has a running server to stop"
+    );
+    assert_ne!(
+        before, "absent",
+        "the install must have registered a handle"
+    );
+
+    failed_update(&h).await;
+
+    // The tree the server runs from is still the one the failed update never
+    // replaced, so there is something to run.
+    assert!(
+        h.data_dir.join("mcp-servers/demo").is_dir(),
+        "a failure before the swap leaves the installed tree in place"
+    );
+    assert_eq!(
+        server_state(&h, "demo").await,
+        before,
+        "a failed update must not leave the connector stopped"
+    );
+    assert!(
+        h.db_row(&entry.id).await.is_some(),
+        "the row the update preserved is still there"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_update_leaves_a_stopped_server_stopped() {
+    let _guard = ENV_LOCK.lock().await;
+    let h = Harness::new("updfailstopped", false).await;
+    installed_and_started(&h).await;
+    h.state
+        .mcp_manager
+        .stop_server("demo")
+        .await
+        .expect("the operator stops the server");
+    assert_eq!(server_state(&h, "demo").await, "Disconnected");
+
+    failed_update(&h).await;
+
+    // The restart undoes this update's own stop. A server the operator had
+    // already stopped was not stopped by the update, so starting it here would
+    // be the update deciding to run something the operator had shut down.
+    assert_eq!(
+        server_state(&h, "demo").await,
+        "Disconnected",
+        "a failed update must not start a server the operator had stopped"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_install_records_no_install_receipt() {
+    let _guard = ENV_LOCK.lock().await;
+    let h = Harness::new("noreceipt", false).await;
+    let archive = standalone_archive(SERVER_PY);
+    let url = h.archive_url("demo.tar.gz");
+    let entry = h
+        .hub
+        .entry("demo", "", "1.0.0", SERVER_PY, &archive, &url, None, &[]);
+    h.mock.reset().await;
+    h.serve_catalog(&[&entry]).await;
+    std::env::set_var(installer::ENV_OVERRIDE, install_engine());
+
+    // Fails at the download guard, which refuses the loopback address the
+    // archive is served from — before anything is written under the data dir.
+    let (status, body) = post_install(&h, "demo", false).await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    let handle = h.state.install_task.lock().await.take();
+    if let Some(handle) = handle {
+        let _ = handle.await;
+    }
+    assert!(h.db_row("demo").await.is_none(), "nothing was installed");
+
+    let listed = cloto_core::defender::footprint::load(&h.data_dir).is_some_and(|receipt| {
+        receipt
+            .entries
+            .iter()
+            .any(|candidate| candidate.id == "mcp:demo")
+    });
+    assert!(
+        !listed,
+        "the ledger the defender treats as canonical must not carry a directory that was never created"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_update_keeps_what_the_proxy_learned_about_its_callers() {
+    let _guard = ENV_LOCK.lock().await;
+    let h = Harness::new("updevidence", false).await;
+    installed_and_started(&h).await;
+
+    // The record a served proxy request leaves. The proxy writes it from
+    // inside its own module and exposes no writer, so the row is seeded
+    // directly; the assertion below reads it back through the public reader.
+    // HARDCODED(managers/llm_proxy.rs::KERNEL_STORE_ID, ::TOKEN_EVIDENCE_KEY):
+    // the store id and key are private to that module, and a test that seeds
+    // the row it reads back has to name it.
+    sqlx::query("INSERT OR REPLACE INTO plugin_data (plugin_id, key, value) VALUES (?, ?, ?)")
+        .bind("cloto.kernel")
+        .bind("llm_proxy.token_evidence")
+        .bind(r#"{"served":true,"untrusted":true}"#)
+        .execute(&h.state.pool)
+        .await
+        .expect("seed the proxy's record");
+
+    failed_update(&h).await;
+
+    // Clearing it is what an install earns by replacing the files the record
+    // describes. This update replaced nothing, so the record still describes
+    // the connector that is running.
+    assert_eq!(
+        cloto_core::managers::llm_proxy::load_token_evidence(&h.state.pool).await,
+        cloto_core::managers::llm_proxy::TokenEvidence {
+            served: true,
+            untrusted: true
+        },
+        "a failed update must not clear what the proxy learned"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_update_with_no_tree_left_does_not_start_the_server() {
+    let _guard = ENV_LOCK.lock().await;
+    let h = Harness::new("updnotree", false).await;
+    installed_and_started(&h).await;
+    assert_ne!(server_state(&h, "demo").await, "Disconnected");
+
+    // The one failure that can take the installed tree with it is the swap
+    // itself: the engine removes the old tree and renames the staged one in,
+    // and a rename that fails leaves neither. Reproduced here by removing the
+    // tree, because what the restart has to answer is "is there anything to
+    // run", not "which step failed".
+    std::fs::remove_dir_all(h.servers_dir().join("demo")).expect("remove the installed tree");
+
+    failed_update(&h).await;
+
+    assert_eq!(
+        server_state(&h, "demo").await,
+        "Disconnected",
+        "with no tree on disk there is nothing to start, and trying says the opposite in the log"
+    );
 }
