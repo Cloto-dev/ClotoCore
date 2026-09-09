@@ -1737,6 +1737,20 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
                     axum::http::Method::DELETE,
                     axum::http::Method::PUT,
                 ])
+                // `x-agent-token` is deliberately absent, and this comment is the
+                // decision rather than an oversight waiting to be corrected.
+                //
+                // An agent token names one agent and carries that agent's
+                // capability gate. The browser is not an agent: it signs in as
+                // the operator and holds a session, and the tool calls it starts
+                // are resolved inside the kernel. Allowing the header here would
+                // not fix a broken flow — it would create one, by declaring that
+                // a page may hold an agent's credential. Add it only alongside a
+                // decision that a browser may.
+                //
+                // Nothing today is blocked by its absence: the only caller that
+                // presents an agent token is a server-side process, and CORS
+                // constrains browsers.
                 .allow_headers([
                     axum::http::header::CONTENT_TYPE,
                     axum::http::HeaderName::from_static("x-api-key"),
