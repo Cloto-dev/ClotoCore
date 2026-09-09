@@ -1640,6 +1640,12 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/modules/{id}/assets/{*path}",
             get(handlers::modules::serve_module_asset),
         )
+        // State a publisher outside the kernel keeps here for a module to read.
+        // The kernel does not read the document; see handlers::published.
+        .route(
+            "/published/{publisher}",
+            get(handlers::published::get_published_state).post(handlers::published::publish_state),
+        )
         // Settings
         .route(
             "/settings/yolo",
