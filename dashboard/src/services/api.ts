@@ -31,20 +31,24 @@ export const API_BASE = API_URL.endsWith('/api') ? API_URL : `${API_URL}/api`;
 export const EVENTS_URL = `${API_BASE}/events`;
 
 /**
- * Append the admin key (and any extra query params) to an asset URL.
+ * Append any extra query params to an asset URL — and, under Tauri only, the
+ * admin key.
  *
  * Images, audio and the VRM model are fetched by the browser from a `src`/URL,
- * so no `X-API-Key` header can be attached — the kernel accepts the key as a
- * `token=` query param on those read routes, the same channel the SSE stream
- * uses. An empty key yields the bare URL (a valid but unauthenticated request)
- * rather than an empty `token=`.
+ * so no `X-API-Key` header can be attached. In a browser the credential is the
+ * session cookie (`services/session`), which the browser attaches by itself to
+ * these same-origin requests: nothing has to go in the URL, so nothing does.
+ *
+ * Under Tauri the SPA's origin is not the API's, so that cookie is never sent
+ * and `token=` is still the only channel. The switch is here rather than at the
+ * call sites because there are a dozen of them and one of them would forget.
  */
 function withToken(url: string, apiKey: string, extra?: Record<string, string | number>): string {
   let out = url;
   const append = (pair: string) => {
     out += `${out.includes('?') ? '&' : '?'}${pair}`;
   };
-  if (apiKey) append(`token=${encodeURIComponent(apiKey)}`);
+  if (isTauri && apiKey) append(`token=${encodeURIComponent(apiKey)}`);
   for (const [key, value] of Object.entries(extra ?? {})) {
     append(`${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`);
   }
