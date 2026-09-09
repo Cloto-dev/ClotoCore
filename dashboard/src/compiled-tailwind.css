@@ -2053,6 +2053,11 @@ video {
   background-color: var(--surface-overlay);
 }
 
+.bg-amber-400 {
+  --tw-bg-opacity: 1;
+  background-color: rgb(251 191 36 / var(--tw-bg-opacity, 1));
+}
+
 .bg-amber-400\/20 {
   background-color: rgb(251 191 36 / 0.2);
 }

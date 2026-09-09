@@ -69,5 +69,6 @@
   "diagnostics_copy": "Copy",
   "diagnostics_copied": "Copied",
   "diagnostics_close": "Close",
-  "diagnostics_masked": "{{n}} secret value(s) masked."
+  "diagnostics_masked": "{{n}} secret value(s) masked.",
+  "unknown": "unknown"
 }
