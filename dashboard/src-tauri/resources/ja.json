@@ -591,7 +591,12 @@
     "collapse_sidebar": "サイドバーを折りたたむ",
     "shutdown": "終了",
     "experimental": "Experimental",
-    "experimental_tooltip": "Experimental ビルド — 任意参加で、動作の保証はありません"
+    "experimental_tooltip": "Experimental ビルド — 任意参加で、動作の保証はありません",
+    "modules": "モジュール",
+    "module_reload": "モジュールを再読み込み",
+    "module_rejected": "このモジュールを読み取れませんでした",
+    "module_load_failed": "このモジュールを読み込めませんでした",
+    "module_missing": "そのモジュールはありません"
   },
   "cron": {
     "title": "Cron ジョブ",

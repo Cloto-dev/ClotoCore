@@ -1632,6 +1632,14 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route("/mcp/servers/{name}/stop", post(handlers::stop_mcp_server))
         // Direct tool call for coordinator-pattern servers (MGP §5.6, §19.1)
         .route("/mcp/call", post(handlers::call_mcp_tool))
+        // Runtime-loaded UI modules. Under /api so the admin-key / session layer
+        // covers them: module files are third-party code an operator placed on
+        // the host, not the fixed SPA shell this binary was built with.
+        .route("/modules", get(handlers::modules::list_modules))
+        .route(
+            "/modules/{id}/assets/{*path}",
+            get(handlers::modules::serve_module_asset),
+        )
         // Settings
         .route(
             "/settings/yolo",

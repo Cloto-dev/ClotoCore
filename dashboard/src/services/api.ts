@@ -15,6 +15,7 @@ import type {
   Memory,
   MemoryCapabilities,
   Metrics,
+  ModuleInfo,
   PermissionRequest,
   RecallPrecisionInfo,
   SetupStatus,
@@ -449,6 +450,49 @@ export const api = {
 
   getAttachmentUrl(attachmentId: string, apiKey: string): string {
     return withToken(`${API_BASE}/chat/attachments/${attachmentId}`, apiKey);
+  },
+
+  // Runtime UI modules (crates/core/src/handlers/modules.rs)
+  listModules: async (apiKey: string): Promise<ModuleInfo[]> => {
+    const res = await fetch(`${API_BASE}/modules`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to list modules: ${res.statusText}`);
+    return res.json().then((b) => b.data);
+  },
+
+  /** Fetch a module's entry document as text, to be handed to a sandboxed frame.
+   *
+   * Read here rather than pointed at with a `src` because the frame is given no
+   * origin of its own: it can hold neither the session cookie nor the admin key,
+   * which is the whole point — a module cannot call the kernel behind the
+   * operator's back. The credential stays on this side of the boundary, and the
+   * document crosses it as text. */
+  fetchModuleDocument: async (id: string, entry: string, apiKey: string): Promise<string> => {
+    const path = entry
+      .split('/')
+      .filter((s) => s.length > 0)
+      .map(encodeURIComponent)
+      .join('/');
+    const res = await fetch(`${API_BASE}/modules/${encodeURIComponent(id)}/assets/${path}`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to load module ${id}: ${res.status} ${res.statusText}`);
+    return res.text();
+  },
+
+  /** Make one kernel call on a module's behalf, after the caller has checked it
+   * against that module's declared `requires`. */
+  callForModule: async (method: string, path: string, apiKey: string): Promise<{ status: number; body: unknown }> => {
+    // `path` is a full kernel path (`/api/...`) while API_BASE already ends in
+    // `/api`, so the base is trimmed back to the origin before joining.
+    const origin = API_BASE.replace(/\/api$/, '');
+    const res = await fetch(`${origin}${path}`, {
+      method,
+      headers: { 'X-API-Key': apiKey },
+    });
+    const text = await res.text();
+    return { status: res.status, body: safeJsonParse(text, text) };
   },
 
   // MCP Server Management (MCP_SERVER_UI_DESIGN.md §4)
@@ -988,6 +1032,10 @@ export function createAuthenticatedApi(apiKey: string) {
     // System
     invalidateApiKey: () => api.invalidateApiKey(k),
     regenerateApiKey: () => api.regenerateApiKey(k),
+    // Runtime UI modules
+    listModules: () => api.listModules(k),
+    fetchModuleDocument: (id: string, entry: string) => api.fetchModuleDocument(id, entry, k),
+    callForModule: (method: string, path: string) => api.callForModule(method, path, k),
     // MCP servers
     listMcpServers: () => api.listMcpServers(k),
     getMcpServerSettings: (name: string) => api.getMcpServerSettings(name, k),

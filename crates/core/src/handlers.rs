@@ -17,6 +17,7 @@ pub mod health;
 pub mod llm;
 pub mod marketplace;
 pub mod mcp;
+pub mod modules;
 pub mod permissions;
 pub mod response;
 pub mod setup;
