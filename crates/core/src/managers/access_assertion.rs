@@ -984,6 +984,7 @@ mod tests {
         let keys = parse_jwks(&format!(
             r#"{{"keys":[
                 {{"kid":"ec","kty":"EC","crv":"P-256","x":"a","y":"b"}},
+                {{"kid":"oct","kty":"oct","n":"{TEST_KEY_A_N}","e":"AQAB"}},
                 {{"kid":"enc","kty":"RSA","alg":"RSA-OAEP","n":"{TEST_KEY_A_N}","e":"AQAB"}},
                 {{"kty":"RSA","n":"{TEST_KEY_A_N}","e":"AQAB"}},
                 {{"kid":"{KID}","kty":"RSA","alg":"RS256","n":"{TEST_KEY_A_N}","e":"AQAB"}}
@@ -992,6 +993,9 @@ mod tests {
         .expect("one usable key");
         assert_eq!(keys.len(), 1);
         assert!(keys.contains_key(KID));
+        // The `oct` entry above carries RSA-shaped components on purpose: the
+        // key type is what decides, not whether `n` and `e` happen to be there.
+        assert!(!keys.contains_key("oct"));
     }
 
     #[test]
