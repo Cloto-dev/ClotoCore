@@ -1,0 +1,225 @@
+name: Headless Linux Build
+
+# Produces the artifact a headless Linux host installs: the kernel binary, the
+# marketplace install engine that has to sit beside it, and the dashboard the
+# kernel serves. `release.yml` builds the desktop app (installers, .deb,
+# .AppImage) and never emits a bare kernel, so a server deployment had no
+# supported way to obtain one.
+#
+# Two properties this file exists to hold:
+#
+#   * The engine is built here, from the same commit, for the same target. The
+#     kernel refuses an engine built for another kernel version, and the
+#     refusal happens after the install handler has already answered 200 — so
+#     an engine that arrives separately turns a failed install into one that
+#     looks successful.
+#   * The dashboard is the real `npm run build` output, not the placeholder
+#     `ci.yml` writes. The SPA is embedded into the binary at compile time
+#     (`rust_embed`, `handlers/assets.rs`), so a kernel built with the
+#     placeholder serves an empty page and there is nothing to fix afterwards
+#     short of rebuilding.
+#
+# glibc: ubuntu-latest links against an older glibc than Debian 13 / Ubuntu
+# 24.04 ship, and glibc is backward compatible, so the artifact runs there. It
+# does NOT run on an older host than the runner (Debian 12 is glibc 2.36);
+# build in a container matching the target if that is ever needed.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    # Only this file. `ci.yml` already compiles the workspace on Linux for
+    # every PR, so re-running that here would buy nothing; what is unproven on
+    # a normal PR is this workflow itself. `release.yml` is the cautionary
+    # case — it has no `pull_request` trigger at all, so a change to it cannot
+    # be verified before merge.
+    paths:
+      - ".github/workflows/headless-linux.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-dashboard:
+    name: Build Dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: dashboard
+
+      - name: Build
+        run: npm run build
+        working-directory: dashboard
+
+      - name: Upload dashboard artifact
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: headless-dashboard-dist
+          path: dashboard/dist/
+          retention-days: 7
+
+  build-kernel:
+    name: Build Kernel (linux/amd64)
+    needs: build-dashboard
+    runs-on: ubuntu-latest
+    env:
+      TARGET_TRIPLE: x86_64-unknown-linux-gnu
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
+      SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@631a55b12751854ce901bb631d5902ceb48146f7 # stable
+
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          shared-key: headless-linux
+          cache-targets: false
+
+      - name: Setup Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: tools/cloto-installer/go.mod
+          cache: false
+
+      - name: Download dashboard
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: headless-dashboard-dist
+          path: dashboard/dist
+
+      # A placeholder index.html is 30 bytes and compiles just as well as the
+      # real SPA, so the embed cannot tell us it got the wrong input. Assert
+      # the shape of a real Vite build before spending the Rust compile.
+      - name: Verify the dashboard is a real build
+        run: |
+          set -euo pipefail
+          test -f dashboard/dist/index.html
+          assets=$(find dashboard/dist/assets -name '*.js' 2>/dev/null | wc -l)
+          bytes=$(wc -c < dashboard/dist/index.html)
+          echo "index.html: ${bytes} bytes, ${assets} js chunk(s)"
+          if [ "$assets" -lt 1 ] || [ "$bytes" -lt 200 ]; then
+            echo "dashboard/dist looks like a placeholder, not a build" >&2
+            exit 1
+          fi
+
+      - name: Build kernel
+        run: cargo build --release --package cloto_core --bin clotocore
+
+      # Version-stamped from the workspace, which is what the kernel checks it
+      # against at boot.
+      - name: Build install engine
+        run: bash scripts/build-installer.sh --target "$TARGET_TRIPLE" --out target/release/cloto-installer
+
+      - name: Stage the bundle
+        id: stage
+        run: |
+          set -euo pipefail
+          version=$(cargo metadata --no-deps --format-version 1 \
+            | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="cloto_core"))')
+          name="clotocore-headless-${version}-linux-x86_64"
+          mkdir -p "dist/${name}/bin"
+          cp target/release/clotocore "dist/${name}/bin/"
+          cp target/release/cloto-installer "dist/${name}/bin/"
+          chmod +x "dist/${name}/bin/clotocore" "dist/${name}/bin/cloto-installer"
+          printf '%s\n' "$version" > "dist/${name}/VERSION"
+          printf '%s\n' "$GITHUB_SHA" > "dist/${name}/COMMIT"
+          ( cd "dist/${name}" && find . -type f ! -name SHA256SUMS -print0 \
+              | sort -z | xargs -0 sha256sum > SHA256SUMS )
+          ( cd dist && tar czf "${name}.tar.gz" "${name}" )
+          echo "name=${name}" >> "$GITHUB_OUTPUT"
+          ls -l "dist/${name}/bin"
+
+      # The engine reports its own version and the kernel compares it to the
+      # one it was built with; a mismatch is the failure mode that returns 200
+      # and changes nothing. Catch it here, where it is a red job.
+      - name: Check the engine answers as this kernel's engine
+        run: |
+          set -euo pipefail
+          reported=$("dist/${{ steps.stage.outputs.name }}/bin/cloto-installer" version)
+          echo "$reported"
+          expected=$(cat "dist/${{ steps.stage.outputs.name }}/VERSION")
+          case "$reported" in
+            "cloto-installer $expected "*) ;;
+            *) echo "engine reports '$reported', kernel expects version '$expected'" >&2; exit 1 ;;
+          esac
+
+      - name: Check the kernel starts and serves the dashboard
+        run: |
+          set -euo pipefail
+          root="$PWD/dist/${{ steps.stage.outputs.name }}"
+          run_dir=$(mktemp -d)
+          # A production layout: no Cargo.toml above the binary, so the kernel
+          # resolves its data directory the way a deployed one does.
+          cp -r "$root" "$run_dir/app"
+          export HOME="$run_dir/home"
+          export XDG_DATA_HOME="$run_dir/home/.local/share"
+          mkdir -p "$XDG_DATA_HOME"
+          export PORT=18081
+          export BIND_ADDRESS=127.0.0.1
+          export CLOTO_API_KEY=$(openssl rand -hex 32)
+          export RUST_LOG=warn
+          "$run_dir/app/bin/clotocore" > "$run_dir/kernel.log" 2>&1 &
+          kernel_pid=$!
+          ok=""
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/api/system/health" || true)
+            if [ "$code" = "200" ]; then ok=1; break; fi
+            sleep 1
+          done
+          if [ -z "$ok" ]; then
+            echo "kernel did not answer /api/system/health" >&2
+            cat "$run_dir/kernel.log" >&2
+            kill "$kernel_pid" 2>/dev/null || true
+            exit 1
+          fi
+          # The embedded SPA, not the fallback: a placeholder build would also
+          # return 200 here, so compare against a byte floor and require the
+          # script tag Vite emits.
+          body=$(curl -s "http://127.0.0.1:${PORT}/")
+          bytes=$(printf '%s' "$body" | wc -c)
+          echo "index: ${bytes} bytes"
+          printf '%s' "$body" | grep -q '<script' || {
+            echo "served index.html has no script tag — the embed is a placeholder" >&2
+            kill "$kernel_pid" 2>/dev/null || true
+            exit 1
+          }
+          [ "$bytes" -ge 200 ] || {
+            echo "served index.html is ${bytes} bytes — too small to be a build" >&2
+            kill "$kernel_pid" 2>/dev/null || true
+            exit 1
+          }
+          # An admin route must refuse an unauthenticated caller. An unknown
+          # /api/* path falls through to the SPA and answers 200, so a route
+          # that 200s here would be indistinguishable from a typo.
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PORT}/api/llm/providers" || true)
+          echo "unauthenticated /api/llm/providers: ${code}"
+          [ "$code" = "403" ] || [ "$code" = "401" ] || {
+            echo "expected the admin route to refuse, got ${code}" >&2
+            kill "$kernel_pid" 2>/dev/null || true
+            exit 1
+          }
+          kill "$kernel_pid" 2>/dev/null || true
+          wait "$kernel_pid" 2>/dev/null || true
+
+      - name: Upload headless bundle
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ steps.stage.outputs.name }}
+          path: dist/${{ steps.stage.outputs.name }}.tar.gz
+          retention-days: 14
