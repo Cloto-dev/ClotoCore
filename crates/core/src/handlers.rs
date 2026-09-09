@@ -6,6 +6,7 @@
 
 pub mod agents;
 pub mod assets;
+pub mod auth;
 pub mod chat;
 pub(crate) mod command_approval;
 pub mod commands;
@@ -101,6 +102,13 @@ use tracing::{error, info, warn};
 
 use crate::{AppError, AppResult, AppState};
 
+/// Header the admin API key is presented in.
+///
+/// Named here because this is where it is evaluated. Everything that has to
+/// spell it — the session layer that substitutes a key, the dashboard that
+/// attaches one — reads it from here rather than writing the string again.
+pub const ADMIN_API_KEY_HEADER: &str = "X-API-Key";
+
 /// Authenticate via `X-API-Key` header OR `?token=` query parameter.
 /// SSE's `EventSource` API cannot set custom headers, so the dashboard
 /// passes the API key as a query parameter instead (bug-157).
@@ -110,7 +118,9 @@ pub(crate) fn check_auth_with_query(
     query: &std::collections::HashMap<String, String>,
 ) -> AppResult<()> {
     // Try header first, fall back to query token
-    let from_header = headers.get("X-API-Key").and_then(|h| h.to_str().ok());
+    let from_header = headers
+        .get(ADMIN_API_KEY_HEADER)
+        .and_then(|h| h.to_str().ok());
     let from_query = query.get("token").map(String::as_str);
     let provided = from_header.or(from_query);
 
@@ -1268,9 +1278,7 @@ pub async fn regenerate_api_key(
     // CLOTO_API_KEY via get_auto_api_key; kernel and shell share a process).
     std::env::set_var("CLOTO_API_KEY", &new_key);
 
-    if let Ok(mut guard) = state.admin_api_key.write() {
-        *guard = Some(new_key.clone());
-    } else {
+    if !state.install_admin_api_key(new_key.clone()).await {
         return Err(AppError::Internal(anyhow::anyhow!(
             "admin_api_key lock poisoned — key persisted but not activated; restart to apply"
         )));

@@ -154,6 +154,44 @@ impl EnvelopedEvent {
     }
 }
 
+impl AppState {
+    /// Make `key` the live admin credential, and end every browser session.
+    ///
+    /// Returns whether the swap happened (false = poisoned lock, key not live).
+    ///
+    /// # Why the two are one function
+    ///
+    /// Every browser session was authorised by the key being replaced, and each
+    /// one grants what that key granted. Leaving them resolvable would make
+    /// rotation the one operation that does not actually revoke — the retired
+    /// credential would live on in whatever browsers held a cookie.
+    ///
+    /// Written as a function rather than two statements at the call site because
+    /// a mutation that deleted the revoke was measured to survive the whole
+    /// suite: two adjacent lines are two things to remember, and nothing failed
+    /// when one was forgotten. Here, forgetting is not available.
+    ///
+    /// The sessions go *after* the swap: if the swap fails the old key is still
+    /// live, and the sessions standing on it are still legitimately valid.
+    pub async fn install_admin_api_key(&self, key: String) -> bool {
+        // The guard lives and dies inside this block: a std lock held across an
+        // await makes the whole handler future non-Send, and the compiler tracks
+        // the scope rather than the `drop`.
+        let swapped = match self.admin_api_key.write() {
+            Ok(mut guard) => {
+                *guard = Some(key);
+                true
+            }
+            Err(_) => false,
+        };
+        if !swapped {
+            return false;
+        }
+        self.browser_sessions.revoke_all().await;
+        true
+    }
+}
+
 pub struct AppState {
     pub tx: broadcast::Sender<events::SequencedEvent>,
     pub registry: Arc<managers::PluginRegistry>,
@@ -180,6 +218,11 @@ pub struct AppState {
     /// restart drops them all, which is correct — the runs holding them did not
     /// survive it either.
     pub agent_tokens: Arc<managers::agent_token::AgentTokenStore>,
+    /// Browser sessions: the credential for the one caller that cannot carry a
+    /// header (see [`managers::browser_session`]). Empty until a minting route
+    /// authorises one; a restart drops them all, and a browser that has to sign
+    /// in again after the kernel restarted is being told the truth.
+    pub browser_sessions: Arc<managers::browser_session::SessionStore>,
     /// Pending command approval requests (kernel ↔ API handler bridge).
     pub pending_command_approvals: handlers::command_approval::PendingApprovals,
     /// Session-scoped trusted command names (cleared on restart).
@@ -792,6 +835,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // resolves from it on the way back in. Two stores would mean every token
     // minted was unknown to the endpoint that has to honour it.
     let agent_tokens = Arc::new(managers::agent_token::AgentTokenStore::new());
+    let browser_sessions = Arc::new(managers::browser_session::SessionStore::new());
 
     let mut mcp_manager = managers::McpClientManager::new(
         pool.clone(),
@@ -968,6 +1012,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 
     let app_state = Arc::new(AppState {
         agent_tokens,
+        browser_sessions,
         tx: tx.clone(),
         registry: registry_arc.clone(),
         event_tx: event_tx.clone(),
@@ -1406,6 +1451,13 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
 
     // Admin endpoints: rate-limited (10 req/s, burst 50)
     let admin_routes = Router::new()
+        // Browser sign-in / sign-out. Both sit on the same auth layer as every
+        // other /api route: minting a session requires already holding an admin
+        // credential, and sign-out is reachable with the session it ends.
+        .route(
+            "/auth/session",
+            post(handlers::auth::create_session).delete(handlers::auth::delete_session),
+        )
         .route("/health/scan", get(handlers::health::scan_handler))
         .route("/health/repair", post(handlers::health::repair_handler))
         .route("/system/shutdown", post(handlers::shutdown_handler))

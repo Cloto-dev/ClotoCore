@@ -149,6 +149,10 @@ pub async fn auth_middleware(
     if defers_auth_to_handler(request.uri().path(), request.headers()) {
         return next.run(request).await;
     }
+    let mut request = request;
+    if authenticate_browser_session(&state, &mut request).await {
+        return next.run(request).await;
+    }
     let query: HashMap<String, String> = axum::extract::Query::try_from_uri(request.uri())
         .map(|q: axum::extract::Query<HashMap<String, String>>| q.0)
         .unwrap_or_default();
@@ -156,6 +160,57 @@ pub async fn auth_middleware(
         return axum::response::IntoResponse::into_response(e);
     }
     next.run(request).await
+}
+
+/// Authenticate a request by its browser-session cookie, and if it holds one,
+/// rewrite it so the rest of the kernel sees an ordinary keyed request.
+///
+/// Returns whether the session authenticated it.
+///
+/// # Why it rewrites rather than sets a flag of its own
+///
+/// This layer is not the only thing that checks: handlers keep 97 `check_auth`
+/// calls of their own, and those read the header and nothing else. A new
+/// credential that the layer alone understood would pass here and then be
+/// refused one frame later, by a route that looked authenticated from the
+/// outside — the failure mode is a 403 that no log explains. Nor is a private
+/// marker header the answer: it would be a second thing that grants admin, and
+/// forgeable by anyone the layer forgot to strip it from.
+///
+/// Substituting the live key is neither. Downstream sees the credential it
+/// already knows, every existing check keeps its meaning (including the
+/// revocation check — a session standing on a revoked key dies with it), and
+/// nothing new is trusted: the value the caller sent is replaced, never read.
+async fn authenticate_browser_session(state: &Arc<crate::AppState>, request: &mut Request) -> bool {
+    use crate::managers::browser_session;
+
+    let Some(token) = request
+        .headers()
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(browser_session::token_from_cookie_header)
+        .map(str::to_owned)
+    else {
+        return false;
+    };
+    if state.browser_sessions.resolve(&token).await.is_none() {
+        return false;
+    }
+    // A session was authorised by a route that already held the admin key, so
+    // the key is the credential it stands for. No key configured means no
+    // session could have been minted, and letting the request through with
+    // nothing attached would be the one case where this helper granted more
+    // than it verified — so it declines and the normal path refuses it.
+    let Ok(Some(key)) = state.admin_api_key.read().map(|g| (*g).clone()) else {
+        return false;
+    };
+    let Ok(value) = axum::http::HeaderValue::from_str(&key) else {
+        return false;
+    };
+    request
+        .headers_mut()
+        .insert(crate::handlers::ADMIN_API_KEY_HEADER, value);
+    true
 }
 
 /// Axum middleware: rejects requests with 429 when rate limit is exceeded.
@@ -286,5 +341,104 @@ mod tests {
             !defers_auth_to_handler("/api/agents", &with_token),
             "the deferral is scoped to the route that can resolve a token"
         );
+    }
+}
+
+#[cfg(test)]
+mod browser_session_layer_tests {
+    use super::*;
+    use crate::managers::browser_session::SessionStore;
+
+    fn request_with_cookie(raw: &str) -> Request {
+        Request::builder()
+            .uri("/api/agents")
+            .header(axum::http::header::COOKIE, raw)
+            .body(axum::body::Body::empty())
+            .expect("build request")
+    }
+
+    /// The one case where this helper could grant more than it verified: a store
+    /// entry exists, but there is no admin credential for it to stand for. It
+    /// has to decline rather than let the request through with nothing attached.
+    ///
+    /// Asserted here rather than through the router because the fall-through it
+    /// would otherwise be measured against is `CLOTO_DEBUG_SKIP_AUTH`-sensitive,
+    /// and that variable is process-global — a sibling test setting it decides
+    /// the answer.
+    #[tokio::test]
+    async fn a_session_grants_nothing_when_no_admin_key_is_configured() {
+        let state = crate::test_utils::create_test_app_state(None).await;
+        let token = state.browser_sessions.mint_default("operator").await;
+        let mut request = request_with_cookie(&format!("cloto_session={token}"));
+        assert!(!authenticate_browser_session(&state, &mut request).await);
+        assert!(
+            request
+                .headers()
+                .get(crate::handlers::ADMIN_API_KEY_HEADER)
+                .is_none(),
+            "declining must also mean attaching nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_resolved_session_attaches_the_live_key() {
+        let state = crate::test_utils::create_test_app_state(Some("live-key".into())).await;
+        let token = state.browser_sessions.mint_default("operator").await;
+        let mut request = request_with_cookie(&format!("cloto_session={token}"));
+        assert!(authenticate_browser_session(&state, &mut request).await);
+        assert_eq!(
+            request
+                .headers()
+                .get(crate::handlers::ADMIN_API_KEY_HEADER)
+                .and_then(|v| v.to_str().ok()),
+            Some("live-key")
+        );
+    }
+
+    /// What the caller sent in the header is replaced, never read. Otherwise a
+    /// session cookie plus a guessed header would be a way to have the guess
+    /// evaluated.
+    #[tokio::test]
+    async fn the_callers_own_key_header_is_replaced_not_trusted() {
+        let state = crate::test_utils::create_test_app_state(Some("live-key".into())).await;
+        let token = state.browser_sessions.mint_default("operator").await;
+        let mut request = Request::builder()
+            .uri("/api/agents")
+            .header(axum::http::header::COOKIE, format!("cloto_session={token}"))
+            .header(crate::handlers::ADMIN_API_KEY_HEADER, "attacker-supplied")
+            .body(axum::body::Body::empty())
+            .expect("build request");
+        assert!(authenticate_browser_session(&state, &mut request).await);
+        assert_eq!(
+            request
+                .headers()
+                .get(crate::handlers::ADMIN_API_KEY_HEADER)
+                .and_then(|v| v.to_str().ok()),
+            Some("live-key")
+        );
+    }
+
+    #[tokio::test]
+    async fn a_request_without_a_cookie_is_left_untouched() {
+        let state = crate::test_utils::create_test_app_state(Some("live-key".into())).await;
+        let mut request = Request::builder()
+            .uri("/api/agents")
+            .body(axum::body::Body::empty())
+            .expect("build request");
+        assert!(!authenticate_browser_session(&state, &mut request).await);
+        assert!(request
+            .headers()
+            .get(crate::handlers::ADMIN_API_KEY_HEADER)
+            .is_none());
+    }
+
+    /// The store is consulted, not merely the cookie's shape.
+    #[tokio::test]
+    async fn a_cookie_from_a_different_store_does_not_resolve() {
+        let state = crate::test_utils::create_test_app_state(Some("live-key".into())).await;
+        let elsewhere = SessionStore::new();
+        let token = elsewhere.mint_default("operator").await;
+        let mut request = request_with_cookie(&format!("cloto_session={token}"));
+        assert!(!authenticate_browser_session(&state, &mut request).await);
     }
 }
