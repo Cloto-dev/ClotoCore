@@ -26,6 +26,7 @@ declare const __APP_VERSION__: string;
 const MemoryCore = lazy(() => import('./components/MemoryCore').then((m) => ({ default: m.MemoryCore })));
 const McpServersPage = lazy(() => import('./pages/McpServersPage').then((m) => ({ default: m.McpServersPage })));
 const CronJobs = lazy(() => import('./components/CronJobs').then((m) => ({ default: m.CronJobs })));
+const ModulePage = lazy(() => import('./pages/ModulePage').then((m) => ({ default: m.ModulePage })));
 const VrmViewerPage = lazy(() => import('./vrm/VrmViewerPage').then((m) => ({ default: m.VrmViewerPage })));
 function App() {
   const [setupDone, setSetupDone] = useState(() => localStorage.getItem('cloto-setup-completed') === '1');
@@ -175,6 +176,7 @@ function App() {
             <Route path="/dashboard" element={<MemoryCore />} />
             <Route path="/mcp-servers" element={<McpServersPage />} />
             <Route path="/cron" element={<CronJobs />} />
+            <Route path="/modules/:id" element={<ModulePage />} />
           </Route>
         </Routes>
       </Router>

@@ -3,6 +3,7 @@ import {
   Clock,
   Cpu,
   FlaskConical,
+  LayoutDashboard,
   PanelLeftClose,
   PanelLeftOpen,
   Power,
@@ -16,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAgentContext } from '../contexts/AgentContext';
 import { useApi } from '../hooks/useApi';
+import { useModules } from '../hooks/useModules';
 import { AgentIcon, statusDotColor } from '../lib/agentIdentity';
 import { isExperimentalBuild } from '../lib/tauri';
 import { requestShutdown } from './ShutdownOverlay';
@@ -69,6 +71,9 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
     setSystemActive(false);
     navigate(path);
   };
+
+  const { modules } = useModules();
+  const usableModules = modules.filter((m) => !m.error);
 
   const isNavActive = (path: string) => location.pathname === path;
   const isAgentPageActive = location.pathname === '/';
@@ -171,6 +176,42 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
           );
         })}
       </div>
+
+      {/* Runtime modules — found under the data directory, so this list is
+          whatever the kernel reports rather than anything compiled in.
+          Directories the kernel rejected carry no name and are left out here;
+          they are surfaced where they can be acted on, not in the nav. */}
+      {usableModules.length > 0 && (
+        <>
+          <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
+          <div className="px-2 flex flex-col gap-0.5">
+            {usableModules.map((module) => {
+              const label = module.name || module.id;
+              const path = `/modules/${module.id}`;
+              const isActive = isNavActive(path);
+              return (
+                <button
+                  key={module.id}
+                  onClick={() => handleNavClick(path)}
+                  title={collapsed ? label : undefined}
+                  aria-label={label}
+                  className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-xs font-bold uppercase tracking-wide ${
+                    isActive
+                      ? 'bg-surface-primary text-brand'
+                      : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
+                  }`}
+                >
+                  {!collapsed && isActive && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-brand rounded-r-full" />
+                  )}
+                  <LayoutDashboard size={24} className="shrink-0" />
+                  {!collapsed && label}
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
 
       <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
 

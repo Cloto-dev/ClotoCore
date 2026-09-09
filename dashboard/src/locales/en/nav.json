@@ -10,5 +10,10 @@
   "collapse_sidebar": "Collapse sidebar",
   "shutdown": "Shut Down",
   "experimental": "Experimental",
-  "experimental_tooltip": "Experimental build — opt-in, no guarantees"
+  "experimental_tooltip": "Experimental build — opt-in, no guarantees",
+  "modules": "Modules",
+  "module_reload": "Reload module",
+  "module_rejected": "This module could not be read",
+  "module_load_failed": "Could not load this module",
+  "module_missing": "No such module"
 }

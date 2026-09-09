@@ -432,3 +432,23 @@ export interface ConsensusRound {
   steps: ConsensusStep[];
   timestamp: number;
 }
+
+/** A UI module the kernel found under `<data_dir>/modules/`.
+ *
+ * Mirrors `crates/core/src/handlers/modules.rs::ModuleEntry`, which flattens the
+ * manifest into the row: a valid module carries `name` and the rest, while a
+ * directory the kernel rejected carries only `id` and `error`. The two states
+ * are one list on purpose — a module that is present but unusable has to be
+ * visible, or the operator cannot tell it from one that was never copied in. */
+export interface ModuleInfo {
+  id: string;
+  name?: string;
+  description?: string;
+  version?: string;
+  entry?: string;
+  icon?: string | null;
+  /** Kernel API calls this module asks the host to make for it, as `"<METHOD> <path>"`. */
+  requires?: string[];
+  /** Present only when the kernel could not read the module. */
+  error?: string;
+}
