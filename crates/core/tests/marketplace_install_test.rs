@@ -25,11 +25,11 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
-use axum::extract::{Query, State};
+use axum::extract::{ConnectInfo, Query, State};
 use axum::http::HeaderMap;
 use cloto_core::handlers::marketplace::{
-    catalog_handler, fetch_raw_url_archive, materialize_with_installer, run_install, CatalogQuery,
-    RegistryEntry,
+    catalog_handler, fetch_raw_url_archive, install_handler, materialize_with_installer,
+    run_install, CatalogQuery, InstallRequest, RegistryEntry,
 };
 use cloto_core::handlers::setup::SetupProgressEvent;
 use cloto_core::managers::installer::{self, InstallerState};
@@ -1050,4 +1050,129 @@ async fn run_install_stops_when_the_install_engine_is_another_version() {
     assert_eq!(status.state, InstallerState::VersionMismatch);
     assert_eq!(status.version.as_deref(), Some("0.0.0"));
     assert_eq!(status.expected, env!("CARGO_PKG_VERSION"));
+}
+
+// ── The response answers whether the install started ──────────────────
+//
+// `install_handler` spawns the work and returns immediately, so its body is
+// the only thing a caller that does not subscribe to the progress stream ever
+// sees. These pin that the body is not `{"started": true}` when the install
+// could not start.
+
+/// Drive the handler the way an operator's script does, and read back what
+/// that script would read: the status line and the body. Asserting on the
+/// internal error value instead would not say whether a caller can tell the
+/// two outcomes apart, which is the whole question here.
+async fn post_install(
+    h: &Harness,
+    server_id: &str,
+    update: bool,
+) -> (axum::http::StatusCode, serde_json::Value) {
+    use axum::response::IntoResponse;
+
+    let mut headers = HeaderMap::new();
+    headers.insert("X-API-Key", API_KEY.parse().unwrap());
+    let outcome = install_handler(
+        ConnectInfo("127.0.0.1:9999".parse().unwrap()),
+        State(h.state.clone()),
+        headers,
+        axum::Json(InstallRequest {
+            server_id: server_id.to_string(),
+            env: None,
+            auto_start: Some(false),
+            update: Some(update),
+        }),
+    )
+    .await;
+    let response = match outcome {
+        Ok(json) => json.into_response(),
+        Err(err) => err.into_response(),
+    };
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("response body");
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
+    )
+}
+
+#[tokio::test]
+async fn install_refuses_up_front_when_the_engine_is_another_version() {
+    let _guard = ENV_LOCK.lock().await;
+    let h = Harness::new("handlerstale", false).await;
+    let archive = standalone_archive(SERVER_PY);
+    let url = h.archive_url("demo.tar.gz");
+    let entry = h
+        .hub
+        .entry("demo", "", "1.0.0", SERVER_PY, &archive, &url, None, &[]);
+    h.serve_catalog(&[&entry]).await;
+
+    let stale = h.data_dir.join("stale-installer");
+    std::fs::write(
+        &stale,
+        "#!/bin/sh\necho 'cloto-installer 0.0.0 commit=none go=go0 test/arch'\n",
+    )
+    .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&stale, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::env::set_var(installer::ENV_OVERRIDE, &stale);
+
+    let (status, body) = post_install(&h, "demo", false).await;
+    assert_eq!(
+        status,
+        axum::http::StatusCode::CONFLICT,
+        "a stale engine cannot install, and the status has to say so: {body}"
+    );
+    assert_ne!(
+        body.pointer("/data/started"),
+        Some(&serde_json::json!(true)),
+        "the body must not read as a started install: {body}"
+    );
+    let message = body.to_string();
+    assert!(
+        message.contains("is version 0.0.0") && message.contains("this ClotoCore is "),
+        "the refusal has to name the fault an operator resolves: {message}"
+    );
+
+    // Refused, not merely reported: nothing ran and nothing was recorded.
+    assert!(uv_calls(&h.uv_log).is_empty());
+    assert!(h.db_row("demo").await.is_none());
+    // The concurrency flag is free for the next request — a refusal that took
+    // it would wedge every later install behind "already in progress".
+    assert!(!h
+        .state
+        .setup_in_progress
+        .load(std::sync::atomic::Ordering::SeqCst));
+
+    std::env::set_var(installer::ENV_OVERRIDE, install_engine());
+}
+
+#[tokio::test]
+async fn install_still_starts_when_the_engine_is_the_matching_version() {
+    let _guard = ENV_LOCK.lock().await;
+    let h = Harness::new("handlerok", false).await;
+    let archive = standalone_archive(SERVER_PY);
+    let url = h.archive_url("demo.tar.gz");
+    let entry = h
+        .hub
+        .entry("demo", "", "1.0.0", SERVER_PY, &archive, &url, None, &[]);
+    h.serve_catalog(&[&entry]).await;
+    h.serve_archive("demo.tar.gz", archive).await;
+    std::env::set_var(installer::ENV_OVERRIDE, install_engine());
+
+    let (status, body) = post_install(&h, "demo", false).await;
+    assert_eq!(status, axum::http::StatusCode::OK, "{body}");
+    assert_eq!(
+        body.pointer("/data/started"),
+        Some(&serde_json::json!(true))
+    );
+
+    // The spawned task owns `setup_in_progress`; let it finish so it does not
+    // leak into the next test through the shared engine override.
+    let handle = h.state.install_task.lock().await.take();
+    if let Some(handle) = handle {
+        let _ = handle.await;
+    }
 }

@@ -728,6 +728,34 @@ pub async fn install_handler(
         )));
     }
 
+    // Refuse an unusable install engine here, before anything is spawned or
+    // stopped, because the answer belongs in the response.
+    //
+    // `run_install` probes again on its way through and reports the same fault
+    // as a `StepError` on the progress stream, which is what the install dialog
+    // reads. But this handler answers `{"started": true}` the moment the task is
+    // spawned, so a caller that reads only the response — an operator's curl, a
+    // deployment script — cannot tell a refused install from a started one. It
+    // reads success and moves on while nothing was vendored.
+    //
+    // For an update the cost is higher than a wrong answer: the spawned task
+    // stops the running server before re-vendoring, so a fault detected after
+    // the spawn leaves that server stopped with its old files. Checking first
+    // means the server is still running when we decline.
+    //
+    // Probed live rather than read from `last_status`: the engine binary is
+    // exactly what an operator replaces to fix this, and a boot-time answer
+    // would outlive the fix.
+    let installer = crate::managers::installer::probe().await;
+    if !installer.is_ready() {
+        return Err(AppError::Conflict(installer.error.unwrap_or_else(|| {
+            format!(
+                "the marketplace install engine at {} is not usable",
+                installer.path.display()
+            )
+        })));
+    }
+
     // Prevent concurrent installs (shared with bootstrap)
     let was_running = state
         .setup_in_progress
