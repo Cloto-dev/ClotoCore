@@ -5,6 +5,7 @@
 
 pub mod agent_token;
 mod agents;
+pub mod browser_session;
 pub mod capability_dispatcher;
 pub mod connector_manifest;
 pub mod installer;

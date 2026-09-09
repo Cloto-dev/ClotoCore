@@ -79,6 +79,7 @@ pub async fn create_test_app_state_in(
         revoked_keys: Arc::new(tokio::sync::RwLock::new(std::collections::HashSet::new())),
         admin_api_key: std::sync::RwLock::new(config_admin_key),
         agent_tokens: Arc::new(crate::managers::agent_token::AgentTokenStore::new()),
+        browser_sessions: Arc::new(crate::managers::browser_session::SessionStore::new()),
         pending_command_approvals: Arc::new(dashmap::DashMap::new()),
         session_trusted_commands: Arc::new(dashmap::DashMap::new()),
         active_cron_contexts: Arc::new(dashmap::DashMap::new()),

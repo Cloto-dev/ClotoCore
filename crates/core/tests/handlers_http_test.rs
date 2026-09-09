@@ -1248,3 +1248,209 @@ async fn asset_reads_reject_wrong_query_token() {
         .expect("send request");
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
+
+// ---------------------------------------------------------------------------
+// Browser sessions, measured through the layer for the same reason the
+// agent-token path is: the layer is not the only thing that checks. Handlers
+// keep 97 `check_auth` calls of their own and those read the header alone, so a
+// credential the layer understood by itself would pass the layer and be refused
+// one frame later. Calling a handler directly cannot see that.
+// ---------------------------------------------------------------------------
+
+/// The test whose failure the whole design of the session branch is shaped
+/// around: `get_agents` calls `check_auth` itself, so a cookie that only the
+/// layer understood would get a 403 from the handler with the layer having said
+/// yes. If this passes, the substitution reached the handler.
+#[tokio::test]
+async fn a_session_cookie_authenticates_a_route_that_checks_auth_itself() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let token = state.browser_sessions.mint_default("operator").await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/agents")
+                .header(header::COOKIE, format!("cloto_session={token}"))
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_ne!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "the handler's own check_auth refused a credential the layer accepted"
+    );
+}
+
+#[tokio::test]
+async fn a_session_cookie_authenticates_an_unguarded_route_too() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let token = state.browser_sessions.mint_default("operator").await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded")
+                .header(header::COOKIE, format!("cloto_session={token}"))
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn a_cookie_that_names_no_session_is_refused() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    // A live session exists; the one presented is simply not it.
+    state.browser_sessions.mint_default("operator").await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded")
+                .header(header::COOKIE, "cloto_session=not-a-session")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn an_expired_session_is_refused() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let token = state
+        .browser_sessions
+        .mint("operator", chrono::Duration::seconds(-1))
+        .await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded")
+                .header(header::COOKIE, format!("cloto_session={token}"))
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn a_revoked_session_is_refused() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let token = state.browser_sessions.mint_default("operator").await;
+    assert!(state.browser_sessions.revoke(&token).await);
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded")
+                .header(header::COOKIE, format!("cloto_session={token}"))
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+/// A browser sends every cookie it holds for the origin, so the session is
+/// normally one of several. Finding it among neighbours is not incidental.
+#[tokio::test]
+async fn the_session_is_found_among_the_browsers_other_cookies() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let token = state.browser_sessions.mint_default("operator").await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded")
+                .header(
+                    header::COOKIE,
+                    format!("cloto-language=ja; cloto_session={token}; theme=dark"),
+                )
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(response.status(), StatusCode::OK);
+}
+
+/// An unresolvable cookie must not become a refusal of its own. The session
+/// branch is one credential among several, so a request that also carries a
+/// working one has to keep working — otherwise a stale cookie left in a browser
+/// would lock out the key that is still valid.
+#[tokio::test]
+async fn an_unresolvable_cookie_falls_through_to_the_other_credentials() {
+    let state = create_test_app_state(Some("test-key".to_string())).await;
+    let app = create_test_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/unguarded?token=test-key")
+                .header(header::COOKIE, "cloto_session=stale")
+                .body(Body::empty())
+                .expect("build request"),
+        )
+        .await
+        .expect("send request");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "an unresolvable cookie must fall through to the other credentials, not refuse outright"
+    );
+}
+
+/// Rotating the admin key must end every session standing on it.
+///
+/// This is asserted because the version of it that lived as a statement next to
+/// the swap was measured to survive its deletion: the whole suite stayed green
+/// with rotation no longer revoking anything. The invariant now lives inside
+/// `install_admin_api_key`, and this is what says so.
+#[tokio::test]
+async fn installing_a_new_admin_key_ends_every_browser_session() {
+    let state = create_test_app_state(Some("old-key".to_string())).await;
+    let token = state.browser_sessions.mint_default("operator").await;
+    assert!(state.browser_sessions.resolve(&token).await.is_some());
+
+    assert!(state.install_admin_api_key("new-key".to_string()).await);
+
+    assert!(
+        state.browser_sessions.resolve(&token).await.is_none(),
+        "a session authorised by the retired key outlived it"
+    );
+    assert_eq!(state.browser_sessions.live_count().await, 0);
+}
+
+/// The other half of the same function: the key really did become live, so the
+/// test above cannot pass by rotation having done nothing at all.
+#[tokio::test]
+async fn installing_a_new_admin_key_makes_it_the_live_one() {
+    let state = create_test_app_state(Some("old-key".to_string())).await;
+    assert!(state.install_admin_api_key("new-key".to_string()).await);
+    assert_eq!(
+        state.admin_api_key.read().expect("lock").clone(),
+        Some("new-key".to_string())
+    );
+}
