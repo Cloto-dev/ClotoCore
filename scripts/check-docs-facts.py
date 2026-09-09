@@ -28,6 +28,16 @@ Checked facts and their sources of truth:
                   stale the moment a tag is cut, with no edit anywhere to
                   trigger a review.
 
+  route claims    the `**Route:** `METHOD /path`` and `/// METHOD /api/path`
+                  lines in `crates/core/src/handlers/`, compared against the
+                  routes `lib.rs` actually mounts. A handler's own doc comment
+                  is what an operator reads to call it, and a renamed or
+                  re-verbed route leaves that comment behind with nothing to
+                  notice: the code compiles, the tests pass, and the sentence
+                  describing the endpoint is simply wrong. Measured when this
+                  was added: six such claims had drifted and been repaired by
+                  hand, with nothing to stop the seventh.
+
   env defaults    a static parse of `env::var("NAME").unwrap_or_else(...)`
                   across `crates/`, compared against every markdown table row
                   in the scanned docs that documents a variable. A documented
@@ -323,6 +333,119 @@ MARKER_SOURCES = {
 ENV_ROW = re.compile(r"^\|\s*`([A-Z0-9_]+)`\s*\|\s*([^|]*?)\s*\|", re.M)
 
 
+# --- routes: what the handler docs claim vs what lib.rs mounts --------------
+
+# Every route in this kernel is nested under `/api`, so a mounted path is the
+# literal in `.route(...)` with that prefix. `.route` calls span lines and chain
+# methods (`post(..).delete(..)`), so the method set is read from the balanced
+# argument rather than from the same line.
+_ROUTE_CALL = re.compile(
+    r"""\.route\(\s*(?:"(?P<lit>[^"]+)"|(?P<const>[A-Za-z_][\w:]*))\s*,""", re.S
+)
+_METHOD_CALL = re.compile(r"\b(get|post|put|delete|patch)\s*\(")
+_PATH_CONST = re.compile(r'pub const (\w+): &str = "([^"]+)"')
+
+# Two spellings are in use, and both have to be recognised: a claim the pattern
+# misses is not one that fails, it is one that stops being graded.
+_ROUTE_CLAIMS = (
+    re.compile(r"^\s*///\s*\*\*Route:\*\*\s*`(?P<method>[A-Z]+)\s+(?P<path>/[^`\s]*)`"),
+    re.compile(r"^\s*///\s*(?P<method>GET|POST|PUT|DELETE|PATCH)\s+(?P<path>/api/\S*)"),
+)
+
+
+def route_shape(path: str) -> str:
+    """Reduce a path to what both sides must agree on.
+
+    Placeholder *names* are documentation: a comment that calls a segment
+    `:approval_id` where the route mounts `{id}` describes the same endpoint,
+    and grading the spelling reports nine such pairs as drift — enough to bury
+    a real finding. A documented query string (`/x[?a=b]`) describes arguments,
+    not a different path.
+    """
+    path = path.split("[", 1)[0].split("?", 1)[0]
+    path = re.sub(r"\{\*[^}]*\}|\*[A-Za-z_]\w*", "{*}", path)
+    path = re.sub(r"\{[^}*]*\}|:[A-Za-z_]\w*", "{}", path)
+    return path.rstrip("/") or "/"
+
+
+def mounted_routes() -> dict[str, set[str]]:
+    """`{shape: {METHOD}}` for every route the kernel mounts."""
+    src = ROOT / "crates" / "core" / "src"
+    lib = (src / "lib.rs").read_text(encoding="utf-8")
+    middleware = src / "middleware.rs"
+    consts = {
+        f"middleware::{name}": value
+        for name, value in _PATH_CONST.findall(
+            middleware.read_text(encoding="utf-8") if middleware.is_file() else ""
+        )
+    }
+
+    mounted: dict[str, set[str]] = {}
+    for match in _ROUTE_CALL.finditer(lib):
+        depth, i = 1, match.end()
+        while i < len(lib) and depth:
+            depth += 1 if lib[i] == "(" else -1 if lib[i] == ")" else 0
+            i += 1
+        methods = {m.group(1).upper() for m in _METHOD_CALL.finditer(lib[match.end() : i - 1])}
+        literal = match.group("lit")
+        if literal is None:
+            literal = consts.get(match.group("const"))
+            if literal is None:
+                # A path this parse cannot resolve is reported rather than
+                # skipped: silently dropping it would turn every claim about
+                # that route into an unexplained "no such path".
+                fail(
+                    f"lib.rs mounts a route at `{match.group('const')}`, which this "
+                    f"gate cannot resolve — teach it the constant or inline the path"
+                )
+                continue
+        if literal.startswith("/api"):
+            literal = literal[len("/api") :]
+        mounted.setdefault(route_shape("/api" + literal), set()).update(methods)
+    return mounted
+
+
+def check_route_claims() -> int:
+    """Grade every route a handler doc comment claims. Returns claims graded."""
+    mounted = mounted_routes()
+    if len(mounted) < 20:
+        fail(
+            f"only {len(mounted)} mounted routes found in lib.rs — this gate's parse "
+            f"of `.route(...)` has stopped working"
+        )
+        return 0
+
+    core_src = ROOT / "crates" / "core" / "src"
+    handlers = core_src / "handlers"
+    # `handlers.rs` is the module file and carries claims of its own; scanning
+    # only the directory beside it grades 80 of the 99 and calls that all of
+    # them, which is how a check reports a clean result it never measured.
+    files = sorted(handlers.rglob("*.rs")) if handlers.is_dir() else []
+    if (core_src / "handlers.rs").is_file():
+        files.append(core_src / "handlers.rs")
+    graded = 0
+    for path in files:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for pattern in _ROUTE_CLAIMS:
+                match = pattern.match(line)
+                if not match:
+                    continue
+                graded += 1
+                method = match.group("method")
+                claimed = match.group("path").rstrip(".,")
+                shape = route_shape(claimed)
+                where = f"{rel(path)}:{number}"
+                if shape not in mounted:
+                    fail(f"{where}: documents `{method} {claimed}`, which is not mounted")
+                elif method not in mounted[shape]:
+                    served = "/".join(sorted(mounted[shape]))
+                    fail(f"{where}: documents `{method} {claimed}`, mounted as {served}")
+                break
+    if not graded:
+        fail("no route claims found in crates/core/src/handlers/ — update this script")
+    return graded
+
+
 def within_tolerance(stated: int, measured: int) -> bool:
     if measured == 0:
         return stated == 0
@@ -448,6 +571,20 @@ def selftest() -> None:
         "v0.6.8 <!-- docs-facts: latest-release -->",
     ):
         assert MARKED_VERSION.search(line), line
+    # Placeholder spelling must not decide the answer, and a documented query
+    # string must not become a different path — the two rules that, missing,
+    # made a first cut of this check report nine findings where there were none.
+    assert route_shape("/api/commands/:approval_id/approve") == route_shape(
+        "/api/commands/{id}/approve"
+    )
+    assert route_shape("/api/cron/jobs[?agent_id=X]") == route_shape("/api/cron/jobs")
+    assert route_shape("/api/modules/{id}/assets/*path") == route_shape(
+        "/api/modules/{id}/assets/{*path}"
+    )
+    # But a different path must still be different, or the rule above would
+    # make every claim agree with everything.
+    assert route_shape("/api/modules") != route_shape("/api/modules/{id}")
+    assert route_shape("/api/a/{}/b") != route_shape("/api/a/b/{}")
     print("selftest: OK")
 
 
@@ -496,6 +633,7 @@ def main() -> int:
     versions = measured_versions()
     check_release_title(versions.get("current"))
     env_defaults, env_seen = measured_env()
+    routes_graded = check_route_claims()
 
     if not env_seen:
         fail("no env::var reads found under crates/ — update this script")
@@ -518,7 +656,8 @@ def main() -> int:
     print(
         f"docs facts: OK ({scanned} documents checked against "
         f"{counts['rust']}+{counts['dashboard']} tests, version "
-        f"{versions.get('current', '?')}, {len(env_defaults)} env defaults)"
+        f"{versions.get('current', '?')}, {len(env_defaults)} env defaults, "
+        f"{routes_graded} route claims)"
     )
     return 0
 
