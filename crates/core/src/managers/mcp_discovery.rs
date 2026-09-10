@@ -154,6 +154,21 @@ pub(super) async fn execute_discovery_list(
     manager: &McpClientManager,
     args: Value,
 ) -> Result<Value> {
+    // Scoped to the servers the caller holds a grant for, by the same predicate
+    // the acting tools ask "may I touch this one?" with. Unscoped, this was the
+    // one place that answered "what is on this host" for free: every server id,
+    // its status, its trust level and its whole tool list, to a caller holding
+    // no grant at all. §16's `mgp.tools.discover` is the discovery an agent is
+    // actually offered — it is injected on every turn, and it is a search, so
+    // it answers "is there a tool for this" without enumerating the host. This
+    // one is not in any model's tool list; naming it takes knowledge from
+    // outside the kernel, which is the shape of reconnaissance rather than of
+    // use.
+    //
+    // Read before the state lock: it goes to the database, and holding the
+    // server map across that would make every listing wait on it.
+    let granted = super::mcp_kernel_tool::granted_servers(manager, &args).await?;
+
     let filter = args.get("filter");
     let filter_extensions: Option<Vec<String>> = filter
         .and_then(|f| f.get("extensions"))
@@ -183,6 +198,12 @@ pub(super) async fn execute_discovery_list(
 
         // Connected/active servers
         for handle in state.servers.values() {
+            // Grant filter, before every other one: a server this caller may
+            // not reach is not a server it may be told about.
+            if !granted.contains(&handle.id) {
+                continue;
+            }
+
             // Status filter
             let is_connected = handle.status.is_operational();
             if filter_status == "connected" && !is_connected {
@@ -443,5 +464,163 @@ mod tests {
             }
             other => panic!("expected YoloRequired rejection, got {:?}", other),
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Who the listing answers
+    // ------------------------------------------------------------------
+
+    use std::sync::atomic::AtomicU64;
+    use std::sync::Arc;
+
+    async fn manager() -> McpClientManager {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        McpClientManager::new(pool, false, 120, 30)
+    }
+
+    async fn connected(manager: &McpClientManager, id: &str, tool: &str) {
+        manager.state.write().await.servers.insert(
+            id.to_string(),
+            super::super::mcp_types::McpServerHandle {
+                id: id.to_string(),
+                config: crate::managers::mcp_protocol::McpServerConfig {
+                    id: id.to_string(),
+                    ..Default::default()
+                },
+                client: None,
+                tools: vec![crate::managers::mcp_protocol::McpTool {
+                    name: tool.to_string(),
+                    description: None,
+                    input_schema: serde_json::json!({}),
+                    annotations: None,
+                }],
+                handshake: None,
+                mgp_negotiated: None,
+                status: super::super::mcp_types::ServerStatus::Connected,
+                audit_seq: Arc::new(AtomicU64::new(0)),
+                connected_at: None,
+                isolation_profile: None,
+                protocol_era: None,
+                instructions: None,
+            },
+        );
+    }
+
+    async fn grant(manager: &McpClientManager, agent_id: &str, server_id: &str) {
+        crate::db::save_access_control_entry(
+            manager.pool(),
+            &crate::db::AccessControlEntry {
+                id: None,
+                entry_type: crate::db::mcp::EntryType::ServerGrant,
+                agent_id: agent_id.to_string(),
+                server_id: server_id.to_string(),
+                tool_name: None,
+                permission: crate::db::mcp::PermissionLevel::Allow,
+                granted_by: Some("test".to_string()),
+                granted_at: chrono::Utc::now().to_rfc3339(),
+                expires_at: None,
+                justification: None,
+                metadata: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    async fn listed(manager: &McpClientManager, args: Value) -> Vec<String> {
+        let out = execute_discovery_list(manager, args)
+            .await
+            .expect("a read-only listing must answer, not refuse");
+        out["servers"]
+            .as_array()
+            .expect("servers is a list")
+            .iter()
+            .map(|s| s["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    /// The listing answers "which servers may I see?", and that is the same
+    /// question the acting tools answer as "may I touch this one?". Unscoped it
+    /// handed a caller with no grant every server id on the host, its status and
+    /// its whole tool list — the ids to objects it is refused any other access
+    /// to, which is what a reconnaissance surface is.
+    #[tokio::test]
+    async fn a_caller_sees_only_the_servers_it_holds_a_grant_for() {
+        let mgr = manager().await;
+        connected(&mgr, "mine", "read_note").await;
+        connected(&mgr, "theirs", "wire_money").await;
+        grant(&mgr, "agent.one", "mine").await;
+
+        let seen = listed(&mgr, serde_json::json!({ "agent_id": "agent.one" })).await;
+
+        assert_eq!(seen, vec!["mine".to_string()]);
+    }
+
+    /// Not even the names of the tools. A tool list is the most useful half of
+    /// the disclosure: it says what is worth asking for and under which id.
+    #[tokio::test]
+    async fn a_server_it_may_not_reach_discloses_no_tool_names() {
+        let mgr = manager().await;
+        connected(&mgr, "theirs", "wire_money").await;
+        grant(&mgr, "agent.one", "mine").await;
+
+        let out = execute_discovery_list(&mgr, serde_json::json!({ "agent_id": "agent.one" }))
+            .await
+            .expect("a read-only listing must answer, not refuse");
+
+        assert!(
+            !out.to_string().contains("wire_money"),
+            "an ungranted server's tools must not appear anywhere in the response: {out}"
+        );
+    }
+
+    /// A caller with a grant is not being punished for the scoping: the server
+    /// it may reach still arrives whole.
+    #[tokio::test]
+    async fn a_granted_server_still_arrives_with_its_tools() {
+        let mgr = manager().await;
+        connected(&mgr, "mine", "read_note").await;
+        grant(&mgr, "agent.one", "mine").await;
+
+        let out = execute_discovery_list(&mgr, serde_json::json!({ "agent_id": "agent.one" }))
+            .await
+            .expect("a read-only listing must answer, not refuse");
+
+        assert_eq!(out["servers"][0]["tools"][0], "read_note");
+    }
+
+    /// Refusing an unattributed call was not an option: `agent_id` is forced in
+    /// by the anti-spoofing shim, not by the registry, so a call arriving
+    /// through the registry carries none — and `capability_gate_test` requires
+    /// this read-only tool to stay reachable. Showing nothing is the safe
+    /// direction and keeps it so.
+    #[tokio::test]
+    async fn an_unattributed_listing_shows_nothing_rather_than_everything() {
+        let mgr = manager().await;
+        connected(&mgr, "theirs", "wire_money").await;
+
+        assert!(listed(&mgr, serde_json::json!({})).await.is_empty());
+    }
+
+    /// The grant filter runs before the status filter, so asking for the
+    /// disconnected ones is not a way around it.
+    #[tokio::test]
+    async fn asking_for_every_status_does_not_widen_the_grant() {
+        let mgr = manager().await;
+        connected(&mgr, "theirs", "wire_money").await;
+
+        let seen = listed(
+            &mgr,
+            serde_json::json!({
+                "agent_id": "agent.one",
+                "filter": { "status": "all" },
+            }),
+        )
+        .await;
+
+        assert!(seen.is_empty(), "got {seen:?}");
     }
 }
