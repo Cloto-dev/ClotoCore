@@ -2986,6 +2986,14 @@ pub async fn materialize_with_installer(
         "jwks": jwks,
         "child_timeout_secs": CHILD_PROCESS_TIMEOUT_SECS,
         "build_timeout_secs": CARGO_BUILD_TIMEOUT_SECS,
+        // Which connector types start a process is this kernel's list, and
+        // the engine has to know it to tell a tree with something to build
+        // from one without. Sent rather than duplicated over there: a kernel
+        // that learns a new launchable type would otherwise ship beside an
+        // engine that had to be taught the same thing separately, and the
+        // day they disagreed the engine would build the wrong thing quietly.
+        "launchable_connector_types":
+            crate::managers::connector_manifest::LAUNCHABLE_CONNECTOR_TYPES,
     });
 
     let result = {
@@ -3053,6 +3061,19 @@ pub async fn materialize_with_installer(
             return Ok(InstallOutcome::NotInstalled);
         }
     };
+
+    // A connector that ships no server has nothing to register. The tree is
+    // under the servers root by now, so this is asked the way the spawn path
+    // and the panel listing ask it — from the connector's own manifest —
+    // rather than from a flag the engine would have had to carry back and
+    // this side would have had to trust.
+    let declaration = crate::managers::connector_manifest::read_declaration(
+        &servers_dir,
+        effective_install_dir(entry),
+    );
+    if !crate::managers::connector_manifest::launches_a_process(&declaration) {
+        return finish_static_install(state, entry, &declaration).await;
+    }
 
     let command = result
         .get("command")
