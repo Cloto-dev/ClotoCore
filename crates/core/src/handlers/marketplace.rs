@@ -378,6 +378,24 @@ fn row_named<'a>(
         .find(|r| r.name == catalog_id && !r.is_placeholder())
 }
 
+/// Whether a missing `mcp_servers` row is the expected state for this install.
+///
+/// True for a connector on disk declaring a type the kernel never launches: it
+/// never had a row, so the absence of one says nothing about the key drift the
+/// uninstall warning exists to report. Silencing it there is what keeps the
+/// warning worth reading — a line printed on every healthy uninstall of a panel
+/// connector is how the case that means something stops being noticed.
+///
+/// False when nothing is on disk, and false for a connector that says nothing:
+/// an absent manifest is the type that predates manifests, which does have a
+/// row. Both keep the warning, which is the safe direction — printing it when
+/// it does not apply costs less than swallowing it when it does.
+fn row_absence_is_by_design(servers_root: &std::path::Path, server_id: &str) -> bool {
+    !crate::managers::connector_manifest::launches_a_process(
+        &crate::managers::connector_manifest::read_declaration(servers_root, server_id),
+    )
+}
+
 /// What is actually installed under one catalog id.
 ///
 /// Three call sites used to answer "is this installed?" with three different
@@ -1000,14 +1018,10 @@ pub async fn uninstall_handler(
     let install_rows = crate::db::mcp::get_install_rows(&state.pool)
         .await
         .unwrap_or_default();
-    // A connector that registers no server has no row by design, so warning
-    // about the absence would report every healthy uninstall of one as a
-    // key-drift symptom — and drown the case where the warning means something.
     let servers_root = state.data_dir.join("mcp-servers");
-    let registers_no_server = !crate::managers::connector_manifest::launches_a_process(
-        &crate::managers::connector_manifest::read_declaration(&servers_root, &server_id),
-    );
-    if row_named(&install_rows, &server_id).is_none() && !registers_no_server {
+    if row_named(&install_rows, &server_id).is_none()
+        && !row_absence_is_by_design(&servers_root, &server_id)
+    {
         warn!(
             server_id = %server_id,
             "uninstall names no installed row — it is already gone, or its row is \
@@ -4645,6 +4659,70 @@ mod tests {
         assert!(state.keys_disagree());
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The uninstall warning's guard, at the three inputs that decide it.
+    #[test]
+    fn a_missing_row_is_expected_only_for_a_connector_that_ships_no_server() {
+        let root = temp_dir("row-absence");
+
+        place_connector(
+            &root,
+            "cil-console",
+            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+        );
+        assert!(
+            row_absence_is_by_design(&root, "cil-console"),
+            "it never had a row, so the absence reports nothing"
+        );
+
+        place_connector(
+            &root,
+            "websearch",
+            r#"{"spec_version":1,"connector_type":"mgp_server"}"#,
+        );
+        assert!(
+            !row_absence_is_by_design(&root, "websearch"),
+            "a server connector with no row is the drift the warning is for"
+        );
+
+        assert!(
+            !row_absence_is_by_design(&root, "not-installed"),
+            "nothing on disk keeps the warning — the safe direction"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// And that the uninstall path still consults it. The guard has no surface
+    /// to assert on — what it changes is a log line — and every other test here
+    /// drives the predicate directly, so none of them can see whether the
+    /// warning is still behind it.
+    ///
+    /// Two things make this read the code rather than itself. The needle is
+    /// assembled at run time, so this file does not contain it as a literal for
+    /// the search to find; and the search is confined to the handler's own
+    /// text, which ends well before this module begins. Written the obvious way
+    /// — `include_str!` plus a literal — the assertion matched the literal in
+    /// its own body and passed with the guard deleted.
+    #[test]
+    fn the_uninstall_warning_is_guarded_by_that_predicate() {
+        let source = include_str!("marketplace.rs");
+        let start = source
+            .find("pub async fn uninstall_handler")
+            .expect("the uninstall handler is gone");
+        let body = &source[start..];
+        let end = body[1..]
+            .find("\npub async fn ")
+            .expect("no function follows the uninstall handler");
+        let body = &body[..end];
+
+        let needle = format!("!{}(&servers_root, &server_id)", "row_absence_is_by_design");
+        assert!(
+            body.contains(&needle),
+            "the uninstall warning no longer consults the predicate, so it fires on \
+             every healthy uninstall of a connector that ships no server"
+        );
     }
 
     /// The install itself: files land, and nothing is registered to launch
