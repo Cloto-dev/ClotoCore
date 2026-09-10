@@ -59,7 +59,13 @@ fn default_entry() -> String {
 pub struct ModuleManifest {
     /// Optional self-declaration. When present it must equal the directory
     /// name; the directory is what actually identifies the module.
-    #[serde(default)]
+    ///
+    /// Read but never written back. [`ModuleEntry`] flattens this struct, so a
+    /// serialized `id` here lands on the same key as the entry's own and wins.
+    /// Every module that declared one agreed with its directory, which is why
+    /// nothing showed — until a panel declared none and the flattened `null`
+    /// erased the id the dashboard routes by.
+    #[serde(default, skip_serializing)]
     pub id: Option<String>,
     pub name: String,
     #[serde(default)]
@@ -478,6 +484,55 @@ pub async fn serve_module_asset(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn manifest(id: Option<&str>) -> ModuleManifest {
+        ModuleManifest {
+            id: id.map(str::to_owned),
+            name: "Operations Snapshot".into(),
+            description: String::new(),
+            version: "1.0.0".into(),
+            entry: "index.html".into(),
+            icon: None,
+            requires: Vec::new(),
+        }
+    }
+
+    /// The listing carries one `id` and it is the directory's — the manifest's
+    /// is an optional self-declaration that must agree with it.
+    ///
+    /// [`ModuleEntry`] flattens the manifest, so both land on the same key and
+    /// the manifest's wins. Every module that declared one agreed, so the
+    /// collision was invisible: a duplicate that says the same thing looks
+    /// like no duplicate at all. A connector panel declares none, and the
+    /// flattened `null` erased the id the dashboard routes by — the row was
+    /// listed, named and unopenable.
+    #[test]
+    fn a_panel_without_a_self_declared_id_keeps_the_id_it_is_listed_under() {
+        let entry = ModuleEntry {
+            id: "published-viewer-console".into(),
+            manifest: Some(manifest(None)),
+            error: None,
+        };
+        let v = serde_json::to_value(&entry).unwrap();
+        assert_eq!(v["id"], "published-viewer-console");
+        assert_eq!(
+            v["name"], "Operations Snapshot",
+            "the manifest still flattens"
+        );
+    }
+
+    /// And a declaration that disagrees does not get to rename the row: the
+    /// directory identifies the module, so the listing reports the directory.
+    #[test]
+    fn a_self_declared_id_does_not_rename_the_row() {
+        let entry = ModuleEntry {
+            id: "cil-console".into(),
+            manifest: Some(manifest(Some("something-else"))),
+            error: None,
+        };
+        let v = serde_json::to_value(&entry).unwrap();
+        assert_eq!(v["id"], "cil-console");
+    }
 
     #[test]
     fn module_ids_are_single_safe_segments() {
