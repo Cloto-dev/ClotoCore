@@ -1082,7 +1082,7 @@ pub(super) async fn execute_health_status(
 /// authenticated path, and the acting tools refuse on their own when it is
 /// missing, so failing the listing here would only guard a case that leaks
 /// nothing while breaking one that is offered on every turn.
-async fn granted_servers(
+pub(super) async fn granted_servers(
     manager: &McpClientManager,
     args: &Value,
 ) -> Result<std::collections::HashSet<String>> {
@@ -1510,7 +1510,7 @@ fn mgp_agent_ask_schema() -> Value {
                 "properties": {
                     "target_agent_id": {
                         "type": "string",
-                        "description": "The agent ID (not display name). IDs use the format 'agent.<name>' (e.g., 'agent.cloto_default'). Call mgp.discovery.list first to get the exact agent IDs."
+                        "description": "The agent ID (not display name). IDs use the format 'agent.<name>' (e.g., 'agent.cloto_default'). No kernel tool enumerates agents; use an ID you were given."
                     },
                     "prompt": {
                         "type": "string",
@@ -2321,6 +2321,30 @@ mod ownership_gate_tests {
             .iter()
             .map(|c| c["callback_id"].as_str().unwrap().to_string())
             .collect()
+    }
+
+    /// `mgp.agent.ask` takes an agent id, and its description used to tell the
+    /// model to get one from `mgp.discovery.list`. That tool lists MCP servers
+    /// and skips reasoning engines outright, so the instruction sent the model
+    /// to a listing that could not contain the answer — and now sends it to one
+    /// scoped to the caller's grants, which still cannot.
+    #[test]
+    fn agent_ask_does_not_send_the_model_to_a_listing_of_servers() {
+        let schema = callback_respond_schema();
+        assert_eq!(schema["function"]["name"], "mgp.callback.respond");
+
+        let ask = kernel_tool_schemas()
+            .into_iter()
+            .find(|s| s["function"]["name"] == "mgp.agent.ask")
+            .expect("mgp.agent.ask is a kernel tool");
+        let target = ask["function"]["parameters"]["properties"]["target_agent_id"]["description"]
+            .as_str()
+            .expect("target_agent_id is documented");
+
+        assert!(
+            !target.contains("mgp.discovery.list"),
+            "the id cannot be found there: {target}"
+        );
     }
 
     /// The discovery half of the hijack. Answering a callback is authorized

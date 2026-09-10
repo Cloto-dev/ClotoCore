@@ -723,9 +723,12 @@ async fn test_create_cron_job_unknown_agent_returns_validation_error() {
         .await
         .expect("read body");
     let body_str = std::str::from_utf8(&body_bytes).expect("utf8");
+    // The hint has to name something that actually enumerates agents.
+    // `mgp.discovery.list` was named here for a long time and never did: it
+    // lists MCP servers and skips reasoning engines outright.
     assert!(
-        body_str.contains("Unknown agent_id") && body_str.contains("mgp.discovery.list"),
-        "expected validation message with discovery hint, got: {}",
+        body_str.contains("Unknown agent_id") && body_str.contains("/api/agents"),
+        "expected validation message pointing at the agent listing, got: {}",
         body_str
     );
 }

@@ -47,7 +47,7 @@ pub async fn create_cron_job(
         .map_err(AppError::Internal)?
     {
         return Err(AppError::Validation(format!(
-            "Unknown agent_id '{}'. Call mgp.discovery.list to enumerate valid agent IDs.",
+            "Unknown agent_id '{}'. GET /api/agents enumerates valid agent IDs.",
             agent_id
         )));
     }
