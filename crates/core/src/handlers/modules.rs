@@ -175,27 +175,51 @@ fn safe_relative_path(path: &str) -> Option<PathBuf> {
     Some(normalized)
 }
 
-/// GET /api/modules — list runtime modules found in the data directory.
+/// A module the kernel found, and where its files are.
 ///
-/// **Route:** `GET /api/modules`
-///
-/// Returns every directory under `<data_dir>/modules/`, valid or not. An empty
-/// list means the directory holds nothing; it does not distinguish that from an
-/// absent directory, because for a caller deciding what to render they are the
-/// same state.
-pub async fn list_modules(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> AppResult<Json<serde_json::Value>> {
-    check_auth(&state, &headers)?;
+/// The directory is carried alongside the listing row because the two routes
+/// need the same answer and must not compute it twice: a listing that finds a
+/// module in one place while the asset route looks in another is a 404 nobody
+/// can explain. `root` is `None` for rows that name a problem rather than a
+/// module — there is nothing to serve from.
+struct Discovered {
+    id: String,
+    root: Option<PathBuf>,
+    manifest: Option<ModuleManifest>,
+    error: Option<String>,
+}
 
-    let root = modules_root();
-    let Ok(dir) = std::fs::read_dir(&root) else {
-        // No modules directory: nothing installed. Not an error.
-        return ok_data(Vec::<ModuleEntry>::new());
+impl Discovered {
+    fn rejected(id: String, error: String) -> Self {
+        Self {
+            id,
+            root: None,
+            manifest: None,
+            error: Some(error),
+        }
+    }
+
+    fn into_entry(self) -> ModuleEntry {
+        ModuleEntry {
+            id: self.id,
+            manifest: self.manifest,
+            error: self.error,
+        }
+    }
+}
+
+/// Modules placed by hand under `<data_dir>/modules/`.
+///
+/// The path an operator uses while building one, and the only path there was
+/// before connectors could ship panels. Kept for that: a module being developed
+/// has no package to install from yet.
+fn discover_placed_modules(root: &StdPath) -> Vec<Discovered> {
+    let Ok(dir) = std::fs::read_dir(root) else {
+        // No modules directory: nothing placed. Not an error.
+        return Vec::new();
     };
 
-    let mut entries: Vec<ModuleEntry> = Vec::new();
+    let mut found: Vec<Discovered> = Vec::new();
     for item in dir.flatten() {
         if !item.file_type().is_ok_and(|t| t.is_dir()) {
             continue;
@@ -207,32 +231,199 @@ pub async fn list_modules(
             continue;
         }
         if !is_valid_module_id(&id) {
-            entries.push(ModuleEntry {
-                id,
-                manifest: None,
-                error: Some(
-                    "directory name is not a valid module id (ASCII letters, digits, '-' and '_', at most 64)"
-                        .to_string(),
-                ),
-            });
+            found.push(Discovered::rejected(id, INVALID_ID_MESSAGE.to_string()));
             continue;
         }
         match read_manifest(&item.path(), &id) {
-            Ok(manifest) => entries.push(ModuleEntry {
+            Ok(manifest) => found.push(Discovered {
                 id,
+                root: Some(item.path()),
                 manifest: Some(manifest),
                 error: None,
             }),
-            Err(error) => entries.push(ModuleEntry {
-                id,
-                manifest: None,
-                error: Some(error),
-            }),
+            Err(error) => found.push(Discovered::rejected(id, error)),
         }
     }
+    found
+}
 
-    entries.sort_by(|a, b| a.id.cmp(&b.id));
-    ok_data(entries)
+/// Panels declared by installed connectors.
+///
+/// The supported path: install brings the panel, uninstall takes it away, and
+/// the version, the receipt and the seal are the connector's — none of which a
+/// directory someone copied in has. The kernel reads the declaration from the
+/// connector's own manifest (`managers::connector_manifest`), so a panel is
+/// described in the same file that says what the connector is.
+fn discover_connector_panels(servers_root: &StdPath) -> Vec<Discovered> {
+    let Ok(dir) = std::fs::read_dir(servers_root) else {
+        return Vec::new();
+    };
+
+    let mut found: Vec<Discovered> = Vec::new();
+    for item in dir.flatten() {
+        if !item.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let Some(connector_id) = item.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        if connector_id.starts_with('.') {
+            continue;
+        }
+        let Some(declared) =
+            crate::managers::connector_manifest::read_panels(servers_root, &connector_id)
+        else {
+            continue;
+        };
+        for panel in declared.panels {
+            // The id the dashboard sees names both halves, because a panel id
+            // is only unique inside its connector. It is built here and never
+            // taken apart again: resolution matches whole ids against this
+            // same enumeration, so a '-' inside either half cannot make one id
+            // resolve as another.
+            let id = format!("{connector_id}-{}", panel.id);
+            if !is_valid_module_id(&panel.id) || !is_valid_module_id(&id) {
+                found.push(Discovered::rejected(
+                    id,
+                    format!(
+                        "connector {connector_id:?} declares panel id {:?}, which does not \
+                         produce a valid module id ({INVALID_ID_MESSAGE})",
+                        panel.id
+                    ),
+                ));
+                continue;
+            }
+            if panel.name.trim().is_empty() {
+                found.push(Discovered::rejected(
+                    id,
+                    format!("connector {connector_id:?} declares a panel with an empty name"),
+                ));
+                continue;
+            }
+            // Same terms as a placed module's manifest: the entry is written by
+            // the connector author and has to stay inside the panel's root.
+            if safe_relative_path(&panel.entry).is_none() {
+                found.push(Discovered::rejected(
+                    id,
+                    format!("entry {:?} escapes the connector", panel.entry),
+                ));
+                continue;
+            }
+            found.push(Discovered {
+                id,
+                root: Some(declared.root.clone()),
+                manifest: Some(ModuleManifest {
+                    id: None,
+                    name: panel.name,
+                    description: panel.description,
+                    version: panel.version,
+                    entry: panel.entry,
+                    icon: panel.icon,
+                    requires: panel.requires,
+                }),
+                error: None,
+            });
+        }
+    }
+    found
+}
+
+const INVALID_ID_MESSAGE: &str =
+    "not a valid module id (ASCII letters, digits, '-' and '_', at most 64)";
+
+/// Every module the kernel can see, from both sources, sorted by id.
+///
+/// Two sources means two things can claim one id, and there is no ordering
+/// between them that would be right: preferring the connector hides a module
+/// an operator placed deliberately, preferring the placed one lets a stray
+/// directory shadow an installed connector's panel. So neither wins — the id
+/// is reported as ambiguous and serves nothing, which is the only outcome that
+/// cannot be mistaken for the module someone meant.
+fn discover_modules_in(modules_root: &StdPath, servers_root: Option<&StdPath>) -> Vec<Discovered> {
+    let mut found = discover_placed_modules(modules_root);
+    if let Some(servers_root) = servers_root {
+        found.extend(discover_connector_panels(servers_root));
+    }
+
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for item in &found {
+        *counts.entry(item.id.clone()).or_default() += 1;
+    }
+
+    let mut merged: Vec<Discovered> = Vec::new();
+    let mut ambiguous_emitted: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for item in found {
+        if counts.get(&item.id).copied().unwrap_or(0) > 1 {
+            if ambiguous_emitted.insert(item.id.clone()) {
+                merged.push(Discovered::rejected(
+                    item.id,
+                    "more than one source claims this id — nothing is served for it".to_string(),
+                ));
+            }
+            continue;
+        }
+        merged.push(item);
+    }
+
+    merged.sort_by(|a, b| a.id.cmp(&b.id));
+    merged
+}
+
+/// [`discover_modules_in`] against the roots this installation actually uses.
+///
+/// Kept to two lines with no decisions of its own: everything worth testing is
+/// in the function it calls, which takes its roots as arguments so a test can
+/// point it at a directory it made.
+fn discover_modules() -> Vec<Discovered> {
+    let servers_root = crate::managers::mcp_venv::resolve_servers_dir_from_config();
+    discover_modules_in(&modules_root(), servers_root.as_deref())
+}
+
+/// GET /api/modules — list runtime modules, from both sources.
+///
+/// **Route:** `GET /api/modules`
+///
+/// Returns every module found under `<data_dir>/modules/` and every panel an
+/// installed connector declares, valid or not. An empty list means neither
+/// source holds anything; it does not distinguish that from an absent
+/// directory, because for a caller deciding what to render they are the same
+/// state.
+pub async fn list_modules(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    ok_data(
+        discover_modules()
+            .into_iter()
+            .map(Discovered::into_entry)
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// Second gate: resolve both sides and confirm the file really sits inside the
+/// module. The lexical check in [`safe_relative_path`] already rejected `..`;
+/// this catches a symlink planted inside the module directory that points out
+/// of it.
+///
+/// Shared by both sources on purpose. A connector's panel root is a directory
+/// the kernel did not write either, so it needs the same gate — and a second
+/// copy of this check is a second thing that can be weakened alone.
+fn resolve_asset(module_dir: &StdPath, relative: &StdPath) -> Result<PathBuf, AppError> {
+    let file_path = module_dir.join(relative);
+    let canonical_dir = module_dir
+        .canonicalize()
+        .map_err(|_| AppError::NotFound("Module not found".to_string()))?;
+    let canonical = file_path
+        .canonicalize()
+        .map_err(|_| AppError::NotFound("File not found".to_string()))?;
+    if !canonical.starts_with(&canonical_dir) {
+        return Err(AppError::Validation("Access denied".to_string()));
+    }
+    if !canonical.is_file() {
+        return Err(AppError::NotFound("File not found".to_string()));
+    }
+    Ok(canonical)
 }
 
 /// GET /api/modules/:id/assets/*path — serve one file from a module directory.
@@ -256,24 +447,15 @@ pub async fn serve_module_asset(
     let relative = safe_relative_path(&path)
         .ok_or_else(|| AppError::Validation("Invalid path".to_string()))?;
 
-    let module_dir = modules_root().join(&id);
-    let file_path = module_dir.join(&relative);
-
-    // Second gate: resolve both sides and confirm the file really sits inside
-    // the module. The lexical check above already rejected `..`; this catches a
-    // symlink planted inside the module directory that points out of it.
-    let canonical_dir = module_dir
-        .canonicalize()
-        .map_err(|_| AppError::NotFound("Module not found".to_string()))?;
-    let canonical = file_path
-        .canonicalize()
-        .map_err(|_| AppError::NotFound("File not found".to_string()))?;
-    if !canonical.starts_with(&canonical_dir) {
-        return Err(AppError::Validation("Access denied".to_string()));
-    }
-    if !canonical.is_file() {
-        return Err(AppError::NotFound("File not found".to_string()));
-    }
+    // Resolved through the same enumeration the listing uses, so a module is
+    // served from where it was listed from — and an id that resolves to
+    // nothing (unknown, rejected, or claimed by two sources) serves nothing.
+    let module_dir = discover_modules()
+        .into_iter()
+        .find(|m| m.id == id)
+        .and_then(|m| m.root)
+        .ok_or_else(|| AppError::NotFound("Module not found".to_string()))?;
+    let canonical = resolve_asset(&module_dir, &relative)?;
 
     let data = tokio::fs::read(&canonical)
         .await
@@ -390,5 +572,226 @@ mod tests {
         std::fs::create_dir(&empty).expect("create module dir");
         let err = read_manifest(&empty, "empty").expect_err("missing manifest must be rejected");
         assert!(err.contains("cannot read module.json"), "got: {err}");
+    }
+}
+
+#[cfg(test)]
+mod connector_panel_tests {
+    use super::*;
+
+    /// A connector as the installer leaves it: a directory under the servers
+    /// root with its manifest inside. `nested` is the layout the current
+    /// installer produces; the flat one is what earlier installs left behind,
+    /// and both are on disk at once.
+    fn install_connector(
+        servers_root: &StdPath,
+        id: &str,
+        nested: bool,
+        manifest: &str,
+    ) -> PathBuf {
+        let dir = if nested {
+            servers_root.join(id).join("servers").join(id)
+        } else {
+            servers_root.join(id)
+        };
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("cloto-connector.json"), manifest).unwrap();
+        dir
+    }
+
+    const ONE_PANEL: &str = r#"{
+        "spec_version": 1,
+        "ui": { "panels": [ { "id": "console", "name": "Operating Console",
+                              "entry": "ui/index.html",
+                              "requires": ["GET /api/published/cil"] } ] }
+    }"#;
+
+    fn ids(found: &[Discovered]) -> Vec<&str> {
+        found.iter().map(|m| m.id.as_str()).collect()
+    }
+
+    #[test]
+    fn a_connector_panel_is_listed_under_an_id_naming_both_halves() {
+        let modules = tempfile::tempdir().unwrap();
+        let servers = tempfile::tempdir().unwrap();
+        install_connector(servers.path(), "cil", false, ONE_PANEL);
+
+        let found = discover_modules_in(modules.path(), Some(servers.path()));
+
+        assert_eq!(ids(&found), vec!["cil-console"]);
+        let manifest = found[0].manifest.as_ref().expect("a usable panel");
+        assert_eq!(manifest.name, "Operating Console");
+        assert_eq!(manifest.entry, "ui/index.html");
+        assert_eq!(
+            manifest.requires,
+            vec!["GET /api/published/cil".to_string()]
+        );
+    }
+
+    #[test]
+    fn the_layout_earlier_installs_left_behind_is_read_too() {
+        let modules = tempfile::tempdir().unwrap();
+        let servers = tempfile::tempdir().unwrap();
+        let dir = install_connector(servers.path(), "cil", true, ONE_PANEL);
+
+        let found = discover_modules_in(modules.path(), Some(servers.path()));
+
+        assert_eq!(ids(&found), vec!["cil-console"]);
+        assert_eq!(
+            found[0].root.as_deref(),
+            Some(dir.as_path()),
+            "assets resolve against the directory holding the manifest"
+        );
+    }
+
+    #[test]
+    fn a_connector_that_declares_no_panels_contributes_nothing() {
+        let modules = tempfile::tempdir().unwrap();
+        let servers = tempfile::tempdir().unwrap();
+        install_connector(servers.path(), "plain", false, r#"{"spec_version": 1}"#);
+
+        assert!(discover_modules_in(modules.path(), Some(servers.path())).is_empty());
+    }
+
+    #[test]
+    fn a_connector_this_kernel_refuses_to_run_gets_no_surface() {
+        let modules = tempfile::tempdir().unwrap();
+        let servers = tempfile::tempdir().unwrap();
+        install_connector(
+            servers.path(),
+            "future",
+            false,
+            r#"{"spec_version": 1, "connector_type": "something_newer",
+                "ui": { "panels": [ { "id": "p", "name": "P" } ] } }"#,
+        );
+
+        assert!(
+            discover_modules_in(modules.path(), Some(servers.path())).is_empty(),
+            "a connector the kernel will not launch must not get a panel either"
+        );
+    }
+
+    #[test]
+    fn a_panel_whose_entry_escapes_its_connector_is_reported_not_served() {
+        let modules = tempfile::tempdir().unwrap();
+        let servers = tempfile::tempdir().unwrap();
+        install_connector(
+            servers.path(),
+            "cil",
+            false,
+            r#"{"ui": { "panels": [ { "id": "p", "name": "P",
+                                      "entry": "../../../etc/passwd" } ] } }"#,
+        );
+
+        let found = discover_modules_in(modules.path(), Some(servers.path()));
+        assert_eq!(ids(&found), vec!["cil-p"]);
+        assert!(found[0].error.is_some(), "the reason is reported");
+        assert!(found[0].root.is_none(), "and nothing is served for it");
+    }
+
+    #[test]
+    fn when_two_sources_claim_one_id_neither_wins() {
+        let modules = tempfile::tempdir().unwrap();
+        let servers = tempfile::tempdir().unwrap();
+
+        // A placed module named exactly what the connector's panel resolves to.
+        let placed = modules.path().join("cil-console");
+        std::fs::create_dir_all(&placed).unwrap();
+        std::fs::write(placed.join("module.json"), r#"{"name": "Placed"}"#).unwrap();
+        install_connector(servers.path(), "cil", false, ONE_PANEL);
+
+        let found = discover_modules_in(modules.path(), Some(servers.path()));
+
+        assert_eq!(ids(&found), vec!["cil-console"], "one row, not two");
+        assert!(found[0].root.is_none(), "an ambiguous id serves nothing");
+        assert!(found[0].manifest.is_none());
+        assert!(found[0].error.is_some());
+    }
+
+    #[test]
+    fn a_placed_module_and_a_panel_with_distinct_ids_both_appear() {
+        let modules = tempfile::tempdir().unwrap();
+        let servers = tempfile::tempdir().unwrap();
+        let placed = modules.path().join("scratch");
+        std::fs::create_dir_all(&placed).unwrap();
+        std::fs::write(placed.join("module.json"), r#"{"name": "Scratch"}"#).unwrap();
+        install_connector(servers.path(), "cil", false, ONE_PANEL);
+
+        let found = discover_modules_in(modules.path(), Some(servers.path()));
+
+        assert_eq!(ids(&found), vec!["cil-console", "scratch"]);
+    }
+
+    #[test]
+    fn with_no_servers_root_only_placed_modules_are_listed() {
+        let modules = tempfile::tempdir().unwrap();
+        let placed = modules.path().join("scratch");
+        std::fs::create_dir_all(&placed).unwrap();
+        std::fs::write(placed.join("module.json"), r#"{"name": "Scratch"}"#).unwrap();
+
+        assert_eq!(
+            ids(&discover_modules_in(modules.path(), None)),
+            vec!["scratch"]
+        );
+    }
+
+    /// Both routes have to resolve a module through the same enumeration, and
+    /// nothing above can see whether they still do: every test in this file
+    /// drives `discover_modules_in` directly, so a handler rewritten to walk
+    /// `<data_dir>/modules/` by itself again would leave them all green while
+    /// connector panels quietly stopped being served. Reading the source is the
+    /// only place that question can be asked.
+    #[test]
+    fn both_routes_resolve_a_module_through_the_shared_discovery() {
+        // Only the half above the tests: this test names the function it is
+        // counting, so measuring the whole file would count itself.
+        let source = include_str!("modules.rs");
+        let production = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("split always yields the head");
+        let definitions = production.matches("fn discover_modules()").count();
+        let mentions = production.matches("discover_modules()").count();
+
+        assert_eq!(definitions, 1, "expected exactly one definition");
+        assert_eq!(
+            mentions - definitions,
+            2,
+            "expected the listing and the asset route to be its only two callers"
+        );
+    }
+
+    // ── the second gate, on a connector's root ──
+
+    #[test]
+    fn a_file_inside_the_panel_resolves() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("ui")).unwrap();
+        std::fs::write(dir.path().join("ui").join("index.html"), "<h1>hi</h1>").unwrap();
+
+        let resolved = resolve_asset(dir.path(), StdPath::new("ui/index.html"));
+        let Ok(resolved) = resolved else {
+            panic!("a real file inside the panel should resolve");
+        };
+        assert!(resolved.is_file());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_planted_in_the_panel_cannot_reach_outside_it() {
+        // The lexical gate cannot see this one: the requested path has no `..`
+        // in it. Only resolving both sides answers where the file really is.
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("secret"), "not yours").unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path().join("secret"), dir.path().join("escape"))
+            .unwrap();
+
+        let refused = resolve_asset(dir.path(), StdPath::new("escape"));
+
+        assert!(
+            matches!(refused, Err(AppError::Validation(_))),
+            "the containment check must refuse a symlink that leaves the panel"
+        );
     }
 }
