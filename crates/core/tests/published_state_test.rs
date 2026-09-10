@@ -9,7 +9,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::Json;
-use cloto_core::handlers::published::{get_published_state, publish_state};
+use cloto_core::handlers::published::{get_published_state, list_published, publish_state};
 use cloto_core::test_utils::create_test_app_state;
 use cloto_core::AppState;
 use serde_json::json;
@@ -59,6 +59,10 @@ async fn publish(
         .await,
     )
     .await
+}
+
+async fn list(state: &Arc<AppState>) -> (StatusCode, serde_json::Value) {
+    read_response(list_published(State(state.clone()), headers()).await).await
 }
 
 async fn read(state: &Arc<AppState>, publisher: &str) -> (StatusCode, serde_json::Value) {
@@ -254,5 +258,99 @@ fn the_kernel_serves_the_path_a_module_would_declare() {
     assert!(
         wiring.contains("handlers::published::publish_state"),
         "the registered route does not reach the write handler"
+    );
+    assert!(
+        wiring.contains("\"/published\""),
+        "the listing route is not registered — a viewer with no publisher name has \
+         nothing to ask, which is the whole reason it exists"
+    );
+    assert!(
+        wiring.contains("handlers::published::list_published"),
+        "the registered listing route does not reach the listing handler"
+    );
+}
+
+/// A viewer that renders whatever is published starts here: it has no name to
+/// ask for until this answers.
+#[tokio::test]
+async fn the_listing_names_every_publisher_and_when_each_last_wrote() {
+    let state = state().await;
+    publish(&state, "beta", json!({"n": 2})).await;
+    publish(&state, "alpha", json!({"n": 1})).await;
+
+    let (status, body) = list(&state).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let rows = body["data"]["publishers"].as_array().expect("publishers");
+    assert_eq!(rows.len(), 2);
+    // Sorted, so a viewer can keep a selection across polls.
+    assert_eq!(rows[0]["publisher"], "alpha");
+    assert_eq!(rows[1]["publisher"], "beta");
+    assert!(
+        rows[0]["published_at"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "the timestamp is what answers 'is anyone still publishing'"
+    );
+}
+
+/// The design of the route, asserted rather than described: naming who has
+/// published must not be the same thing as handing over what they published.
+/// A listing that carried the documents would give everything to anything
+/// allowed to call this one path, and no manifest would show the difference.
+#[tokio::test]
+async fn the_listing_does_not_carry_the_documents() {
+    let state = state().await;
+    publish(&state, "alpha", json!({"secret": "in the document"})).await;
+
+    let (_, body) = list(&state).await;
+    let row = &body["data"]["publishers"][0];
+
+    assert!(
+        row.get("document").is_none(),
+        "the listing named a document"
+    );
+    assert!(
+        !serde_json::to_string(&body)
+            .unwrap()
+            .contains("in the document"),
+        "the document reached the listing by some other name"
+    );
+}
+
+/// Nobody publishing is an empty list, not an error: a viewer has to be able to
+/// say "nothing here yet" without that being indistinguishable from a fault.
+#[tokio::test]
+async fn an_empty_listing_is_an_answer() {
+    let state = state().await;
+    let (status, body) = list(&state).await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["publishers"].as_array().unwrap().len(), 0);
+}
+
+/// And it is behind the same credential as everything else under `/api`.
+#[tokio::test]
+async fn the_listing_refuses_a_caller_without_the_key() {
+    let state = state().await;
+    publish(&state, "alpha", json!({"n": 1})).await;
+
+    let (listing, _) =
+        read_response(list_published(State(state.clone()), HeaderMap::new()).await).await;
+    let (single, _) = read_response(
+        get_published_state(
+            State(state.clone()),
+            HeaderMap::new(),
+            Path("alpha".to_string()),
+        )
+        .await,
+    )
+    .await;
+
+    assert_ne!(listing, StatusCode::OK, "the listing is behind the check");
+    assert_eq!(
+        listing, single,
+        "and behind the same one — a listing that refused differently would be a \
+         second access-control story to keep in step"
     );
 }

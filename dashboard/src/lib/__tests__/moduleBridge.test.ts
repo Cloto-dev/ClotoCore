@@ -76,3 +76,50 @@ describe('decideModuleCall', () => {
     expect(decideModuleCall(call(), []).allowed).toBe(false);
   });
 });
+
+describe('decideModuleCall with a segment wildcard', () => {
+  const WILDCARD = ['GET /api/published/*'];
+  const at = (path: string) => decideModuleCall(call({ path }), WILDCARD).allowed;
+
+  it('admits one further segment, which is the point of declaring it', () => {
+    expect(at('/api/published/cil')).toBe(true);
+    expect(at('/api/published/anything-else_9')).toBe(true);
+  });
+
+  it('admits nothing beyond that segment', () => {
+    // Two segments is a different route, and the manifest named one.
+    expect(at('/api/published/cil/history')).toBe(false);
+    // The bare route is not a row of it; declaring rows does not declare the list.
+    expect(at('/api/published')).toBe(false);
+    expect(at('/api/published/')).toBe(false);
+  });
+
+  it('does not let the segment mean somewhere else', () => {
+    // The case the wildcard would otherwise open: a traversal reads as a
+    // publisher name in the manifest and resolves to another route entirely.
+    expect(at('/api/published/../agents')).toBe(false);
+    expect(at('/api/published/..')).toBe(false);
+    expect(at('/api/published/.')).toBe(false);
+    // A query or fragment ends the path and starts something the manifest
+    // reader never saw.
+    expect(at('/api/published/cil?as=agents')).toBe(false);
+    expect(at('/api/published/cil#x')).toBe(false);
+  });
+
+  it('is still bound by the route and the method the manifest named', () => {
+    expect(at('/api/agents/cil')).toBe(false);
+    expect(decideModuleCall(call({ method: 'POST', path: '/api/published/cil' }), WILDCARD).allowed).toBe(false);
+  });
+
+  it('leaves a star anywhere but the end as an ordinary character', () => {
+    // Only a trailing `/*` is a wildcard, and the `/` before it is part of the
+    // rule: without it a declaration could stand for a *prefix* of a segment,
+    // which is a route the manifest never names. `GET /api/pub*` would reach
+    // /api/published — one segment, so a "one segment" check alone lets it by.
+    expect(decideModuleCall(call({ path: '/api/published' }), ['GET /api/pub*']).allowed).toBe(false);
+    // Mid-path stars are likewise not a wildcard, only characters.
+    expect(decideModuleCall(call({ path: '/api/published/cil' }), ['GET /api/*/cil']).allowed).toBe(false);
+    // And a path that genuinely contains one still matches itself.
+    expect(decideModuleCall(call({ path: '/api/pub*shed' }), ['GET /api/pub*shed']).allowed).toBe(true);
+  });
+});

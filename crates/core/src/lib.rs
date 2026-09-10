@@ -1642,6 +1642,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )
         // State a publisher outside the kernel keeps here for a module to read.
         // The kernel does not read the document; see handlers::published.
+        .route("/published", get(handlers::published::list_published))
         .route(
             "/published/{publisher}",
             get(handlers::published::get_published_state).post(handlers::published::publish_state),
