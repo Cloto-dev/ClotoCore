@@ -112,9 +112,14 @@ describe('decideModuleCall with a segment wildcard', () => {
   });
 
   it('leaves a star anywhere but the end as an ordinary character', () => {
-    // Only a trailing `/*` is a wildcard. Anything else is matched literally,
-    // so a manifest cannot reach a route by putting a star in the middle of it.
-    expect(decideModuleCall(call({ path: '/api/published/cil/x' }), ['GET /api/*/cil/x']).allowed).toBe(false);
+    // Only a trailing `/*` is a wildcard, and the `/` before it is part of the
+    // rule: without it a declaration could stand for a *prefix* of a segment,
+    // which is a route the manifest never names. `GET /api/pub*` would reach
+    // /api/published — one segment, so a "one segment" check alone lets it by.
+    expect(decideModuleCall(call({ path: '/api/published' }), ['GET /api/pub*']).allowed).toBe(false);
+    // Mid-path stars are likewise not a wildcard, only characters.
+    expect(decideModuleCall(call({ path: '/api/published/cil' }), ['GET /api/*/cil']).allowed).toBe(false);
+    // And a path that genuinely contains one still matches itself.
     expect(decideModuleCall(call({ path: '/api/pub*shed' }), ['GET /api/pub*shed']).allowed).toBe(true);
   });
 });
