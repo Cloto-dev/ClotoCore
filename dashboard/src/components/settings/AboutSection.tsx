@@ -274,18 +274,25 @@ export function AboutSection() {
         </div>
       </SectionCard>
 
-      <SectionCard title={t('about.setup')}>
-        <div className="space-y-2">
-          <p className="text-xs text-content-tertiary">{t('about.setup_desc')}</p>
-          <button
-            onClick={() => setShowWizard(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all"
-          >
-            <RotateCcw size={14} />
-            {t('about.rerun_setup')}
-          </button>
-        </div>
-      </SectionCard>
+      {/* Desktop shell only, for the same reason the first-run wizard is
+          (see the gate in App.tsx): the wizard's preset step *replaces* the
+          default agent's MCP grant set, and it cannot obtain the admin key
+          outside Tauri, so over a browser this button led to a dead end at
+          the key step — a broken affordance guarding a destructive one. */}
+      {isTauri && (
+        <SectionCard title={t('about.setup')}>
+          <div className="space-y-2">
+            <p className="text-xs text-content-tertiary">{t('about.setup_desc')}</p>
+            <button
+              onClick={() => setShowWizard(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all"
+            >
+              <RotateCcw size={14} />
+              {t('about.rerun_setup')}
+            </button>
+          </div>
+        </SectionCard>
+      )}
 
       {showWizard && (
         <SetupWizard
