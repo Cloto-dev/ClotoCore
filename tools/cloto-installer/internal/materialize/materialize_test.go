@@ -468,6 +468,164 @@ func TestTraversalInTheCatalogDirectoryIsRefusedBeforeExtraction(t *testing.T) {
 
 // ── Rust connectors ──────────────────────────────────────────────────
 
+// ── connectors that ship no server ───────────────────────────────────
+//
+// The case the kernel's own tests reached by calling its registration
+// helper directly, which is not the path a connector published to the hub
+// takes: the hub rewrites a git source into a served archive, so every
+// published connector arrives here. A panel that got this far was treated
+// as a Python project and refused by `uv` for having no `pyproject.toml`.
+
+var panelHTML = []byte("<!doctype html><title>panel</title>\n")
+
+// panelManifest is what a connector that ships only a face declares.
+func panelManifest(entry string) []byte {
+	return []byte(`{"spec_version":1,"connector_type":"ui_module","id":"demo","name":"Demo",` +
+		`"ui":{"panels":[{"id":"console","name":"Console","entry":"` + entry + `"}]}}`)
+}
+
+func panelArchive(manifest []byte) []byte {
+	return testhub.Tarball(
+		testhub.File{Name: "demo-1.0.0/" + manifestFileName, Data: manifest},
+		testhub.File{Name: "demo-1.0.0/index.html", Data: panelHTML},
+	)
+}
+
+const manifestFileName = "cloto-connector.json"
+
+func TestConnectorThatShipsNoServerIsInstalledWithoutABuildStep(t *testing.T) {
+	h := newHarness(t, false)
+	archive := panelArchive(panelManifest("index.html"))
+	// ServerPy names the bytes the hub hashed as the entry point; for a
+	// connector with no server that is the file its panel is served from.
+	e := h.entry(testhub.EntryOptions{Archive: archive, ServerPy: panelHTML, Runtime: "static"})
+	in := h.input(e, h.stage("demo", archive))
+	in.LaunchableConnectorTypes = []string{"mgp_server"}
+	res := h.run(in)
+
+	assertSteps(t, h.steps(),
+		"start:extract",
+		"complete:extract",
+		"start:install_deps",
+		"install:Demo:installed",
+		"complete:install_deps",
+	)
+
+	// The point of the whole branch: no dependency step ran. Not "it
+	// succeeded" — it was never reached, which is what makes the absence of
+	// a `pyproject.toml` stop being a failure.
+	if got := testhub.UVCalls(h.uvLog); len(got) != 0 {
+		t.Errorf("uv was invoked for a connector with nothing to build: %v", got)
+	}
+
+	installDir := filepath.Join(h.serversDir(), "demo")
+	if got, _ := os.ReadFile(filepath.Join(installDir, "index.html")); !bytes.Equal(got, panelHTML) {
+		t.Error("panel file not in place")
+	}
+	if !exists(filepath.Join(installDir, manifestFileName)) {
+		t.Error("manifest not in place — the kernel reads it to decide what this is")
+	}
+	if entries, _ := os.ReadDir(h.tmpDir()); len(entries) != 0 {
+		t.Errorf("tmp not empty: %v", entries)
+	}
+
+	if !res.OK || !res.Installed {
+		t.Fatalf("result: %+v", res)
+	}
+	// Empty is the whole message: there is no process to start, and the
+	// kernel reads that as "register no server".
+	if res.Command != "" || len(res.Args) != 0 {
+		t.Errorf("a connector with no server named a command: %q %v", res.Command, res.Args)
+	}
+	if res.Venv != nil {
+		t.Errorf("a virtualenv was reported for a connector that needs none: %+v", res.Venv)
+	}
+	// The integrity check still ran, against the file the manifest names
+	// rather than the one the convention would have guessed.
+	if res.Seal == nil || res.Seal.Verdict != "verified" {
+		t.Fatalf("seal: %+v", res.Seal)
+	}
+	if ok, err := seal.VerifyTreeSeal(installDir, res.Seal.LocalSeal, sealKey); err != nil || !ok {
+		t.Errorf("local seal does not verify against the installed tree: ok=%v err=%v", ok, err)
+	}
+}
+
+// A hash is only a check if something says which file it was taken over.
+// The convention that answers that for a server is a guess here, and a
+// guess that happened to be wrong is the whole reason this branch exists —
+// so an unanswerable case is refused, loudly, rather than hashed anyway.
+func TestConnectorWithNoServerAndNoNamedFileIsRefused(t *testing.T) {
+	h := newHarness(t, false)
+	manifest := []byte(`{"spec_version":1,"connector_type":"ui_module","id":"demo","name":"Demo"}`)
+	archive := panelArchive(manifest)
+	e := h.entry(testhub.EntryOptions{Archive: archive, ServerPy: panelHTML, Runtime: "static"})
+	in := h.input(e, h.stage("demo", archive))
+	in.LaunchableConnectorTypes = []string{"mgp_server"}
+	res := h.run(in)
+
+	if res.OK || res.Installed {
+		t.Fatalf("result: %+v", res)
+	}
+	joined := strings.Join(h.steps(), "\n")
+	if !strings.Contains(joined, "error:install_deps:fatal:") {
+		t.Fatalf("expected a fatal install_deps error, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "refuses rather than hashing a guess") {
+		t.Errorf("the refusal does not say what it could not decide:\n%s", joined)
+	}
+	if exists(filepath.Join(h.serversDir(), "demo")) {
+		t.Error("a refused connector reached the servers root")
+	}
+	if entries, _ := os.ReadDir(h.tmpDir()); len(entries) != 0 {
+		t.Errorf("staging or archive left behind: %v", entries)
+	}
+}
+
+// The manifest names a file the archive does not carry. Hashing would fail
+// with a read error reported as an integrity fault, which reads as tamper;
+// what actually happened is that the connector is inconsistent with itself.
+func TestConnectorWithNoServerNamingAMissingFileIsRefused(t *testing.T) {
+	h := newHarness(t, false)
+	archive := panelArchive(panelManifest("console.html"))
+	e := h.entry(testhub.EntryOptions{Archive: archive, ServerPy: panelHTML, Runtime: "static"})
+	in := h.input(e, h.stage("demo", archive))
+	in.LaunchableConnectorTypes = []string{"mgp_server"}
+	res := h.run(in)
+
+	if res.OK || res.Installed {
+		t.Fatalf("result: %+v", res)
+	}
+	if joined := strings.Join(h.steps(), "\n"); !strings.Contains(joined, "no such file") {
+		t.Errorf("the refusal does not name the missing file:\n%s", joined)
+	}
+	if exists(filepath.Join(h.serversDir(), "demo")) {
+		t.Error("a refused connector reached the servers root")
+	}
+}
+
+// A connector that says nothing is one that predates manifests, and every
+// one of those is a server. The branch must not swallow them: absent has
+// to keep meaning `mgp_server`, or reading the declaration would be a
+// breaking change dressed as a check.
+func TestConnectorWithNoManifestIsStillBuiltAsAServer(t *testing.T) {
+	h := newHarness(t, false)
+	archive := testhub.StandaloneArchive(testhub.ServerPy)
+	e := h.entry(testhub.EntryOptions{Archive: archive})
+	in := h.input(e, h.stage("demo", archive))
+	in.LaunchableConnectorTypes = []string{"mgp_server"}
+	res := h.run(in)
+
+	if !res.OK || !res.Installed {
+		t.Fatalf("result: %+v", res)
+	}
+	if res.Command != "python" {
+		t.Errorf("a connector that declared nothing was not built as a server: %q", res.Command)
+	}
+	if got := testhub.UVCalls(h.uvLog); len(got) == 0 {
+		t.Error("the dependency step was skipped for a connector that needs it")
+	}
+}
+
 func TestRustConnectorIsBuiltWithCargoAndRegistersTheBinary(t *testing.T) {
 	h := newHarness(t, false)
 	cargo := testhub.InstallFakeCargo(t, h.dataDir, "mgp-demo", false)

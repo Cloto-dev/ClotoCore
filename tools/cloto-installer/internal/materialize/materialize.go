@@ -28,6 +28,7 @@ import (
 	"github.com/Cloto-dev/ClotoCore/tools/cloto-installer/internal/catalog"
 	"github.com/Cloto-dev/ClotoCore/tools/cloto-installer/internal/events"
 	"github.com/Cloto-dev/ClotoCore/tools/cloto-installer/internal/extract"
+	"github.com/Cloto-dev/ClotoCore/tools/cloto-installer/internal/manifest"
 	"github.com/Cloto-dev/ClotoCore/tools/cloto-installer/internal/seal"
 )
 
@@ -68,6 +69,12 @@ type Input struct {
 	JWKS             json.RawMessage `json:"jwks"`
 	ChildTimeoutSecs int             `json:"child_timeout_secs"`
 	BuildTimeoutSecs int             `json:"build_timeout_secs"`
+	// The connector types the host starts a process for. The host owns
+	// this list; the engine only needs to know whether the connector it
+	// extracted is one of them, and asking rather than keeping a copy is
+	// what stops the two from drifting into different answers. Absent
+	// falls back to the single type that existed before manifests.
+	LaunchableConnectorTypes []string `json:"launchable_connector_types"`
 }
 
 // VenvState reports the Python environment used.
@@ -230,13 +237,51 @@ func (r *run) run(sealKey []byte) error {
 		finalServer = filepath.Join(targetDir, filepath.FromSlash(subdir))
 	}
 
+	// What there is to build is the connector's own claim, read from the
+	// tree that was just extracted. The catalog cannot answer it — its wire
+	// shape carries no `connector_type` — and this is the first moment the
+	// files are here to ask. Asked before the build rather than after,
+	// because after is too late: a connector that ships no server is not a
+	// Python project, and the Python step says so by failing.
+	declaration := manifest.Read(stagedServer)
+
 	// Build the environment against the staged tree. The command the
 	// kernel registers names the final location.
 	var command string
 	var args []string
 	var stagedEntryPoint string
 	var venv *VenvState
-	if entry.IsRust() {
+	switch {
+	case !declaration.BuildsAServer(in.LaunchableConnectorTypes):
+		// Nothing to build, and nothing to run: the files are the whole
+		// connector. `command` and `args` stay empty, which is what tells
+		// the kernel there is no server to register.
+		em.StepStart("install_deps", "Installing "+r.name+" files")
+		entryFile, err := declaration.EntryPoint()
+		if err != nil {
+			em.StepError("install_deps", fmt.Sprintf(
+				"connector '%s' declares type '%s', which ships no server, but names no single file to check its integrity against (%d panel entries declared). "+
+					"The catalog carries a hash without saying which file it was taken over, and the naming convention that fills that gap is only right for a server — "+
+					"so this refuses rather than hashing a guess.",
+				entry.ID, declaration.ConnectorType, len(declaration.PanelEntries)), false)
+			r.removeStaging(staging)
+			r.removeArchive()
+			em.Result(Result{OK: false})
+			return nil
+		}
+		stagedEntryPoint = filepath.Join(stagedServer, filepath.FromSlash(entryFile))
+		if _, err := os.Stat(stagedEntryPoint); err != nil {
+			em.StepError("install_deps", fmt.Sprintf(
+				"connector '%s' names '%s' as the file its panel is served from, and the extracted tree has no such file",
+				entry.ID, entryFile), false)
+			r.removeStaging(staging)
+			r.removeArchive()
+			em.Result(Result{OK: false})
+			return nil
+		}
+		em.ServerInstall(r.name, "installed")
+		em.StepComplete("install_deps")
+	case entry.IsRust():
 		ok, err := r.cargoBuild(stagedServer)
 		if err != nil {
 			return err
@@ -264,7 +309,7 @@ func (r *run) run(sealKey []byte) error {
 		}
 		em.ServerInstall(r.name, "installed")
 		command = filepath.Join(finalServer, "target", "release", binName)
-	} else {
+	default:
 		state, ok, err := r.pythonEnv(stagedServer, needsCommon)
 		if err != nil {
 			return err
