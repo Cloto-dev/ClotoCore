@@ -209,6 +209,11 @@ pub struct AppState {
     /// In-memory cache of revoked API key hashes (SHA-256 fingerprints).
     /// Loaded from DB at startup; updated on POST /api/system/invalidate-key.
     pub revoked_keys: Arc<tokio::sync::RwLock<std::collections::HashSet<String>>>,
+    /// Whether the admin key this process booted with was handed to it by its
+    /// environment rather than read from a file the kernel controls (sampled
+    /// by `apikey::note_env_key_before_dotenv` at the entry point). A rotation
+    /// is not durable in that case — see `apikey::rotation_persistence_note`.
+    pub admin_key_from_env: AtomicBool,
     /// Live admin API key. Seeded from `config.admin_api_key` at boot and
     /// swapped in place by POST /api/system/regenerate-key so a rotation
     /// takes effect without a restart (std RwLock: sync readers in check_auth).
@@ -1038,6 +1043,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         plugin_manager: plugin_manager.clone(),
         mcp_manager: mcp_manager.clone(),
         admin_api_key: std::sync::RwLock::new(config.admin_api_key.clone()),
+        admin_key_from_env: AtomicBool::new(crate::apikey::env_key_at_boot()),
         config: config.clone(),
         data_dir: data_dir.clone(),
         event_history: event_history.clone(),

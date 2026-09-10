@@ -9,6 +9,56 @@
 //! `docs/ONBOARDING_MODERNIZATION_DESIGN.md` §2.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+
+/// Whether `CLOTO_API_KEY` was already in the process environment when the
+/// entry point started, i.e. *before* any `.env` was loaded.
+///
+/// This has to be sampled at the entry point because it cannot be recovered
+/// afterwards: `dotenvy` leaves a pre-existing variable alone, so once the
+/// load has run, a key that came from the environment and a key that came
+/// from the `.env` look identical. Unset means nobody sampled it (a CLI
+/// subcommand, a test); that reads as `false`, which is the behaviour that
+/// predates this snapshot.
+static ENV_KEY_AT_BOOT: OnceLock<bool> = OnceLock::new();
+
+/// Record whether the environment already carries the admin key. Every entry
+/// point that loads a `.env` MUST call this immediately before the load.
+pub fn note_env_key_before_dotenv() {
+    let present = std::env::var("CLOTO_API_KEY").is_ok_and(|v| !v.trim().is_empty());
+    let _ = ENV_KEY_AT_BOOT.set(present);
+}
+
+/// Whether the admin key this process runs with came from the environment
+/// its parent handed it (systemd `EnvironmentFile`, a container env, a shell
+/// export) rather than from a file this process controls.
+#[must_use]
+pub fn env_key_at_boot() -> bool {
+    *ENV_KEY_AT_BOOT.get().unwrap_or(&false)
+}
+
+/// What a rotation has to say when the environment supplies the key.
+///
+/// `None` when the key this process booted with did not come from the
+/// environment — then the file written by [`persist_key`] is also the file
+/// the next boot reads, and the rotation is durable. `Some(_)` when it did:
+/// the new key is live now, but the environment wins again at the next
+/// start, so the write is not the whole job. Nothing else in the system can
+/// notice this — the write succeeds, the process keeps serving, and only a
+/// restart shows the old key coming back.
+#[must_use]
+pub fn rotation_persistence_note(env_key_at_boot: bool, target: &Path) -> Option<String> {
+    if !env_key_at_boot {
+        return None;
+    }
+    Some(format!(
+        "This kernel received CLOTO_API_KEY from its process environment, which takes \
+         precedence over {}. The new key is active now, but a restart loads the environment's \
+         key again and this one stops working. Update the environment source as well (for a \
+         systemd unit, the EnvironmentFile it reads).",
+        target.display()
+    ))
+}
 
 /// Generate a cryptographically random API key (64 hex chars).
 #[must_use]
@@ -124,6 +174,25 @@ pub fn ensure_persistent_key() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_rotation_note_absent_when_key_is_not_from_the_environment() {
+        assert!(rotation_persistence_note(false, Path::new("/etc/x/.env")).is_none());
+    }
+
+    #[test]
+    fn test_rotation_note_names_the_shadowed_file_and_the_restart() {
+        let note = rotation_persistence_note(true, Path::new("/var/lib/clotocore/.env"))
+            .expect("a key from the environment must carry a note");
+        assert!(
+            note.contains("/var/lib/clotocore/.env"),
+            "the note must name the file that was written: {note}"
+        );
+        assert!(
+            note.contains("restart"),
+            "the note must say what makes the new key stop working: {note}"
+        );
+    }
 
     #[test]
     fn test_generate_is_64_hex() {

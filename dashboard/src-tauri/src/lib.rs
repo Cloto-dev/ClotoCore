@@ -832,6 +832,10 @@ pub fn run() {
 
             // --- Launch the Cloto Kernel Server ---
             // Load .env before spawn so we can inspect CLOTO_API_KEY synchronously.
+            // Sample the environment first — see `apikey::note_env_key_before_dotenv`:
+            // once the load has run, a key from the environment and a key from the
+            // file are indistinguishable, and a rotation needs to tell them apart.
+            cloto_core::apikey::note_env_key_before_dotenv();
             dotenvy::dotenv().ok();
             // Desktop installs have no cwd `.env` — the persistent admin key
             // lives in the user-data dir (docs/ONBOARDING_MODERNIZATION_DESIGN.md §2).

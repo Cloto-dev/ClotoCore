@@ -1290,11 +1290,30 @@ pub async fn regenerate_api_key(
         "🔑 Admin API key regenerated (persisted to {}) — the previous key is no longer valid",
         target.display()
     );
+
+    // A write that succeeds is not the same as a key that survives a restart.
+    // When the environment supplied the key, it wins over the file again at
+    // the next boot, and nothing else in the system reports that: the write
+    // returns Ok, the process keeps serving, and the old key silently comes
+    // back. Say it here, in the response and in the log.
+    let note = crate::apikey::rotation_persistence_note(
+        state
+            .admin_key_from_env
+            .load(std::sync::atomic::Ordering::Relaxed),
+        &target,
+    );
+    if let Some(note) = &note {
+        tracing::warn!("🔑 {note}");
+    }
+
     spawn_admin_audit(
         state.pool.clone(),
         "api_key_regenerated",
         "system".to_string(),
-        format!("persisted to {}", target.display()),
+        match &note {
+            Some(note) => format!("persisted to {} — {note}", target.display()),
+            None => format!("persisted to {}", target.display()),
+        },
         None,
         None,
         None,
@@ -1303,6 +1322,8 @@ pub async fn regenerate_api_key(
     ok_data(serde_json::json!({
         "api_key": new_key,
         "persisted_to": target.display().to_string(),
+        "survives_restart": note.is_none(),
+        "warning": note,
     }))
 }
 
@@ -1312,8 +1333,15 @@ mod tests {
     use crate::test_utils::create_test_app_state;
     use axum::http::HeaderValue;
 
+    /// `CLOTO_ENV_PATH` is process-global, so the tests that steer the key's
+    /// persistence target have to take turns: without this each one can be
+    /// reading its own tempdir while another has already pointed the variable
+    /// somewhere else.
+    static ENV_PATH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
     #[tokio::test]
     async fn test_regenerate_api_key_rotates_live_key() {
+        let _guard = ENV_PATH_LOCK.lock().await;
         let dir = tempfile::tempdir().unwrap();
         let env_path = dir.path().join(".env");
         std::env::set_var("CLOTO_ENV_PATH", &env_path);
@@ -1337,6 +1365,70 @@ mod tests {
         // Persisted to the CLOTO_ENV_PATH-overridden target.
         let content = std::fs::read_to_string(&env_path).unwrap();
         assert!(content.contains(&format!("CLOTO_API_KEY={new_key}")));
+
+        std::env::remove_var("CLOTO_ENV_PATH");
+    }
+
+    /// A rotation on a deployment whose key comes from the process
+    /// environment (systemd `EnvironmentFile`, container env) writes a file
+    /// the next boot does not read. The response is the only place that can
+    /// say so — the write succeeded and the process keeps serving, so every
+    /// other signal reads as healthy until a restart brings the old key back.
+    #[tokio::test]
+    async fn test_regenerate_api_key_reports_a_write_the_next_boot_will_not_read() {
+        let _guard = ENV_PATH_LOCK.lock().await;
+        let dir = tempfile::tempdir().unwrap();
+        let env_path = dir.path().join(".env");
+        std::env::set_var("CLOTO_ENV_PATH", &env_path);
+
+        let state = create_test_app_state(Some("env-key".to_string())).await;
+        state
+            .admin_key_from_env
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", HeaderValue::from_static("env-key"));
+
+        let Ok(resp) = regenerate_api_key(State(state.clone()), headers).await else {
+            panic!("regenerate_api_key failed")
+        };
+        let data = &resp.0["data"];
+
+        assert_eq!(
+            data["survives_restart"],
+            serde_json::Value::Bool(false),
+            "a key supplied by the environment does not survive a restart: {data}"
+        );
+        let warning = data["warning"]
+            .as_str()
+            .expect("the response must carry the warning, not just the log");
+        let persisted_to = data["persisted_to"].as_str().unwrap();
+        assert!(
+            warning.contains(persisted_to),
+            "the warning must name the file that was written ({persisted_to}): {warning}"
+        );
+
+        std::env::remove_var("CLOTO_ENV_PATH");
+    }
+
+    /// The mirror case: when the key did not come from the environment the
+    /// write is durable, and the response must not cry wolf.
+    #[tokio::test]
+    async fn test_regenerate_api_key_is_silent_when_the_write_is_the_read() {
+        let _guard = ENV_PATH_LOCK.lock().await;
+        let dir = tempfile::tempdir().unwrap();
+        let env_path = dir.path().join(".env");
+        std::env::set_var("CLOTO_ENV_PATH", &env_path);
+
+        let state = create_test_app_state(Some("file-key".to_string())).await;
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", HeaderValue::from_static("file-key"));
+
+        let Ok(resp) = regenerate_api_key(State(state.clone()), headers).await else {
+            panic!("regenerate_api_key failed")
+        };
+        let data = &resp.0["data"];
+        assert_eq!(data["survives_restart"], serde_json::Value::Bool(true));
+        assert!(data["warning"].is_null(), "unexpected warning: {data}");
 
         std::env::remove_var("CLOTO_ENV_PATH");
     }

@@ -46,6 +46,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         agent_manager,
         plugin_manager,
         mcp_manager,
+        admin_key_from_env: std::sync::atomic::AtomicBool::new(false),
         config,
         // Seeded from the config the same way the real boot path does
         // (`lib.rs`), so a bench authenticates with the key it just set.

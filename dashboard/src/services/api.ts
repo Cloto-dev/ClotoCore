@@ -401,7 +401,12 @@ export const api = {
     mutate('/system/invalidate-key', 'POST', 'invalidate API key', undefined, { 'X-API-Key': apiKey })
       .then((r) => r.json())
       .then((b) => b.data),
-  regenerateApiKey: (apiKey: string): Promise<{ api_key: string; persisted_to: string }> =>
+  regenerateApiKey: (
+    apiKey: string,
+    // `survives_restart` is false when the kernel was handed its key by the
+    // environment: the write succeeded, but the next boot reads the
+    // environment again. `warning` carries the sentence to show for it.
+  ): Promise<{ api_key: string; persisted_to: string; survives_restart?: boolean; warning?: string | null }> =>
     mutate('/system/regenerate-key', 'POST', 'regenerate API key', undefined, { 'X-API-Key': apiKey })
       .then((r) => r.json())
       .then((b) => b.data),
