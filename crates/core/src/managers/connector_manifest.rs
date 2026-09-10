@@ -1,9 +1,21 @@
 //! What a connector says it is, read from the connector's own manifest.
 //!
 //! A connector ships `cloto-connector.json` declaring a `spec_version` and a
-//! `connector_type`. Today exactly one type exists — `mgp_server`, an MCP/MGP
-//! server the kernel spawns and speaks to — and that is why this module is
-//! being written now rather than when the second one arrives.
+//! `connector_type`. Two exist: `mgp_server`, an MCP/MGP server the kernel
+//! spawns and speaks to, and `ui_module`, which ships panels and nothing the
+//! kernel runs. This module was written while there was only the first, which
+//! is why the second could be added by splitting one question in two rather
+//! than by teaching every caller a new special case.
+//!
+//! # Why the type is not the same question as "does it launch"
+//!
+//! A caller asking about a connector is asking one of two things, and they have
+//! different answers for `ui_module`: *can this kernel make sense of it* (yes —
+//! it knows the shape, it will serve the files) and *does it start a process*
+//! (no — there is nothing to start). Collapsing them would force a choice
+//! between two wrong readings: refuse `ui_module` outright and its panels never
+//! appear, or accept it everywhere and the spawn path treats a connector with no
+//! command as a connector whose command failed.
 //!
 //! # Why read the manifest and not the catalog
 //!
@@ -35,11 +47,22 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-/// Connector types this kernel can actually run.
+/// Connector types this kernel understands well enough to install.
 ///
-/// Adding a value here is a claim that the kernel has a launch path, a
-/// transport, and an enforcement path for it — not just a name it recognises.
-pub const KNOWN_CONNECTOR_TYPES: &[&str] = &["mgp_server"];
+/// Adding a value here is a claim that the kernel knows what the thing is and
+/// what to do with its files — not that it will start a process for it. That
+/// second question is [`LAUNCHABLE_CONNECTOR_TYPES`], and the two are separate
+/// because they have different answers: a `ui_module` is understood completely
+/// and launched never.
+pub const KNOWN_CONNECTOR_TYPES: &[&str] = &["mgp_server", "ui_module"];
+
+/// Connector types the kernel starts a process for.
+///
+/// Adding a value here is the stronger claim the type list used to carry alone:
+/// that the kernel has a launch path, a transport, and an enforcement path for
+/// it. A type that is known but not listed here is installed, its files are
+/// served, and nothing is ever spawned — so it needs none of the three.
+pub const LAUNCHABLE_CONNECTOR_TYPES: &[&str] = &["mgp_server"];
 
 /// What a connector is assumed to be when it does not say.
 ///
@@ -266,6 +289,42 @@ pub fn check_supported(declaration: &Declaration) -> Result<(), String> {
     Ok(())
 }
 
+/// Whether this kernel starts a process for what the connector says it is.
+///
+/// False for a type that is understood but ships no server. Callers that only
+/// need the yes/no — the install path deciding whether to register anything —
+/// read this; the spawn path reads [`check_launchable`], which also says why.
+#[must_use]
+pub fn launches_a_process(declaration: &Declaration) -> bool {
+    LAUNCHABLE_CONNECTOR_TYPES.contains(&declaration.connector_type.as_str())
+}
+
+/// `Ok` when this kernel can start a process for what the connector says it is.
+///
+/// Two failures with deliberately different messages, because they call for
+/// opposite actions from whoever reads them:
+///
+/// * An unsupported type or spec version is [`check_supported`]'s refusal —
+///   the kernel is too old, and a newer one would run this.
+/// * A type this kernel understands and never launches is not a version
+///   problem. No release will start a connector that ships no server, so
+///   saying "a newer ClotoCore is required" would send the reader to look for
+///   an upgrade that does not exist. It means a server row points at something
+///   that was never meant to have one.
+pub fn check_launchable(declaration: &Declaration) -> Result<(), String> {
+    check_supported(declaration)?;
+
+    if !launches_a_process(declaration) {
+        return Err(format!(
+            "connector declares type '{}', which ships no server for this ClotoCore to start \
+             — it contributes files only, and nothing should be registered to launch it",
+            declaration.connector_type
+        ));
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,13 +405,13 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         write_manifest(
             &root.path().join("dash"),
-            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+            r#"{"spec_version":1,"connector_type":"something_newer"}"#,
         );
         let d = read_declaration(root.path(), "dash");
-        assert_eq!(d.connector_type, "ui_module");
+        assert_eq!(d.connector_type, "something_newer");
         let err = check_supported(&d).unwrap_err();
         assert!(
-            err.contains("ui_module"),
+            err.contains("something_newer"),
             "the refusal must name the type: {err}"
         );
     }
@@ -362,11 +421,73 @@ mod tests {
     #[test]
     fn the_refusal_names_the_version_the_operator_has() {
         let d = Declaration {
-            connector_type: "ui_module".into(),
+            connector_type: "something_newer".into(),
             ..Declaration::default()
         };
         let err = check_supported(&d).unwrap_err();
         assert!(err.contains(env!("CARGO_PKG_VERSION")), "got: {err}");
+        assert!(err.contains("newer ClotoCore"), "got: {err}");
+    }
+
+    // ── the two questions the type answers, and where they differ ──
+
+    /// A `ui_module` is installable: its files are served, so refusing it here
+    /// would take the panel away for the only reason it exists.
+    #[test]
+    fn a_ui_module_is_understood() {
+        let root = tempfile::tempdir().unwrap();
+        write_manifest(
+            &root.path().join("cil-console"),
+            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+        );
+        let d = read_declaration(root.path(), "cil-console");
+        assert_eq!(d.connector_type, "ui_module");
+        assert!(check_supported(&d).is_ok());
+    }
+
+    /// And it is never started. Both halves are asserted because a predicate
+    /// that only ever says no is the failure this split was made to avoid.
+    #[test]
+    fn a_ui_module_is_not_launchable_and_an_mgp_server_is() {
+        let ui = Declaration {
+            connector_type: "ui_module".into(),
+            ..Declaration::default()
+        };
+        assert!(!launches_a_process(&ui));
+        assert!(check_launchable(&ui).is_err());
+
+        let server = Declaration::default();
+        assert!(launches_a_process(&server));
+        assert!(check_launchable(&server).is_ok());
+    }
+
+    /// The refusal must not send the reader looking for an upgrade. No release
+    /// starts a connector that ships no server, so "a newer ClotoCore is
+    /// required" would be a false lead — the two refusals read differently
+    /// because they call for different actions.
+    #[test]
+    fn the_unlaunchable_refusal_does_not_blame_the_version() {
+        let ui = Declaration {
+            connector_type: "ui_module".into(),
+            ..Declaration::default()
+        };
+        let err = check_launchable(&ui).unwrap_err();
+        assert!(err.contains("ui_module"), "must name the type: {err}");
+        assert!(
+            !err.contains("newer ClotoCore"),
+            "an upgrade will not make this launch: {err}"
+        );
+    }
+
+    /// An unknown type still fails `check_launchable`, and with the version
+    /// message: the stricter check must not swallow the weaker one's reason.
+    #[test]
+    fn check_launchable_still_reports_an_unknown_type_as_a_version_problem() {
+        let d = Declaration {
+            connector_type: "something_newer".into(),
+            ..Declaration::default()
+        };
+        let err = check_launchable(&d).unwrap_err();
         assert!(err.contains("newer ClotoCore"), "got: {err}");
     }
 
@@ -387,5 +508,18 @@ mod tests {
     fn the_type_that_exists_today_is_accepted() {
         assert!(check_supported(&Declaration::default()).is_ok());
         assert!(KNOWN_CONNECTOR_TYPES.contains(&DEFAULT_CONNECTOR_TYPE));
+    }
+
+    /// A launchable type that the installer would refuse to install is a
+    /// contradiction no caller could act on, and a typo in one list is exactly
+    /// how it would arrive.
+    #[test]
+    fn every_launchable_type_is_also_a_known_one() {
+        for t in LAUNCHABLE_CONNECTOR_TYPES {
+            assert!(
+                KNOWN_CONNECTOR_TYPES.contains(t),
+                "{t} is launchable but not known"
+            );
+        }
     }
 }
