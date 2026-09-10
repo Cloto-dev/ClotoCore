@@ -4,14 +4,9 @@ import { useTranslation } from 'react-i18next';
 import { useUserIdentity } from '../../contexts/UserIdentityContext';
 import { useApi } from '../../hooks/useApi';
 import { useTheme } from '../../hooks/useTheme';
-import { exportLanguageTemplate, getCustomLanguages, importLanguagePack } from '../../i18n';
+import { BUILTIN_LANGUAGES, exportLanguageTemplate, getCustomLanguages, importLanguagePack } from '../../i18n';
 import { getLanguagesDir, isTauri, openFileDialog, readTextFile } from '../../lib/tauri';
 import { SectionCard } from './common';
-
-const BUILTIN_LANGUAGES = [
-  { code: 'en', label: 'English' },
-  { code: 'ja', label: '日本語' },
-];
 
 export function GeneralSection() {
   const api = useApi();

@@ -24,15 +24,10 @@ import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApi } from '../hooks/useApi';
 import { useHubPresets } from '../hooks/useHubPresets';
 import { useTheme } from '../hooks/useTheme';
-import { getCustomLanguages } from '../i18n';
+import { BUILTIN_LANGUAGES, getCustomLanguages } from '../i18n';
 import { getAutoApiKey } from '../lib/tauri';
 import { createAuthenticatedApi } from '../services/api';
 import { ViewHeader } from './ViewHeader';
-
-const BUILTIN_LANGUAGES = [
-  { code: 'en', label: 'English' },
-  { code: 'ja', label: '日本語' },
-];
 
 const TOTAL_STEPS = 8;
 

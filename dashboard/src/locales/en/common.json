@@ -39,7 +39,6 @@
       "Verifying system integrity..."
     ]
   },
-  "browser_banner": "Browser access is deprecated. Please use the <1>Cloto desktop app</1> for the full experience.",
   "update_available_banner": "ClotoCore {{version}} is available — open Settings → About to update.",
   "help": {
     "title": "Help",

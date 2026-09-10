@@ -42,7 +42,6 @@
         "システム整合性を検証中..."
       ]
     },
-    "browser_banner": "ブラウザアクセスは非推奨です。<1>Cloto デスクトップアプリ</1>をご利用ください。",
     "update_available_banner": "ClotoCore {{version}} が利用可能です — 設定 → 情報 から更新できます。",
     "help": {
       "title": "ヘルプ",

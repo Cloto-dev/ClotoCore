@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """Gate the bundled language packs against the English locale they translate.
 
-Why this exists: the dashboard bundles English only (`dashboard/src/i18n.ts`)
-and ships every other language as an external pack written out by
-`install_default_packs()` from `dashboard/src-tauri/resources/*.json`. A key the
-pack never got is not an error at runtime — react-i18next silently resolves it
-through `fallbackLng: 'en'`. Component tests assert against the English bundle,
-so nothing in CI sees it either. The defect only surfaces by rendering the real
-GUI in that locale.
+Why this exists: a key the pack never got is not an error at runtime —
+react-i18next silently resolves it through `fallbackLng: 'en'`. Component tests
+assert against the English bundle, so nothing in CI sees it either. The defect
+only surfaces by rendering the real GUI in that locale.
+
+The packs under `dashboard/src/locales/packs/` are bundled by `i18n.ts` and are
+also what `install_default_packs()` writes to disk for hand-editing, so one file
+serves both. They used to live under `dashboard/src-tauri/`, where the web build
+could not reach them: the picker offered Japanese, the resources arrived only
+through a Tauri filesystem call, and every browser session fell back to English
+with nothing reporting it.
 
 It did surface, exactly that way: the 2026-07-27 opverify apex run found the
 Danger Zone — the most destructive screen in the app — rendering wholly in
@@ -48,13 +52,13 @@ import tempfile
 from pathlib import Path
 
 EN_DIR = Path("dashboard/src/locales/en")
-PACK_DIR = Path("dashboard/src-tauri/resources")
+PACK_DIR = Path("dashboard/src/locales/packs")
 I18N_TS = Path("dashboard/src/i18n.ts")
 
 # i18next CLDR plural suffixes. `other` is the form every language has.
 PLURAL_SUFFIXES = ("zero", "one", "two", "few", "many", "other")
 PLACEHOLDER_RE = re.compile(r"\{\{\s*([^{},\s]+)")
-NAMESPACES_RE = re.compile(r"const NAMESPACES = \[(.*?)\]", re.DOTALL)
+NAMESPACES_RE = re.compile(r"(?:export\s+)?const NAMESPACES = \[(.*?)\]", re.DOTALL)
 PACK_META_KEYS = ("code", "label")
 
 

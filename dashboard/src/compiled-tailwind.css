@@ -1915,11 +1915,6 @@ video {
   border-color: rgb(245 158 11 / 0.4);
 }
 
-.border-amber-700 {
-  --tw-border-opacity: 1;
-  border-color: rgb(180 83 9 / var(--tw-border-opacity, 1));
-}
-
 .border-brand {
   --tw-border-opacity: 1;
   border-color: rgb(var(--brand-primary) / var(--tw-border-opacity, 1));
@@ -2085,10 +2080,6 @@ video {
 
 .bg-amber-500\/5 {
   background-color: rgb(245 158 11 / 0.05);
-}
-
-.bg-amber-900\/80 {
-  background-color: rgb(120 53 15 / 0.8);
 }
 
 .bg-black\/10 {
@@ -2732,11 +2723,6 @@ video {
 .text-\[\#5865F2\] {
   --tw-text-opacity: 1;
   color: rgb(88 101 242 / var(--tw-text-opacity, 1));
-}
-
-.text-amber-200 {
-  --tw-text-opacity: 1;
-  color: rgb(253 230 138 / var(--tw-text-opacity, 1));
 }
 
 .text-amber-400 {
