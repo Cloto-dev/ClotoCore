@@ -1257,9 +1257,15 @@ impl McpClientManager {
         // manifests, which is every connector shipping today — see
         // `connector_manifest` for why an unknown type is refused rather than
         // downgraded.
+        //
+        // The question here is "does this launch", not "is this understood":
+        // a `ui_module` is understood and has no server, so reaching this point
+        // means a row exists for something that was never meant to have one.
+        // `check_launchable` says that in its own words rather than blaming the
+        // kernel's version.
         if let Some(servers_root) = self.servers_root() {
             let declaration = super::connector_manifest::read_declaration(&servers_root, &id);
-            if let Err(reason) = super::connector_manifest::check_supported(&declaration) {
+            if let Err(reason) = super::connector_manifest::check_launchable(&declaration) {
                 warn!(id = %id, "refusing to start connector: {reason}");
                 return Err(anyhow::anyhow!("MCP server '{id}': {reason}"));
             }
@@ -4499,7 +4505,7 @@ mod tests {
         write_manifest(
             root.path(),
             "dash",
-            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+            r#"{"spec_version":1,"connector_type":"something_newer"}"#,
         );
         let manager = manager_rooted_at(root.path()).await;
 
@@ -4510,12 +4516,46 @@ mod tests {
 
         let text = err.to_string();
         assert!(
-            text.contains("ui_module"),
+            text.contains("something_newer"),
             "the refusal must name the type: {text}"
         );
         assert!(
             text.contains("newer ClotoCore"),
             "and must say what would run it: {text}"
+        );
+    }
+
+    /// A `ui_module` installs fine and is still never spawned. Without this the
+    /// only thing stopping it would be that no row points at one — a property
+    /// of today's install path rather than of the spawn path, and the wrong
+    /// place for the guarantee to live.
+    #[tokio::test]
+    async fn a_connector_that_ships_no_server_is_not_started() {
+        let root = tempfile::tempdir().unwrap();
+        write_manifest(
+            root.path(),
+            "cil-console",
+            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+        );
+        let manager = manager_rooted_at(root.path()).await;
+
+        let text = manager
+            .connect_server(stdio_config("cil-console"))
+            .await
+            .expect_err("a connector with no server must not be started")
+            .to_string();
+
+        assert!(
+            text.contains("ui_module"),
+            "the refusal must name the type: {text}"
+        );
+        assert!(
+            text.contains("ships no server"),
+            "and must say what is actually wrong: {text}"
+        );
+        assert!(
+            !text.contains("newer ClotoCore"),
+            "no release will start this, so an upgrade is a false lead: {text}"
         );
     }
 

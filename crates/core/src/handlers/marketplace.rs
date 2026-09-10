@@ -397,6 +397,14 @@ struct InstallState<'a> {
     claimed: Option<&'a crate::db::mcp::InstallRow>,
     named: Option<&'a crate::db::mcp::InstallRow>,
     has_files: bool,
+    /// The files on disk declare a type this kernel never launches, so no
+    /// `mcp_servers` row will ever exist for this entry.
+    ///
+    /// Without it every row-based question answers "not installed" for a
+    /// connector that ships only panels, and [`Self::keys_disagree`] — the
+    /// probe built to catch exactly that shape of fault — would fire on every
+    /// healthy install of one.
+    registers_no_server: bool,
 }
 
 impl<'a> InstallState<'a> {
@@ -405,13 +413,26 @@ impl<'a> InstallState<'a> {
         entry: &RegistryEntry,
         servers_root: &std::path::Path,
     ) -> Self {
+        // `effective_install_dir` mirrors the install path's fallback, so the
+        // probe targets the directory the installer actually wrote to even when
+        // `entry.directory` is empty.
+        let install_dir = effective_install_dir(entry);
+        let has_files = servers_root.join(install_dir).is_dir();
         Self {
             claimed: row_claiming(rows, &entry.id),
             named: row_named(rows, &entry.id),
-            // `effective_install_dir` mirrors the install path's fallback, so
-            // the probe targets the directory the installer actually wrote to
-            // even when `entry.directory` is empty.
-            has_files: servers_root.join(effective_install_dir(entry)).is_dir(),
+            has_files,
+            // Read from the files, not from the catalog: the catalog shape has
+            // no `connector_type` field, and the manifest is the connector's
+            // own answer. Only meaningful once something is on disk, which is
+            // also the only state in which it changes an answer below.
+            registers_no_server: has_files
+                && !crate::managers::connector_manifest::launches_a_process(
+                    &crate::managers::connector_manifest::read_declaration(
+                        servers_root,
+                        install_dir,
+                    ),
+                ),
         }
     }
 
@@ -434,8 +455,14 @@ impl<'a> InstallState<'a> {
     }
 
     /// Whether a fresh install is refused as "already installed".
+    ///
+    /// A row is the usual record, and for a connector that registers none the
+    /// files are the whole record — so they have to answer here too. Otherwise
+    /// installing a panel connector twice is admitted every time, and the
+    /// second install writes over a directory the first one is still serving
+    /// from.
     fn blocks_a_fresh_install(&self) -> bool {
-        self.named.is_some()
+        self.named.is_some() || self.registers_no_server
     }
 
     /// The row this entry's install is recorded in: the one that claims the
@@ -973,7 +1000,14 @@ pub async fn uninstall_handler(
     let install_rows = crate::db::mcp::get_install_rows(&state.pool)
         .await
         .unwrap_or_default();
-    if row_named(&install_rows, &server_id).is_none() {
+    // A connector that registers no server has no row by design, so warning
+    // about the absence would report every healthy uninstall of one as a
+    // key-drift symptom — and drown the case where the warning means something.
+    let servers_root = state.data_dir.join("mcp-servers");
+    let registers_no_server = !crate::managers::connector_manifest::launches_a_process(
+        &crate::managers::connector_manifest::read_declaration(&servers_root, &server_id),
+    );
+    if row_named(&install_rows, &server_id).is_none() && !registers_no_server {
         warn!(
             server_id = %server_id,
             "uninstall names no installed row — it is already gone, or its row is \
@@ -994,7 +1028,6 @@ pub async fn uninstall_handler(
     // `entry.directory` is empty. The first candidate that exists on disk
     // is the install; a miss across all of them is logged instead of
     // silently orphaning the files (bug-392).
-    let servers_root = state.data_dir.join("mcp-servers");
     let catalog_dir = {
         let cache = state.marketplace_cache.read().await;
         cache.data.as_ref().and_then(|reg| {
@@ -1529,6 +1562,20 @@ async fn build_and_register(
     let is_rust = entry.runtime == "rust";
     let servers_dir = resolve_servers_dir(state);
 
+    // ──── Does this connector have a server at all? ────
+    // Asked from the files, which is the first moment it can be: the catalog
+    // shape carries no `connector_type`, so until the tree is on disk there is
+    // nothing to ask. Asked the same way the spawn path and the panel listing
+    // ask it — servers root plus install directory — so the three cannot drift
+    // into different answers about one connector.
+    let declaration = crate::managers::connector_manifest::read_declaration(
+        &servers_dir,
+        effective_install_dir(entry),
+    );
+    if !crate::managers::connector_manifest::launches_a_process(&declaration) {
+        return finish_static_install(state, entry, &declaration).await;
+    }
+
     // Step 4: Install dependencies / build
     let (command, args) = if is_rust {
         // ── Rust server: cargo build ──
@@ -1761,6 +1808,59 @@ async fn build_and_register(
     };
 
     register_server(state, entry, command, args, env_overrides, auto_start).await
+}
+
+/// Finish an install for a connector that starts no process.
+///
+/// Everything the launchable path does past this point exists to produce a
+/// running server: a toolchain, a build, a command to spawn, an `mcp_servers`
+/// row to spawn it from. None of them has a subject here, and doing them anyway
+/// is the failure this branch was added for — the register path always reaches
+/// `save_mcp_server`, so a panel connector would otherwise leave a row in the
+/// servers tab that can never start.
+///
+/// **No seal is minted, on purpose.** A local seal is the input to exactly one
+/// decision — the trust profile a connector spawns under — and it is recorded on
+/// the row this connector deliberately does not have. Minting one with nowhere
+/// to store it and no reader to check it would be the shape of defect this line
+/// came from: a `connector_type` the kernel held in a real column and read zero
+/// times. Tamper-checking a panel before serving it is a real question, but it
+/// is a question about the panel route, and it needs a place to keep the
+/// expected value before it can be asked.
+///
+/// The footprint receipt is not skipped: `run_install` writes it for any
+/// outcome that reports an install, so the defender's ledger records this
+/// directory exactly as it records every other one.
+async fn finish_static_install(
+    state: &AppState,
+    entry: &RegistryEntry,
+    declaration: &crate::managers::connector_manifest::Declaration,
+) -> anyhow::Result<InstallOutcome> {
+    let tx = &state.setup_progress_tx;
+
+    // The stream is what the dashboard's progress UI follows. A branch that
+    // returned without closing the step would leave the install looking stuck
+    // at the last thing it announced.
+    emit(
+        tx,
+        SetupProgressEvent::StepStart {
+            step: "finalize".into(),
+            description: "Installing files".into(),
+        },
+    );
+    emit(
+        tx,
+        SetupProgressEvent::StepComplete {
+            step: "finalize".into(),
+        },
+    );
+
+    info!(
+        "Marketplace install complete: {} (type '{}' — files installed, no server registered)",
+        entry.id, declaration.connector_type
+    );
+
+    Ok(InstallOutcome::Installed)
 }
 
 /// What the catalog entry's `signature_payload` says about the archive
@@ -4484,6 +4584,112 @@ mod tests {
         // `catalog_offers_an_update` reads as "nothing to do" — the install
         // would sit there and never be offered the update it is due.
         assert_eq!(state.installed_version(), Some("1.0.0"));
+    }
+
+    // ── a connector that registers no server ──
+
+    /// Lay down a connector directory the way an installer leaves it, with the
+    /// manifest it would carry.
+    fn place_connector(servers_root: &std::path::Path, id: &str, manifest: &str) {
+        let dir = servers_root.join(id);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("cloto-connector.json"), manifest).unwrap();
+    }
+
+    /// Files and no row is the *correct* state for a panel connector, so the
+    /// two keys have to reach that answer together. Before this, `has_files`
+    /// answered the catalog while the guard read only rows: the entry showed as
+    /// installed and a second install was admitted straight over it, and
+    /// `keys_disagree` — the probe built to catch exactly that — reported it on
+    /// every healthy install.
+    #[test]
+    fn a_connector_that_registers_no_server_is_installed_on_its_files_alone() {
+        let root = temp_dir("ui-module-state");
+        place_connector(
+            &root,
+            "cil-console",
+            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+        );
+
+        let state = InstallState::resolve(&[], &entry("cil-console", ""), &root);
+
+        assert!(state.shown_as_installed(), "the files are the install");
+        assert!(
+            state.blocks_a_fresh_install(),
+            "a second install would write over the directory the first is served from"
+        );
+        assert!(!state.keys_disagree(), "and the two readers agree");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The other half: for a connector that *does* register one, files without
+    /// a row stay a disagreement. Without this the new branch could widen to
+    /// swallow the fault it was carved out of.
+    #[test]
+    fn files_without_a_row_still_disagree_for_a_connector_that_ships_a_server() {
+        let root = temp_dir("mgp-server-state");
+        place_connector(
+            &root,
+            "websearch",
+            r#"{"spec_version":1,"connector_type":"mgp_server"}"#,
+        );
+
+        let state = InstallState::resolve(&[], &entry("websearch", ""), &root);
+
+        assert!(state.shown_as_installed());
+        assert!(
+            !state.blocks_a_fresh_install(),
+            "a server connector's record is its row"
+        );
+        assert!(state.keys_disagree());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The install itself: files land, and nothing is registered to launch
+    /// them. Asked of the database rather than of the return value, because
+    /// the fault this branch prevents is a row in the servers tab that can
+    /// never start — and only the database can say whether one is there.
+    #[tokio::test]
+    async fn installing_a_connector_that_ships_no_server_registers_no_server() {
+        let data_dir = temp_dir("ui-module-install");
+        let state = crate::test_utils::create_test_app_state_in(data_dir.clone(), None).await;
+
+        let servers_dir = resolve_servers_dir(&state);
+        place_connector(
+            &servers_dir,
+            "cil-console",
+            r#"{"spec_version":1,"connector_type":"ui_module","ui":{"panels":[{"id":"console","name":"Console"}]}}"#,
+        );
+        let server_path = servers_dir.join("cil-console");
+
+        let outcome = build_and_register(
+            &state,
+            &entry("cil-console", "cil-console"),
+            &server_path,
+            false,
+            HashMap::new(),
+            true,
+        )
+        .await
+        .expect("installing files should not error");
+
+        assert!(matches!(outcome, InstallOutcome::Installed));
+
+        // Named, not counted: `init_db` seeds rows of its own, so a total would
+        // be measuring the fixture rather than this install.
+        let rows: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM mcp_servers WHERE name = 'cil-console'")
+                .fetch_one(&state.pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            rows, 0,
+            "a connector with no server must leave no row to start"
+        );
+
+        let _ = std::fs::remove_dir_all(&data_dir);
     }
 
     fn registry_of(ids: &[&str]) -> Registry {
