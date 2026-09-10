@@ -168,19 +168,48 @@ impl Default for Declaration {
 
 /// Where a vendored connector's manifest can be, in the layouts that exist.
 ///
-/// Two are in use on disk at once: the flat one written by earlier installs
+/// Two shapes are on disk at once: the flat one written by earlier installs
 /// (`<root>/<id>/`) and the nested one the current installer produces, which
-/// preserves the source tree's own path (`<root>/<id>/servers/<id>/`). A
-/// reader that knew only the current layout would report "no manifest" for
-/// every connector installed before it changed.
+/// preserves the source tree's own path. A reader that knew only one would
+/// report "no manifest" for every connector in the other.
+///
+/// The nested segment is read from the tree rather than assumed. It used to be
+/// the literal `servers`, which is true of every connector that is a server and
+/// of no other kind — the first connector published from `modules/` installed
+/// its files correctly and then could not be found, because a guess about a
+/// layout is only ever wrong for the kind it was not written for. So the
+/// segment is whatever single directory is actually there, and `servers` keeps
+/// its place only as the one tried first, to hold the precedence that existed.
+///
+/// Bounded on purpose: one `read_dir` of the connector's own directory, one
+/// candidate per entry, sorted so the answer does not depend on the order the
+/// filesystem hands them back.
 fn manifest_paths(servers_root: &Path, server_id: &str) -> Vec<PathBuf> {
+    const MANIFEST: &str = "cloto-connector.json";
     let base = servers_root.join(server_id);
-    vec![
-        base.join("cloto-connector.json"),
-        base.join("servers")
-            .join(server_id)
-            .join("cloto-connector.json"),
-    ]
+    let mut paths = vec![
+        base.join(MANIFEST),
+        base.join("servers").join(server_id).join(MANIFEST),
+    ];
+
+    let Ok(entries) = std::fs::read_dir(&base) else {
+        return paths;
+    };
+    let mut nested: Vec<PathBuf> = entries
+        .flatten()
+        .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()))
+        .map(|e| e.path())
+        .filter(|dir| {
+            // `servers` is already first in the list; a hidden directory is
+            // never a source path (`.venv` lives beside these).
+            dir.file_name()
+                .is_some_and(|n| n != "servers" && !n.to_string_lossy().starts_with('.'))
+        })
+        .map(|dir| dir.join(server_id).join(MANIFEST))
+        .collect();
+    nested.sort();
+    paths.extend(nested);
+    paths
 }
 
 /// Read what `server_id` declares about itself.
@@ -355,6 +384,69 @@ mod tests {
         let d = read_declaration(root.path(), "cpersona");
         assert!(d.declared);
         assert_eq!(d.connector_type, "mgp_server");
+    }
+
+    /// The installer preserves the source tree's own path, and that path is
+    /// `servers/` only for connectors that are servers. The first connector
+    /// published from `modules/` installed its files correctly and was then
+    /// invisible: not classified, not listed, nothing on the screen — because
+    /// the segment was assumed rather than read.
+    #[test]
+    fn a_nested_layout_that_is_not_servers_is_read() {
+        let root = tempfile::tempdir().unwrap();
+        write_manifest(
+            &root
+                .path()
+                .join("published-viewer")
+                .join("modules")
+                .join("published-viewer"),
+            r#"{"spec_version":1,"connector_type":"ui_module","ui":{"panels":[{"id":"console","name":"Console","entry":"index.html"}]}}"#,
+        );
+        let d = read_declaration(root.path(), "published-viewer");
+        assert!(d.declared, "the manifest was not found");
+        assert_eq!(d.connector_type, "ui_module");
+        assert!(!launches_a_process(&d));
+
+        // The listing reads through the same paths, so a connector the install
+        // path can classify is one the dashboard can show — the two failing
+        // apart is what makes a connector look installed and absent at once.
+        let panels = read_panels(root.path(), "published-viewer").expect("panels");
+        assert_eq!(panels.panels.len(), 1);
+        assert_eq!(panels.panels[0].id, "console");
+    }
+
+    /// Adding layouts must not move an answer that already existed: `servers`
+    /// keeps its precedence over any other segment.
+    #[test]
+    fn servers_still_wins_over_another_nested_segment() {
+        let root = tempfile::tempdir().unwrap();
+        let base = root.path().join("demo");
+        write_manifest(
+            &base.join("servers").join("demo"),
+            r#"{"spec_version":1,"connector_type":"mgp_server"}"#,
+        );
+        write_manifest(
+            &base.join("modules").join("demo"),
+            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+        );
+        assert_eq!(
+            read_declaration(root.path(), "demo").connector_type,
+            "mgp_server"
+        );
+    }
+
+    /// A hidden directory is never a source path — `.venv` sits beside these.
+    #[test]
+    fn a_hidden_directory_is_not_searched() {
+        let root = tempfile::tempdir().unwrap();
+        write_manifest(
+            &root.path().join("demo").join(".venv").join("demo"),
+            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+        );
+        assert!(
+            !read_declaration(root.path(), "demo").declared,
+            "a manifest under a hidden directory was read"
+        );
     }
 
     /// Both layouts exist on disk at once — the flat one from earlier installs
