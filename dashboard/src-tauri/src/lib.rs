@@ -398,7 +398,7 @@ fn remove_language_pack(filename: String) -> Result<(), String> {
 /// - If `ja.json` or snapshot doesn't exist → fresh install → write both
 ///
 /// Returns the number of packs installed or updated.
-const DEFAULT_JA_PACK: &str = include_str!("../resources/ja.json");
+const DEFAULT_JA_PACK: &str = include_str!("../../src/locales/packs/ja.json");
 #[tauri::command]
 fn install_default_packs() -> Result<u32, String> {
     let dir = get_languages_dir_path()?;

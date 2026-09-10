@@ -31,15 +31,6 @@ const VrmViewerPage = lazy(() => import('./vrm/VrmViewerPage').then((m) => ({ de
 function App() {
   const [setupDone, setSetupDone] = useState(() => localStorage.getItem('cloto-setup-completed') === '1');
 
-  const [bannerDismissed, setBannerDismissed] = useState(
-    () => sessionStorage.getItem('cloto-browser-banner-dismissed') === '1',
-  );
-
-  const dismissBanner = () => {
-    sessionStorage.setItem('cloto-browser-banner-dismissed', '1');
-    setBannerDismissed(true);
-  };
-
   const { connected } = useConnection();
   const { t } = useTranslation();
 
@@ -150,18 +141,6 @@ function App() {
   return (
     <AgentProvider>
       <Router>
-        {!isTauri && !bannerDismissed && (
-          <div className="bg-amber-900/80 border-b border-amber-700 px-4 py-2 flex items-center justify-between font-mono text-xs text-amber-200">
-            <span>
-              {t('browser_banner', {
-                defaultValue: 'Browser access is deprecated. Please use the Cloto desktop app for the full experience.',
-              })}
-            </span>
-            <button onClick={dismissBanner} className="ml-4 text-amber-400 hover:text-white" aria-label="Dismiss">
-              ✕
-            </button>
-          </div>
-        )}
         <Routes>
           <Route
             path="/vrm-viewer/:agentId"

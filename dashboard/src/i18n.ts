@@ -7,9 +7,18 @@ import {
   saveLanguagePack as savePack,
   scanLanguagesDir,
 } from './lib/tauri';
+// Bundled languages. BUILTIN_LANGUAGES offers these in the picker, so their
+// resources have to ship in the bundle: the external-pack loader below reads the
+// filesystem through Tauri and returns nothing at all in a browser, so a language
+// that is only a pack on disk is offered and then falls back to English on every
+// session reached over HTTP, silently — react-i18next resolves the missing keys
+// through fallbackLng rather than failing.
+//
+// English is authored per namespace; ja is the same single pack file that
+// install_default_packs() writes to disk for hand-editing, so there is one copy
+// of the translations and check-language-packs.py gates it.
 import en_actions from './locales/en/actions.json';
 import en_agents from './locales/en/agents.json';
-// Bundled: English only
 import en_common from './locales/en/common.json';
 import en_cron from './locales/en/cron.json';
 import en_mcp from './locales/en/mcp.json';
@@ -18,8 +27,16 @@ import en_nav from './locales/en/nav.json';
 import en_settings from './locales/en/settings.json';
 import en_setup from './locales/en/setup.json';
 import en_wizard from './locales/en/wizard.json';
+import ja_pack from './locales/packs/ja.json';
 
-const NAMESPACES = [
+/**
+ * Every namespace the app registers. Exported because the tests need the same
+ * list, and `i18n.options.ns` is not it: `ns` is never configured here, so
+ * i18next reports its own default (`['translation']`) and a test that trusted it
+ * would check a namespace nothing uses. `check-language-packs.py` parses this
+ * array out of the source for the same reason.
+ */
+export const NAMESPACES = [
   'common',
   'agents',
   'settings',
@@ -31,6 +48,27 @@ const NAMESPACES = [
   'setup',
   'actions',
 ] as const;
+
+// Built from NAMESPACES rather than listed by hand: a namespace added to the
+// English side and forgotten here would not fail anything, it would just render
+// in English for Japanese users. Indexing the pack by the same array makes the
+// omission a type error instead.
+const ja_bundle = Object.fromEntries(NAMESPACES.map((ns) => [ns, ja_pack[ns]]));
+
+/**
+ * The languages the picker offers unconditionally, because their resources are
+ * in the bundle rather than on disk.
+ *
+ * Read off the pack itself. A hand-written list is what broke Japanese over
+ * HTTP: the picker named a language whose translations only ever arrived
+ * through a Tauri filesystem call, so choosing it changed the active language
+ * and nothing else. Taking the code and label from the same file that supplies
+ * the resources means the entry cannot exist without them.
+ */
+export const BUILTIN_LANGUAGES: { code: string; label: string }[] = [
+  { code: 'en', label: 'English' },
+  { code: ja_pack.code, label: ja_pack.label },
+];
 
 i18n
   .use(LanguageDetector)
@@ -49,6 +87,7 @@ i18n
         setup: en_setup,
         actions: en_actions,
       },
+      ja: ja_bundle,
     },
     fallbackLng: 'en',
     defaultNS: 'common',
