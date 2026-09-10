@@ -57,17 +57,65 @@ pub const DEFAULT_CONNECTOR_TYPE: &str = "mgp_server";
 /// happens to understand.
 pub const MAX_SPEC_VERSION: u32 = 1;
 
-/// The connector manifest, reduced to the two fields this check reads.
+/// The connector manifest, reduced to the fields this kernel reads.
 ///
 /// Deliberately not the whole manifest. The kernel does not own that shape —
 /// the hub and the SDK do — and a struct here that mirrored all of it would
-/// have to be kept in step with a repository this one does not build.
+/// have to be kept in step with a repository this one does not build. The
+/// exception is `ui`, which describes something only this kernel acts on: it
+/// serves those files. A field nobody but the reader consumes is one the
+/// reader may as well own.
 #[derive(Debug, Deserialize)]
 struct Manifest {
     #[serde(default = "default_spec_version")]
     spec_version: u32,
     #[serde(default)]
     connector_type: Option<String>,
+    #[serde(default)]
+    ui: Option<UiBlock>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct UiBlock {
+    #[serde(default)]
+    panels: Vec<PanelDeclaration>,
+}
+
+/// One panel a connector ships, as the connector declares it.
+///
+/// Shaped to match `handlers::modules::ModuleManifest`, because a panel is
+/// listed through the same route as a hand-placed module: one contract for the
+/// dashboard, two places a panel can come from. The id here is the panel's own,
+/// scoped to its connector — the id the dashboard sees is built from both.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct PanelDeclaration {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub version: String,
+    #[serde(default = "default_panel_entry")]
+    pub entry: String,
+    #[serde(default)]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub requires: Vec<String>,
+}
+
+fn default_panel_entry() -> String {
+    "index.html".to_string()
+}
+
+/// The panels a connector ships, and the directory they are relative to.
+///
+/// The directory is the one holding the manifest, not the connector's install
+/// root: the two differ in the nested layout, and a panel's `entry` is written
+/// by someone looking at the manifest beside it.
+#[derive(Debug, Clone)]
+pub struct ConnectorPanels {
+    pub root: PathBuf,
+    pub panels: Vec<PanelDeclaration>,
 }
 
 fn default_spec_version() -> u32 {
@@ -121,20 +169,10 @@ fn manifest_paths(servers_root: &Path, server_id: &str) -> Vec<PathBuf> {
 /// what a connector *says*, and these say nothing.
 #[must_use]
 pub fn read_declaration(servers_root: &Path, server_id: &str) -> Declaration {
-    for path in manifest_paths(servers_root, server_id) {
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
+    if let Some((path, text)) = first_readable_manifest(servers_root, server_id) {
         match serde_json::from_str::<Manifest>(&text) {
             Ok(manifest) => {
-                return Declaration {
-                    spec_version: manifest.spec_version,
-                    connector_type: manifest
-                        .connector_type
-                        .filter(|t| !t.trim().is_empty())
-                        .unwrap_or_else(|| DEFAULT_CONNECTOR_TYPE.to_string()),
-                    declared: true,
-                };
+                return declaration_of(&manifest);
             }
             Err(e) => {
                 // Read but not understood. Still the defaults: a malformed
@@ -151,6 +189,53 @@ pub fn read_declaration(servers_root: &Path, server_id: &str) -> Declaration {
         }
     }
     Declaration::default()
+}
+
+/// The first manifest that exists and can be read, as (path, contents).
+///
+/// Which layouts are searched, and why there are two, is [`manifest_paths`].
+fn first_readable_manifest(servers_root: &Path, server_id: &str) -> Option<(PathBuf, String)> {
+    manifest_paths(servers_root, server_id)
+        .into_iter()
+        .find_map(|path| std::fs::read_to_string(&path).ok().map(|text| (path, text)))
+}
+
+fn declaration_of(manifest: &Manifest) -> Declaration {
+    Declaration {
+        spec_version: manifest.spec_version,
+        connector_type: manifest
+            .connector_type
+            .clone()
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_CONNECTOR_TYPE.to_string()),
+        declared: true,
+    }
+}
+
+/// The panels `server_id` ships, or `None` when it ships none this kernel will serve.
+///
+/// `None` covers four different situations on purpose, because the caller does
+/// the same thing in all of them — list nothing for this connector:
+/// no manifest, a manifest that does not parse, a manifest with no `ui` block,
+/// and a manifest declaring something this kernel refuses to run.
+///
+/// That last one is the reason this calls [`check_supported`] itself rather
+/// than leaving it to the caller. A connector whose type or spec version this
+/// kernel rejects is one it will not launch; serving its files anyway would
+/// hand a refused connector a surface in the dashboard, which is the opposite
+/// of what the refusal is for. Leaving the check to the caller would make that
+/// an omission away.
+#[must_use]
+pub fn read_panels(servers_root: &Path, server_id: &str) -> Option<ConnectorPanels> {
+    let (path, text) = first_readable_manifest(servers_root, server_id)?;
+    let manifest = serde_json::from_str::<Manifest>(&text).ok()?;
+    check_supported(&declaration_of(&manifest)).ok()?;
+    let panels = manifest.ui?.panels;
+    if panels.is_empty() {
+        return None;
+    }
+    let root = path.parent()?.to_path_buf();
+    Some(ConnectorPanels { root, panels })
 }
 
 /// `Ok` when this kernel can run what the connector says it is.
