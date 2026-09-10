@@ -473,6 +473,66 @@ fn standalone_archive(server_py: &[u8]) -> Vec<u8> {
 
 // ── happy paths ──────────────────────────────────────────────────────
 
+const PANEL_HTML: &[u8] = b"<!doctype html><title>panel</title>\n";
+const PANEL_MANIFEST: &[u8] = br#"{"spec_version":1,"connector_type":"ui_module","id":"demo","name":"Demo","ui":{"panels":[{"id":"console","name":"Console","entry":"index.html"}]}}"#;
+
+fn panel_archive() -> Vec<u8> {
+    tarball(&[
+        ("demo-1.0.0/cloto-connector.json", PANEL_MANIFEST),
+        ("demo-1.0.0/index.html", PANEL_HTML),
+    ])
+}
+
+/// A connector that ships a face and no server, installed the way every
+/// published connector is: the hub rewrites a git source into a served
+/// archive, so this path is the only one a catalog install takes.
+///
+/// It is also where the type is decided. The catalog entry this test builds
+/// says `runtime: "python"`, exactly as it would for a server — the decision
+/// comes from the manifest in the extracted tree, not from anything the
+/// catalog claims, which is why the catalog being lossy about
+/// `connector_type` costs nothing here.
+#[tokio::test]
+async fn a_connector_that_ships_no_server_installs_its_files_and_registers_nothing() {
+    let _guard = ENV_LOCK.lock().await;
+    let h = Harness::new("panel", false).await;
+    let archive = panel_archive();
+    let url = h.archive_url("panel.tar.gz");
+    let entry = h
+        .hub
+        .entry("demo", "", "1.0.0", PANEL_HTML, &archive, &url, None, &[]);
+    h.serve_archive("panel.tar.gz", archive).await;
+    h.serve_catalog(&[&entry]).await;
+
+    let outcome = h.download_and_materialize(&entry).await.unwrap();
+    assert!(matches!(outcome, InstallOutcome::Installed), "{outcome:?}");
+
+    // No dependency work was attempted. Not "it succeeded" — it was never
+    // reached, which is what stops a missing `pyproject.toml` from being a
+    // failure for a connector that was never going to have one.
+    assert!(
+        uv_calls(&h.uv_log).is_empty(),
+        "uv ran for a connector with nothing to build: {:?}",
+        uv_calls(&h.uv_log)
+    );
+
+    // The files are the whole connector, and they are in place.
+    let install_dir = h.servers_dir().join("demo");
+    assert_eq!(
+        std::fs::read(install_dir.join("index.html")).unwrap(),
+        PANEL_HTML
+    );
+    assert!(install_dir.join("cloto-connector.json").is_file());
+
+    // Nothing is registered: there is no process to start, so a row would
+    // describe a server that does not exist and the spawn path would treat
+    // a connector with no command as one whose command failed.
+    assert!(
+        h.db_row("demo").await.is_none(),
+        "a connector with no server was registered as one"
+    );
+}
+
 #[tokio::test]
 async fn standalone_archive_is_verified_extracted_built_and_registered() {
     let _guard = ENV_LOCK.lock().await;

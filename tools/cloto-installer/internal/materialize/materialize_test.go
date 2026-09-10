@@ -603,6 +603,30 @@ func TestConnectorWithNoServerNamingAMissingFileIsRefused(t *testing.T) {
 	}
 }
 
+// A host that sends no list is an older kernel talking to a newer engine.
+// The fallback has to be the one type that existed before manifests, not
+// "anything launches" — the second reading is the behaviour this whole
+// branch replaced, and it would come back silently the day a kernel forgot
+// to send the field.
+func TestConnectorThatShipsNoServerSkipsTheBuildWhenTheHostSendsNoList(t *testing.T) {
+	h := newHarness(t, false)
+	archive := panelArchive(panelManifest("index.html"))
+	e := h.entry(testhub.EntryOptions{Archive: archive, ServerPy: panelHTML, Runtime: "static"})
+	in := h.input(e, h.stage("demo", archive))
+	in.LaunchableConnectorTypes = nil
+	res := h.run(in)
+
+	if !res.OK || !res.Installed {
+		t.Fatalf("result: %+v", res)
+	}
+	if res.Command != "" {
+		t.Errorf("a connector with no server named a command: %q", res.Command)
+	}
+	if got := testhub.UVCalls(h.uvLog); len(got) != 0 {
+		t.Errorf("uv was invoked when the host sent no launchable list: %v", got)
+	}
+}
+
 // A connector that says nothing is one that predates manifests, and every
 // one of those is a server. The branch must not swallow them: absent has
 // to keep meaning `mgp_server`, or reading the declaration would be a
