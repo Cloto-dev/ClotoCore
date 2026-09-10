@@ -118,6 +118,62 @@ pub async fn publish_state(
     ok_data(serde_json::json!({ "publisher": publisher, "published_at": published_at }))
 }
 
+/// GET /api/published — who has published, and when.
+///
+/// Ids and timestamps only. The documents are deliberately left out, and that
+/// is the whole design of this route: a module that wants one asks for it by
+/// name, so what it reads stays something its manifest declared and an operator
+/// can see. A listing that carried the documents would hand every publisher's
+/// state to anything allowed to call this one path, and the manifest would look
+/// exactly the same as one that reads a single publisher.
+///
+/// It exists because a module cannot otherwise know what to ask for. A viewer
+/// that renders whatever is published has no name to start from — without this
+/// the name has to be written into the module, which is the thing that makes a
+/// general viewer a specific one.
+///
+/// A row that will not parse is skipped with a warning rather than failing the
+/// listing: one bad row is not a reason to tell the operator that nobody is
+/// publishing.
+pub async fn list_published(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let stored = crate::db::SqliteDataStore::new(state.pool.clone())
+        .get_all_json(STORE_ID, "")
+        .await
+        .map_err(AppError::Internal)?;
+
+    let mut publishers: Vec<serde_json::Value> = stored
+        .into_iter()
+        .filter_map(|(publisher, value)| {
+            match serde_json::from_value::<PublishedState>(value) {
+                Ok(record) => Some(serde_json::json!({
+                    "publisher": publisher,
+                    "published_at": record.published_at,
+                })),
+                Err(e) => {
+                    tracing::warn!(
+                        publisher = %publisher,
+                        error = %e,
+                        "stored published document could not be read — leaving it out of the listing"
+                    );
+                    None
+                }
+            }
+        })
+        .collect();
+
+    // Ordered by id so the same kernel gives the same answer twice. The store
+    // makes no promise about row order, and a list that reshuffles between
+    // polls is a list a viewer cannot keep a selection in.
+    publishers.sort_by(|a, b| a["publisher"].as_str().cmp(&b["publisher"].as_str()));
+
+    ok_data(serde_json::json!({ "publishers": publishers }))
+}
+
 /// GET /api/published/{publisher} — read it back.
 ///
 /// A publisher nobody has written to is a 404 rather than an empty document: a
