@@ -74,3 +74,22 @@ fn kernel_boot_carries_the_sample_into_app_state() {
         "run_kernel must seed AppState.admin_key_from_env from the boot sample"
     );
 }
+
+/// The headless boot reads the file the rotation writes.
+///
+/// `apikey::resolve_env_target` falls back to `data_dir/.env` when no other
+/// `.env` exists, so without a matching read a rotation on a headless install
+/// persists into a file the next boot never opens — the same silent loss as
+/// the environment case, reached by a different route. This is a structural
+/// assertion: it pins that the read side exists, which no runtime test in
+/// this crate can observe (the load happens in the binary's entry point,
+/// before anything testable is constructed).
+#[test]
+fn headless_entry_point_reads_the_file_a_rotation_writes() {
+    let main_rs = include_str!("../src/main.rs");
+    assert!(
+        main_rs.contains("dotenvy::from_path(cloto_core::config::data_dir().join(\".env\"))"),
+        "the headless boot must also load data_dir/.env, which is where \
+         apikey::resolve_env_target writes when no other .env exists"
+    );
+}
