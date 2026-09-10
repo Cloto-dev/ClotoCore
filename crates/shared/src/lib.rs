@@ -683,6 +683,28 @@ pub enum ClotoEventData {
         iteration: u8,
         source_message_id: String,
     },
+    /// A reasoning engine reported that it started one of its *own* tools
+    /// mid-run (MGP §12 stream chunk of kind `tool_use`).
+    ///
+    /// Distinct from `ToolInvoked`, which the kernel emits for tools it
+    /// brokered itself and therefore knows the outcome of. These are the
+    /// engine's internal tools: the kernel never sees them run, so there is no
+    /// success flag and no duration to report — only that one started.
+    ///
+    /// Deliberately not folded into `AgentTokenStream`: consumers concatenate
+    /// its `delta` values to rebuild the answer, and a tool name is not part
+    /// of any answer.
+    AgentToolUseStream {
+        agent_id: String,
+        engine_id: String,
+        /// The engine's name for the tool (e.g. "Bash"). Never its arguments.
+        tool_name: String,
+        /// The engine's correlation id for this call, when it gave one.
+        tool_use_id: Option<String>,
+        index: u32,
+        iteration: u8,
+        source_message_id: String,
+    },
     /// An agentic loop completed (all tool calls resolved).
     AgenticLoopCompleted {
         agent_id: String,

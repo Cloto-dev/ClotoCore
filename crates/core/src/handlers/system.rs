@@ -2932,10 +2932,70 @@ impl SystemHandler {
         ))
     }
 
+    /// Map one MGP §12 stream chunk onto the event it publishes.
+    ///
+    /// Its own function rather than an inline block so the rule can be tested at
+    /// all: everything around it in the forwarding loop is channel plumbing that
+    /// needs a live MCP server, and a rule nobody can exercise is a rule nobody
+    /// can check.
+    ///
+    /// `None` means the chunk publishes nothing — an unreadable kind, or a kind
+    /// whose one required field is missing. Dropping is safe by construction: the
+    /// final `CallToolResult` carries the complete answer (MGP §12.5), so a chunk
+    /// this kernel cannot read costs a progress row, never an answer.
+    fn stream_chunk_event(
+        chunk_params: &serde_json::Value,
+        agent_id: &str,
+        engine_id: &str,
+        iteration: u8,
+        source_message_id: &str,
+    ) -> Option<cloto_shared::ClotoEventData> {
+        let index = chunk_params
+            .get("index")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0) as u32;
+        let content = chunk_params.get("content");
+        // A chunk declares its own kind. `text` is the default because it is what
+        // every server sent before any other kind existed.
+        let kind = content
+            .and_then(|c| c.get("type"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("text");
+        let field = |key: &str| -> Option<String> {
+            content
+                .and_then(|c| c.get(key))
+                .and_then(serde_json::Value::as_str)
+                .filter(|s| !s.is_empty())
+                .map(str::to_string)
+        };
+        match kind {
+            "text" => Some(cloto_shared::ClotoEventData::AgentTokenStream {
+                agent_id: agent_id.to_string(),
+                engine_id: engine_id.to_string(),
+                delta: field("text")?,
+                index,
+                iteration,
+                source_message_id: source_message_id.to_string(),
+            }),
+            "tool_use" => Some(cloto_shared::ClotoEventData::AgentToolUseStream {
+                agent_id: agent_id.to_string(),
+                engine_id: engine_id.to_string(),
+                // No name, nothing a reader could show.
+                tool_name: field("name")?,
+                tool_use_id: field("id"),
+                index,
+                iteration,
+                source_message_id: source_message_id.to_string(),
+            }),
+            _ => None,
+        }
+    }
+
     /// Drive a streaming `think_with_tools` call (Phase C).
     ///
-    /// Forwards each received chunk delta as a `ClotoEventData::AgentTokenStream`
-    /// on the kernel event bus, then returns the authoritative final
+    /// Forwards each received chunk on the kernel event bus — text as
+    /// `ClotoEventData::AgentTokenStream`, a tool the engine started as
+    /// `AgentToolUseStream` — then returns the authoritative final
     /// `CallToolResult` (whose content still carries the complete accumulated
     /// text per MGP §12.5). The caller is expected to feed the result through
     /// `parse_mcp_think_result` and `maybe_record_usage` exactly as in the
@@ -2984,7 +3044,7 @@ impl SystemHandler {
             )
             .await?;
 
-        // Fan chunk deltas onto the event bus as `AgentTokenStream`. The
+        // Fan chunks onto the event bus, one event kind per chunk kind. The
         // spawned task owns the receiver and exits naturally when the server
         // drops the stream_collector (bug-351 total / idle timeout, normal
         // completion, or cancel).
@@ -2995,28 +3055,20 @@ impl SystemHandler {
 
         tokio::spawn(async move {
             while let Some(chunk_params) = chunk_rx.recv().await {
-                let index = chunk_params
-                    .get("index")
-                    .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0) as u32;
-                let delta = chunk_params
-                    .get("content")
-                    .and_then(|c| c.get("text"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("");
-                if delta.is_empty() {
+                let Some(ev) = SystemHandler::stream_chunk_event(
+                    &chunk_params,
+                    &agent_id,
+                    &engine_id_owned,
+                    iteration,
+                    &source_message_id,
+                ) else {
                     continue;
-                }
-                let ev =
-                    crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::AgentTokenStream {
-                        agent_id: agent_id.clone(),
-                        engine_id: engine_id_owned.clone(),
-                        delta: delta.to_string(),
-                        index,
-                        iteration,
-                        source_message_id: source_message_id.clone(),
-                    });
-                if event_tx.send(ev).await.is_err() {
+                };
+                if event_tx
+                    .send(crate::EnvelopedEvent::system(ev))
+                    .await
+                    .is_err()
+                {
                     break; // event bus closed / kernel shutting down
                 }
             }
@@ -4025,6 +4077,128 @@ impl SystemHandler {
         if let Err(e) = self.sender.send(envelope).await {
             warn!("⚠️ Failed to emit observability event: {}", e);
         }
+    }
+}
+
+#[cfg(test)]
+mod stream_chunk_event_tests {
+    //! What each MGP §12 chunk kind turns into on the event bus.
+    //!
+    //! The forwarding loop around this needs a live MCP server to exercise, so
+    //! before this was split out the rule had no test at all — including the
+    //! text path, which had shipped uncovered.
+    use super::*;
+    use cloto_shared::ClotoEventData;
+    use serde_json::json;
+
+    fn ev(content: serde_json::Value, index: u64) -> Option<ClotoEventData> {
+        SystemHandler::stream_chunk_event(
+            &json!({"index": index, "content": content}),
+            "a1",
+            "cli-agent",
+            3,
+            "msg-7",
+        )
+    }
+
+    #[test]
+    fn text_becomes_a_token_stream_event() {
+        let Some(ClotoEventData::AgentTokenStream {
+            agent_id,
+            engine_id,
+            delta,
+            index,
+            iteration,
+            source_message_id,
+        }) = ev(json!({"type": "text", "text": "hel"}), 4)
+        else {
+            panic!("expected AgentTokenStream");
+        };
+        assert_eq!(
+            (
+                agent_id.as_str(),
+                engine_id.as_str(),
+                delta.as_str(),
+                index,
+                iteration,
+                source_message_id.as_str()
+            ),
+            ("a1", "cli-agent", "hel", 4, 3, "msg-7")
+        );
+    }
+
+    #[test]
+    fn a_tool_use_becomes_its_own_event_not_answer_text() {
+        // The point of the split: a tool name must never reach a consumer that
+        // concatenates deltas into the reply.
+        let Some(ClotoEventData::AgentToolUseStream {
+            tool_name,
+            tool_use_id,
+            index,
+            ..
+        }) = ev(
+            json!({"type": "tool_use", "name": "Bash", "id": "toolu_9"}),
+            0,
+        )
+        else {
+            panic!("expected AgentToolUseStream");
+        };
+        assert_eq!(tool_name, "Bash");
+        assert_eq!(tool_use_id.as_deref(), Some("toolu_9"));
+        assert_eq!(index, 0);
+    }
+
+    #[test]
+    fn a_tool_use_without_a_correlation_id_still_publishes() {
+        let Some(ClotoEventData::AgentToolUseStream { tool_use_id, .. }) =
+            ev(json!({"type": "tool_use", "name": "Read"}), 1)
+        else {
+            panic!("expected AgentToolUseStream");
+        };
+        assert!(tool_use_id.is_none());
+    }
+
+    #[test]
+    fn a_chunk_missing_the_one_field_its_kind_needs_publishes_nothing() {
+        // An empty string counts as missing: an empty delta appends nothing and
+        // a nameless tool renders as a blank row.
+        assert!(ev(json!({"type": "text"}), 0).is_none());
+        assert!(ev(json!({"type": "text", "text": ""}), 0).is_none());
+        assert!(ev(json!({"type": "tool_use", "id": "toolu_9"}), 0).is_none());
+        assert!(ev(json!({"type": "tool_use", "name": ""}), 0).is_none());
+    }
+
+    #[test]
+    fn an_unknown_kind_is_dropped_rather_than_read_as_text() {
+        // A future kind must not be mistaken for the answer. `text` here is the
+        // trap: reading the field without checking the kind would publish it.
+        assert!(ev(json!({"type": "image", "text": "not the answer"}), 0).is_none());
+    }
+
+    #[test]
+    fn a_chunk_that_does_not_say_its_kind_is_read_as_text() {
+        // Servers predating any second kind send bare {"text": ...}; they must
+        // keep working.
+        let Some(ClotoEventData::AgentTokenStream { delta, .. }) = ev(json!({"text": "hi"}), 0)
+        else {
+            panic!("expected AgentTokenStream");
+        };
+        assert_eq!(delta, "hi");
+    }
+
+    #[test]
+    fn a_missing_index_does_not_drop_the_chunk() {
+        let got = SystemHandler::stream_chunk_event(
+            &json!({"content": {"type": "text", "text": "hi"}}),
+            "a1",
+            "cli-agent",
+            0,
+            "msg-7",
+        );
+        assert!(matches!(
+            got,
+            Some(ClotoEventData::AgentTokenStream { index: 0, .. })
+        ));
     }
 }
 
