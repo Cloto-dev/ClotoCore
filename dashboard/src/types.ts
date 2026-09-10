@@ -57,6 +57,30 @@ export interface AgentTokenStreamData {
   source_message_id: string;
 }
 
+// Payload shape for `ClotoEventData::AgentToolUseStream`: the engine reported
+// that it started one of its *own* tools mid-run.
+//
+// It travels on its own event rather than inside the message content, and that
+// is deliberate — `AgentTokenStream` deltas concatenate into the answer, and a
+// tool name is not part of any answer. Nothing here is persisted with the
+// message: this is live progress, in the same class as the thinking steps
+// driven by `ToolInvoked`, and the run's authoritative content never mentions
+// it.
+//
+// Unlike `ToolInvoked` there is no success flag and no duration. The kernel did
+// not broker these calls and never sees them finish; all it can honestly report
+// is that one started.
+export interface AgentToolUseStreamData {
+  agent_id: string;
+  engine_id: string;
+  tool_name: string;
+  /** The engine's correlation id, when it gave one. */
+  tool_use_id?: string | null;
+  index: number;
+  iteration: number;
+  source_message_id: string;
+}
+
 // Chat persistence types
 export interface ContentBlock {
   type: 'text' | 'image' | 'code' | 'tool_result' | 'file' | 'audio';

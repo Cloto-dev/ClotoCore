@@ -28,6 +28,7 @@ import { EVENTS_URL } from '../services/api';
 import type {
   AgentMetadata,
   AgentTokenStreamData,
+  AgentToolUseStreamData,
   ChatMessage,
   ClotoMessage,
   CommandApprovalRequest,
@@ -130,7 +131,13 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     streaming?: boolean;
   } | null>(null);
   const [thinkingSteps, setThinkingStepsRaw] = useState<
-    Array<{ id: number; status: 'ok' | 'fail' | 'done' | 'thought'; text: string; detail?: string; ts: number }>
+    Array<{
+      id: number;
+      status: 'ok' | 'fail' | 'done' | 'thought' | 'running';
+      text: string;
+      detail?: string;
+      ts: number;
+    }>
   >(() => {
     try {
       const saved = sessionStorage.getItem(`cloto-thinking-${agent.id}`);
@@ -402,6 +409,25 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
               id: thinkingIdRef.current++,
               status: 'thought',
               text: (event.data.content as string).slice(0, 120),
+              ts: Date.now(),
+            },
+          ]);
+        }
+        // MGP §12 streaming chunk of kind `tool_use`: the engine started one
+        // of its own tools. Shown as a thinking step rather than appended to
+        // the reply, because it is not part of what the agent says — the
+        // pending response must still end up equal to the authoritative text.
+        // The dot renders amber-pulsing (the fallback for a status with no
+        // outcome), which is the honest reading: the kernel did not broker
+        // this call and will never learn how it ended.
+        if (event.type === 'AgentToolUseStream' && event.data?.agent_id === agent.id) {
+          const use = event.data as unknown as AgentToolUseStreamData;
+          setThinkingSteps((prev) => [
+            ...prev,
+            {
+              id: thinkingIdRef.current++,
+              status: 'running',
+              text: use.tool_name,
               ts: Date.now(),
             },
           ]);
