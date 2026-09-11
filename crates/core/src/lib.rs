@@ -2119,9 +2119,10 @@ mod server_drain_tests {
     }
 
     /// The deadline is only useful if it lands inside the supervisor's own
-    /// window: the systemd unit in `bin/docs/clotocore-headless-deployment-runbook.md`
-    /// ships `TimeoutStopSec=30`, and a kernel that reports its own overrun is
-    /// the whole point of having a deadline at all.
+    /// window: a service manager stopping this kernel gives it a bounded grace
+    /// period (30s is systemd's default `TimeoutStopSec`, and what the headless
+    /// unit ships), and a kernel that reports its own overrun before that
+    /// expires is the whole point of having a deadline at all.
     #[test]
     fn the_deadline_leaves_the_supervisor_room_to_hear_about_it() {
         assert!(
