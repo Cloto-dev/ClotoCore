@@ -599,6 +599,10 @@ pub async fn sse_handler(
     // Subscribe BEFORE reading history (prevents gap between replay and live)
     let mut rx = state.tx.subscribe();
     let history = state.event_history.clone();
+    // The stream outlives this handler, so it carries its own end condition:
+    // without it the response body never finishes and the HTTP server's
+    // graceful shutdown waits on it forever (`ShutdownSignal::until`).
+    let shutdown = state.shutdown.clone();
 
     let stream = async_stream::stream! {
         yield Ok(Event::default().event("handshake").data("connected"));
@@ -619,7 +623,10 @@ pub async fn sse_handler(
         }
 
         loop {
-            match rx.recv().await {
+            let Some(received) = shutdown.until(rx.recv()).await else {
+                break;
+            };
+            match received {
                 Ok(seq_event) => {
                     if let Ok(json) = serde_json::to_string(&*seq_event.event) {
                         yield Ok(Event::default()

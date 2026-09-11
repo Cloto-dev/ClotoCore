@@ -180,12 +180,17 @@ pub async fn progress_handler(
     State(state): State<Arc<AppState>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let mut rx = state.setup_progress_tx.subscribe();
+    // Ends the body at shutdown; see `ShutdownSignal::until`.
+    let shutdown = state.shutdown.clone();
 
     let stream = async_stream::stream! {
         yield Ok(Event::default().event("handshake").data("connected"));
 
         loop {
-            match rx.recv().await {
+            let Some(received) = shutdown.until(rx.recv()).await else {
+                break;
+            };
+            match received {
                 Ok(evt) => {
                     if let Ok(json) = serde_json::to_string(&evt) {
                         yield Ok(Event::default().event("setup").data(json));
