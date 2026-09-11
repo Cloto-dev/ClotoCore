@@ -121,6 +121,50 @@ describe('NotificationBell', () => {
     expect(panel).not.toBeNull();
   });
 
+  it('renders outside the header it is mounted in', async () => {
+    // Shipped trapped once. The header carries `relative z-10`, which makes it
+    // a stacking context, and `<main>` is a later sibling with the same z-10 —
+    // so everything in the header paints under the page content whatever
+    // z-index it claims, and the panel came out from behind the agent cards.
+    // jsdom cannot see paint order, but it can see the tree: a panel that is
+    // still a descendant of the header is a panel that is still trapped.
+    getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 0 });
+    getNotifications.mockResolvedValue([item({ blocking: false })]);
+
+    const { container } = render(
+      <div data-testid="header" className="relative z-10">
+        <NotificationBell />
+      </div>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
+
+    const panel = (await screen.findAllByTestId('notification-item'))[0].closest('.select-text');
+    expect(panel).not.toBeNull();
+    const header = screen.getByTestId('header');
+    expect(header.contains(panel as Node)).toBe(false);
+    expect(container.contains(panel as Node)).toBe(false);
+    expect(document.body.contains(panel as Node)).toBe(true);
+  });
+
+  it('floats on an opaque surface, not a translucent one', async () => {
+    // Shipped translucent once: the panel used a glass token (60% alpha in
+    // dark) and the agent cards behind it read straight through, so the panel's
+    // own text and the page's text were both legible and neither was readable.
+    // A panel over a static background can be glass; one floating over content
+    // cannot.
+    getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 0 });
+    getNotifications.mockResolvedValue([item({ blocking: false })]);
+
+    render(<NotificationBell />);
+    fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
+
+    const panel = (await screen.findAllByTestId('notification-item'))[0].closest('.select-text');
+    expect(panel).not.toBeNull();
+    const classes = (panel as HTMLElement).className;
+    expect(classes).toContain('bg-surface-primary');
+    expect(classes).not.toMatch(/\bbg-glass\b/);
+  });
+
   it('keeps showing the last known count when a poll fails', async () => {
     getNotificationSummary.mockResolvedValueOnce({ waiting: 2, blocking: 0 });
     render(<NotificationBell />);
