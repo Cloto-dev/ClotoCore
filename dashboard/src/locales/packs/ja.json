@@ -74,7 +74,24 @@
     "diagnostics_copied": "コピーしました",
     "diagnostics_close": "閉じる",
     "diagnostics_masked": "{{n}} 件の秘密情報を伏せ字にしました。",
-    "unknown": "不明"
+    "unknown": "不明",
+    "notifications": {
+      "open": "通知",
+      "title": "通知",
+      "empty": "待っているものはありません",
+      "blocking": "エージェントを止めています",
+      "blocking_count_other": "{{count}} 件がエージェントを止めています",
+      "threshold_label": "カードで割り込む下限",
+      "threshold_high": "大のみ",
+      "threshold_medium": "中以上",
+      "threshold_low": "すべて",
+      "threshold_note": "待っているものは、どれを選んでもすべてここに出ます。",
+      "level_high": "大",
+      "level_medium": "中",
+      "level_low": "小",
+      "will_interrupt": "割り込みます",
+      "mark_read": "既読にする"
+    }
   },
   "agents": {
     "title": "エージェント",

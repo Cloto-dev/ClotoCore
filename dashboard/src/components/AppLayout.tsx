@@ -10,6 +10,7 @@ import { AppSidebar } from './AppSidebar';
 import { FadingGrid } from './FadingGrid';
 import { HelpContent } from './HelpContent';
 import { Modal } from './Modal';
+import { NotificationBell } from './NotificationBell';
 import { SecurityGuard } from './SecurityGuard';
 import { ViewHeader } from './ViewHeader';
 
@@ -84,6 +85,7 @@ export function AppLayout() {
           <ViewHeader
             icon={Cpu}
             title="ClotoCore"
+            afterTitle={<NotificationBell />}
             onHelp={() => setHelpOpen(true)}
             navBack={() => navigate(-1)}
             navForward={() => navigate(1)}

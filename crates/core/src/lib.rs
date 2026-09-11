@@ -1648,6 +1648,21 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )
         // State a publisher outside the kernel keeps here for a module to read.
         // The kernel does not read the document; see handlers::published.
+        // What is waiting for a person: approvals holding an agent, proposals,
+        // and notices. No severity filter on any of these — a threshold decides
+        // whether an item interrupts, never whether it can be found.
+        .route(
+            "/notifications",
+            get(handlers::notifications::list_notifications),
+        )
+        .route(
+            "/notifications/summary",
+            get(handlers::notifications::notification_summary),
+        )
+        .route(
+            "/notifications/{item_id}/read",
+            post(handlers::notifications::mark_notification_read),
+        )
         .route("/published", get(handlers::published::list_published))
         .route(
             "/published/{publisher}",

@@ -176,14 +176,65 @@ async fn handle_yolo_approval(
 }
 
 /// Collect untrusted commands that need approval (not in DB or session trust).
+/// How severe one command the gate is about to ask about is.
+///
+/// **Derived, never declared.** An agent asked to rate its own request rates it
+/// urgent, for the same reason every log line wants to be an error — and the
+/// threshold a reader sets would then protect them from nothing.
+///
+/// What it reads is the classification this gate has already made a few lines
+/// below: the MGP risk level when the server negotiated one, and the MCP
+/// annotations behind `is_tool_destructive` when it did not. Nothing new is
+/// classified here, so there is no second opinion to drift from the first.
+///
+/// The match is exhaustive on purpose. A new risk level has to fail to compile
+/// here rather than land in a default arm, because the default a reader would
+/// silently get is the quiet one.
+fn command_severity(
+    risk: Option<crate::managers::mcp_mgp::RiskLevel>,
+) -> cloto_shared::McpLogLevel {
+    use crate::managers::mcp_mgp::RiskLevel;
+    match risk {
+        Some(RiskLevel::Dangerous) => cloto_shared::McpLogLevel::Error,
+        Some(RiskLevel::Moderate) => cloto_shared::McpLogLevel::Warning,
+        // Safe never reaches the gate; if it somehow did, it is the mild end.
+        Some(RiskLevel::Safe) => cloto_shared::McpLogLevel::Warning,
+        // No classification at all. The gate answers that with the MCP spec's
+        // own default — destructive — and the severity has to agree with it.
+        // Reporting "unknown" as the quiet end is how an unclassified tool slips
+        // under a threshold.
+        None => cloto_shared::McpLogLevel::Error,
+    }
+}
+
+/// The more severe of two derived levels.
+///
+/// Total only over what [`command_severity`] produces, which is two values.
+/// It deliberately does not rank all eight RFC 5424 levels: that order is the
+/// shared enum's meaning, and writing it out here would be the second copy the
+/// reuse exists to avoid. `derivation_stays_within_the_two_levels_the_combiner_knows`
+/// fails if the derivation ever widens past what this can combine.
+fn more_severe(
+    a: cloto_shared::McpLogLevel,
+    b: cloto_shared::McpLogLevel,
+) -> cloto_shared::McpLogLevel {
+    if a == cloto_shared::McpLogLevel::Error || b == cloto_shared::McpLogLevel::Error {
+        cloto_shared::McpLogLevel::Error
+    } else {
+        cloto_shared::McpLogLevel::Warning
+    }
+}
+
 async fn collect_untrusted_commands(
     calls: &[ToolCall],
     agent_id: &str,
     mcp_manager: &Arc<McpClientManager>,
     session_trusted: &SessionTrustedCommands,
     pool: &SqlitePool,
-) -> Vec<serde_json::Value> {
+) -> (Vec<serde_json::Value>, cloto_shared::McpLogLevel) {
     let mut untrusted_cmds: Vec<serde_json::Value> = Vec::new();
+    // Nothing asked about is milder than this; the loop raises it.
+    let mut batch_severity = cloto_shared::McpLogLevel::Warning;
     for call in calls {
         let has_sandbox_validator =
             mcp_manager.get_tool_validator(&call.name).as_deref() == Some("sandbox");
@@ -219,10 +270,13 @@ async fn collect_untrusted_commands(
                     .get(agent_id)
                     .is_some_and(|set| set.contains(call.name.as_str()));
                 if !session_is_trusted {
+                    let severity = command_severity(risk_level);
+                    batch_severity = more_severe(batch_severity, severity);
                     untrusted_cmds.push(serde_json::json!({
                         "call_id": call.id,
                         "command": format!("[destructive] {}", call.name),
                         "command_name": call.name,
+                        "severity": severity,
                     }));
                 }
             }
@@ -240,14 +294,19 @@ async fn collect_untrusted_commands(
             .get(agent_id)
             .is_some_and(|set| set.contains(cmd_name));
         if !db_trusted && !session_is_trusted {
+            // A shell command, which is the one tool class the kernel statically
+            // routes to a sandbox validator. There is no finer grading to read:
+            // arriving here is the evidence that it can touch the machine.
+            batch_severity = more_severe(batch_severity, cloto_shared::McpLogLevel::Error);
             untrusted_cmds.push(serde_json::json!({
                 "call_id": call.id,
                 "command": cmd_str,
                 "command_name": cmd_name,
+                "severity": cloto_shared::McpLogLevel::Error,
             }));
         }
     }
-    untrusted_cmds
+    (untrusted_cmds, batch_severity)
 }
 
 /// Process the user's approval decision and return denied call IDs.
@@ -366,7 +425,7 @@ pub(crate) async fn run_approval_gate(
         return HashSet::new();
     }
 
-    let untrusted_cmds =
+    let (untrusted_cmds, severity) =
         collect_untrusted_commands(calls, agent_id, mcp_manager, session_trusted, pool).await;
 
     if untrusted_cmds.is_empty() {
@@ -384,10 +443,9 @@ pub(crate) async fn run_approval_gate(
     // fills in afterwards is empty for exactly the window where it matters, and
     // writing it first means anyone who reacts to the announcement finds it there.
     //
-    // Severity is Warning because every call that reaches this gate is one the
-    // kernel routes through a sandbox validator — a command that can touch the
-    // machine. Deriving a sharper level from what the command actually does
-    // belongs with the reader-facing threshold, not here.
+    // Severity comes from `command_severity`, which reads the classification
+    // this gate already made rather than asking the agent how urgent it thinks
+    // its own request is.
     let commands_summary = untrusted_cmds
         .iter()
         .filter_map(|cmd| cmd.get("command").and_then(|v| v.as_str()))
@@ -398,7 +456,7 @@ pub(crate) async fn run_approval_gate(
         crate::db::NotificationItem::new(
             approval_id.clone(),
             crate::db::NotificationKind::Approval,
-            cloto_shared::McpLogLevel::Warning,
+            severity,
             format!("{} command(s) awaiting approval", untrusted_cmds.len()),
         )
         .agent(agent_id)
@@ -594,6 +652,75 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn derivation_stays_within_the_two_levels_the_combiner_knows() {
+        use crate::managers::mcp_mgp::RiskLevel;
+        use cloto_shared::McpLogLevel;
+
+        // `more_severe` is total only over what `command_severity` produces. If
+        // the derivation ever widens — a third level, or one of the other five
+        // RFC 5424 values — the combiner starts answering with a level nobody
+        // asked for, and it does so silently. This is the assertion that stops
+        // that from being a quiet change.
+        for risk in [
+            Some(RiskLevel::Safe),
+            Some(RiskLevel::Moderate),
+            Some(RiskLevel::Dangerous),
+            None,
+        ] {
+            let derived = command_severity(risk);
+            assert!(
+                derived == McpLogLevel::Warning || derived == McpLogLevel::Error,
+                "command_severity({risk:?}) produced {derived:?}, which more_severe cannot rank — \
+                 widen the combiner (and think about whether the eight-level order belongs here) \
+                 before widening the derivation"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unclassified_tool_is_not_given_the_quiet_end_of_the_scale() {
+        use crate::managers::mcp_mgp::RiskLevel;
+        use cloto_shared::McpLogLevel;
+
+        // The gate already treats "no classification" as destructive rather than
+        // safe. The severity has to agree: if the unknown case were the mild
+        // level, a reader filtering to the loud one would stop seeing exactly
+        // the tools nothing has vouched for.
+        assert_eq!(command_severity(None), McpLogLevel::Error);
+        assert_eq!(
+            command_severity(Some(RiskLevel::Dangerous)),
+            McpLogLevel::Error
+        );
+        assert_eq!(
+            command_severity(Some(RiskLevel::Moderate)),
+            McpLogLevel::Warning
+        );
+    }
+
+    #[tokio::test]
+    async fn a_shell_command_is_recorded_at_the_loud_end_because_it_reached_the_sandbox() {
+        let mut h = harness().await;
+        let handle = h.spawn_gate(AGENT, vec![shell_call("c1", "rm -rf /tmp/scratch")]);
+        let approval_id = h.next_request().await;
+
+        let item = crate::db::get_notification(&h.pool, &approval_id)
+            .await
+            .expect("store read")
+            .expect("stored");
+        assert_eq!(
+            item.severity,
+            cloto_shared::McpLogLevel::Error,
+            "arriving at a sandbox validator is the evidence that the call can touch the machine"
+        );
+
+        let (_, sender) = h.pending.remove(&approval_id).expect("oneshot registered");
+        sender
+            .send(CommandApprovalDecision::Deny)
+            .expect("listening");
+        handle.await.expect("the gate returns");
     }
 
     #[tokio::test]

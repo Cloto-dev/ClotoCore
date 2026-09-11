@@ -69,5 +69,22 @@
   "diagnostics_copied": "Copied",
   "diagnostics_close": "Close",
   "diagnostics_masked": "{{n}} secret value(s) masked.",
-  "unknown": "unknown"
+  "unknown": "unknown",
+  "notifications": {
+    "open": "Notifications",
+    "title": "Notifications",
+    "empty": "Nothing is waiting",
+    "blocking": "holding an agent",
+    "blocking_count_other": "{{count}} holding an agent",
+    "threshold_label": "Interrupt me with a card at",
+    "threshold_high": "High only",
+    "threshold_medium": "Medium and above",
+    "threshold_low": "Everything",
+    "threshold_note": "Everything waiting is listed here whatever you pick.",
+    "level_high": "High",
+    "level_medium": "Medium",
+    "level_low": "Low",
+    "will_interrupt": "will interrupt",
+    "mark_read": "Mark read"
+  }
 }
