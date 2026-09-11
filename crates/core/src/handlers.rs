@@ -296,6 +296,19 @@ pub async fn shutdown_handler(
         error!("Failed to send shutdown notification event: {}", e);
     }
 
+    // Leave a row behind as well. A shutdown broadcast reaches whoever has the
+    // dashboard open at that second; the reason a kernel is not running is
+    // exactly the thing someone wants to find afterwards.
+    crate::db::spawn_notification(
+        state.pool.clone(),
+        crate::db::NotificationItem::new(
+            format!("kernel-shutdown:{}", chrono::Utc::now().to_rfc3339()),
+            crate::db::NotificationKind::Notice,
+            cloto_shared::McpLogLevel::Notice,
+            "Kernel shutting down for maintenance",
+        ),
+    );
+
     // P9 / bug-305: Drain all MCP servers before shutting down. The drain runs in a
     // bounded task — each server gets 5s, the whole join is capped at 10s — and only
     // after it completes (or times out) do we raise the shutdown signal below, so the

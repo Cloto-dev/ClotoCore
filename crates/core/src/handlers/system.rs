@@ -2679,6 +2679,34 @@ impl SystemHandler {
                             )
                             .await;
 
+                            // The audit log answers "what happened"; the
+                            // inbox answers "is there anything I should look
+                            // at". A rejection nobody can retry is the second
+                            // kind of question. Severity follows `retryable`
+                            // rather than being declared: a call the agent can
+                            // take another run at is not the same news as one
+                            // that is structurally refused.
+                            crate::db::spawn_notification(
+                                self.pool.clone(),
+                                crate::db::NotificationItem::new(
+                                    format!("tool-rejected:{}", call.id),
+                                    crate::db::NotificationKind::Notice,
+                                    if rejection.retryable {
+                                        cloto_shared::McpLogLevel::Warning
+                                    } else {
+                                        cloto_shared::McpLogLevel::Error
+                                    },
+                                    format!("'{}' was rejected", call.name),
+                                )
+                                .agent(agent.id.clone())
+                                .body(rejection.reason.clone())
+                                .metadata(serde_json::json!({
+                                    "tool_name": call.name,
+                                    "call_id": call.id,
+                                    "retryable": rejection.retryable,
+                                })),
+                            );
+
                             crate::db::spawn_audit_log(
                                 self.pool.clone(),
                                 crate::db::AuditLogEntry {
