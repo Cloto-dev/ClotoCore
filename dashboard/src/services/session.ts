@@ -13,6 +13,21 @@
  * in a URL and nothing does. This module is the small amount of state that takes:
  * ask the kernel for one, and know whether it has arrived.
  *
+ * # Two ways to be granted one
+ *
+ * A browser can present the admin key, which is what the settings screen does.
+ * Or it can arrive through Cloudflare Access, which authenticates the person at
+ * the edge and adds a signed assertion to the request on the way through. The
+ * second is the one worth trying first: the browser holds nothing, needs nothing
+ * typed into it, and the assertion is fresh on every request rather than kept in
+ * this tab for the length of it.
+ *
+ * The browser cannot tell which situation it is in — the assertion is added
+ * after it has sent the request, and it could not read the header if it were
+ * there. So it asks, always, and reads the answer. A browser that did not come
+ * through the edge is refused by the ordinary admin layer, the same refusal any
+ * unauthenticated request gets, and nothing is logged about it.
+ *
  * # Why Tauri is exempt
  *
  * Under Tauri the SPA is served from a custom protocol, so its origin is not the
@@ -28,12 +43,22 @@ import { isTauri } from '../lib/tauri';
 import { API_BASE } from './api';
 
 /**
- * The mint in flight (or settled) and the key that asked for it.
+ * What a session was minted from.
  *
- * Keyed by the key so that re-entering the same one does not mint again, and
- * changing it does.
+ * An admin key is keyed on, so that re-entering the same one does not mint again
+ * and changing it does. Access has nothing to key on: the browser never sees the
+ * assertion — the edge adds a fresh one to each request on the way through — so
+ * all this side can record is that the edge, rather than a key, was asked.
  */
-let session: { key: string; ready: Promise<boolean> } | null = null;
+type Credential = { kind: 'key'; key: string } | { kind: 'access' };
+
+/** The mint in flight (or settled) and the credential that asked for it. */
+let session: { credential: Credential; ready: Promise<boolean> } | null = null;
+
+/** Whether the session in hand was minted from this exact key. */
+function mintedFrom(key: string): boolean {
+  return session?.credential.kind === 'key' && session.credential.key === key;
+}
 
 /**
  * Where this tab keeps the admin key.
@@ -58,7 +83,7 @@ export function startBrowserSession(apiKey: string): Promise<boolean> {
     session = null;
     return Promise.resolve(false);
   }
-  if (session?.key === apiKey) return session.ready;
+  if (mintedFrom(apiKey)) return session!.ready;
 
   const ready = fetch(`${API_BASE}/auth/session`, {
     method: 'POST',
@@ -68,11 +93,11 @@ export function startBrowserSession(apiKey: string): Promise<boolean> {
     .then((res) => res.ok)
     .catch(() => false)
     .then((ok) => {
-      if (!ok && session?.key === apiKey) session = null;
+      if (!ok && mintedFrom(apiKey)) session = null;
       return ok;
     });
 
-  session = { key: apiKey, ready };
+  session = { credential: { kind: 'key', key: apiKey }, ready };
   return ready;
 }
 
@@ -122,14 +147,50 @@ export async function endBrowserSession(): Promise<void> {
  */
 export function restoreBrowserSession(): Promise<boolean> {
   if (isTauri) return Promise.resolve(true);
+
   let stored = '';
   try {
     stored = sessionStorage.getItem(API_KEY_STORAGE_KEY) ?? '';
   } catch {
-    // Storage throws in a locked-down browser; the wizard will ask for a key.
-    return Promise.resolve(false);
+    // Storage throws in a locked-down browser. That rules out the key, not
+    // Access, which wants nothing from storage — so this is no longer a reason
+    // to give up before asking.
   }
-  return startBrowserSession(stored);
+
+  const ready = requestAccessSession().then((granted) => {
+    if (granted) return true;
+    if (stored) return startBrowserSession(stored);
+    // Nothing was granted and there is nothing else to offer. The record goes,
+    // because a refusal is not an answer this module caches.
+    if (session?.credential.kind === 'access') session = null;
+    return false;
+  });
+
+  // The record holds the whole sequence rather than its first leg. Consumers
+  // read `browserSessionReady` at whatever moment their effect happens to run,
+  // and handing one of them the Access attempt's answer — taken before the
+  // stored key has been tried — would be final for it, because their effects do
+  // not re-run.
+  session = { credential: { kind: 'access' }, ready };
+  return ready;
+}
+
+/**
+ * Ask the kernel to mint a session from the Access assertion on this request.
+ *
+ * Nothing is sent: the assertion is the edge's, added in front of the origin,
+ * and the kernel verifies its signature against the team's published keys before
+ * it grants anything. Which is why this is safe to call unconditionally — the
+ * request carries no credential of ours to leak, and a kernel with no edge in
+ * front of it refuses it at the admin layer without reaching the handler.
+ */
+function requestAccessSession(): Promise<boolean> {
+  return fetch(`${API_BASE}/auth/session/access`, {
+    method: 'POST',
+    credentials: 'same-origin',
+  })
+    .then((res) => res.ok)
+    .catch(() => false);
 }
 
 /** Test seam: forget any recorded session without asking the kernel. */
