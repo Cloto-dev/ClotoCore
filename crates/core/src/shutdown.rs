@@ -52,6 +52,33 @@ impl ShutdownSignal {
             pending.await;
         }
     }
+
+    /// Await `fut`, but give up as soon as the signal is raised: `None` means
+    /// shutdown won the race and the caller should stop what it is doing.
+    ///
+    /// This exists for response bodies that outlive a single request — the SSE
+    /// streams. A stream parked on `broadcast::Receiver::recv()` waits for a
+    /// sender that the running server owns, so at shutdown it waits on a
+    /// process that is waiting on it: the HTTP server's graceful shutdown does
+    /// not finish until every response body ends, and that body never ends.
+    /// Measured before this existed: a kernel with one `/api/events` client
+    /// attached never returned from SIGTERM and was SIGKILLed by its
+    /// supervisor 30s later, while the same kernel with an idle keep-alive
+    /// socket — or a half-sent request — exited in 0.11s.
+    ///
+    /// `fut` MUST be cancel-safe: it is dropped unpolled when shutdown wins.
+    /// `broadcast::Receiver::recv()`, the only caller today, documents that it
+    /// is.
+    pub async fn until<F: std::future::Future>(&self, fut: F) -> Option<F::Output> {
+        tokio::select! {
+            // Bias the shutdown arm so a raised signal ends the stream even
+            // when the other future is also ready: at shutdown the events
+            // still arriving are the subsystems announcing their own exit.
+            biased;
+            () = self.raised() => None,
+            out = fut => Some(out),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -89,5 +116,53 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(5), signal.raised())
             .await
             .expect("a waiter arriving after the raise must not block on a second signal");
+    }
+
+    /// `until` must hand back the inner future's value while nothing is
+    /// shutting down — otherwise the streams that use it would stop relaying.
+    #[tokio::test]
+    async fn until_passes_the_value_through_while_the_signal_is_down() {
+        let signal = ShutdownSignal::new();
+        let out = tokio::time::timeout(Duration::from_secs(5), signal.until(async { 7 }))
+            .await
+            .expect("until must not block when the signal is down");
+        assert_eq!(out, Some(7), "the inner future's value must come through");
+    }
+
+    /// The case this helper exists for: the inner future never resolves, and
+    /// only the signal can end the wait.
+    #[tokio::test]
+    async fn until_gives_up_on_a_future_that_never_resolves_once_the_signal_is_raised() {
+        let signal = ShutdownSignal::new();
+        let raiser = signal.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            raiser.raise();
+        });
+
+        let out = tokio::time::timeout(
+            Duration::from_secs(5),
+            signal.until(std::future::pending::<()>()),
+        )
+        .await
+        .expect("a raised signal must end the wait on a future that never resolves");
+        assert!(out.is_none(), "shutdown winning the race must report None");
+    }
+
+    /// A signal raised before the call must still win: the streams subscribe
+    /// long before shutdown, and a client that connects during shutdown must
+    /// not open a body that nothing will close.
+    #[tokio::test]
+    async fn until_gives_up_immediately_when_the_signal_was_already_raised() {
+        let signal = ShutdownSignal::new();
+        signal.raise();
+
+        let out = tokio::time::timeout(
+            Duration::from_secs(5),
+            signal.until(std::future::pending::<()>()),
+        )
+        .await
+        .expect("an already-raised signal must not wait for a second raise");
+        assert!(out.is_none(), "shutdown winning the race must report None");
     }
 }

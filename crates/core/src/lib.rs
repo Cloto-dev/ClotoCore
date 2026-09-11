@@ -1867,9 +1867,42 @@ pub async fn run_kernel() -> anyhow::Result<()> {
         }
     }
     // Let the HTTP server finish its graceful shutdown (and release the run
-    // lock) before the process exits.
-    let _ = handle.server_task.await;
+    // lock) before the process exits — but not for longer than the supervisor
+    // is willing to wait.
+    drain_http_server(handle.server_task, SERVER_DRAIN_DEADLINE).await;
     Ok(())
+}
+
+/// How long the exit path waits for the HTTP server to finish draining.
+///
+/// Deliberately shorter than the supervisor's own patience (the systemd unit
+/// ships `TimeoutStopSec=30`): whatever happens, the kernel must be the one
+/// that reports the overrun. When the wait had no deadline at all, a response
+/// still in flight turned every stop into a 30s pause ending in SIGKILL, with
+/// `👋 Kernel shutting down gracefully.` as the last line in the log — the
+/// process announced a clean exit it never performed.
+const SERVER_DRAIN_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Wait for the HTTP server task, giving up after `deadline`.
+///
+/// A response body that never ends (an SSE stream is the shape that does this)
+/// keeps axum's graceful shutdown from completing. The streams this kernel
+/// serves end themselves at shutdown, so reaching the deadline means some
+/// other response is still open — which is worth a line in the log, because
+/// the alternative is a supervisor killing the process for a reason only the
+/// supervisor can see.
+async fn drain_http_server(
+    server_task: tokio::task::JoinHandle<()>,
+    deadline: std::time::Duration,
+) {
+    if tokio::time::timeout(deadline, server_task).await.is_err() {
+        tracing::warn!(
+            "⏱ HTTP server did not finish draining within {}s — exiting anyway. \
+             A response still in flight (a stream that does not end at shutdown?) \
+             held the server open.",
+            deadline.as_secs()
+        );
+    }
 }
 
 /// Resolve when the process receives a stop request from the OS: SIGTERM or
@@ -2045,5 +2078,55 @@ mod quarantine_retry_tests {
         assert!(!is_sharing_violation(&Error::from(
             ErrorKind::AlreadyExists
         )));
+    }
+}
+
+#[cfg(test)]
+mod server_drain_tests {
+    use super::{drain_http_server, SERVER_DRAIN_DEADLINE};
+    use std::time::Duration;
+
+    /// The ordinary stop: the server finished, so the exit path does not wait.
+    #[tokio::test(start_paused = true)]
+    async fn a_server_that_finished_is_not_waited_on() {
+        let task = tokio::spawn(async {});
+        let started = tokio::time::Instant::now();
+        drain_http_server(task, Duration::from_secs(10)).await;
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "a finished server must not cost the exit path any time"
+        );
+    }
+
+    /// The case the deadline exists for: the server never finishes. The exit
+    /// path must return anyway — before the supervisor loses patience.
+    #[tokio::test(start_paused = true)]
+    async fn a_server_that_never_finishes_is_abandoned_at_the_deadline() {
+        let task = tokio::spawn(std::future::pending::<()>());
+        let started = tokio::time::Instant::now();
+        // Paused time auto-advances while the runtime is idle, so this returns
+        // immediately in wall-clock terms and still measures the deadline.
+        drain_http_server(task, Duration::from_secs(10)).await;
+        let waited = started.elapsed();
+        assert!(
+            waited >= Duration::from_secs(10),
+            "the deadline must actually be waited out, got {waited:?}"
+        );
+        assert!(
+            waited < Duration::from_secs(20),
+            "the wait must end at the deadline, not run on: {waited:?}"
+        );
+    }
+
+    /// The deadline is only useful if it lands inside the supervisor's own
+    /// window: the systemd unit in `bin/docs/clotocore-headless-deployment-runbook.md`
+    /// ships `TimeoutStopSec=30`, and a kernel that reports its own overrun is
+    /// the whole point of having a deadline at all.
+    #[test]
+    fn the_deadline_leaves_the_supervisor_room_to_hear_about_it() {
+        assert!(
+            SERVER_DRAIN_DEADLINE < Duration::from_secs(30),
+            "SERVER_DRAIN_DEADLINE must stay under the unit's TimeoutStopSec=30"
+        );
     }
 }
