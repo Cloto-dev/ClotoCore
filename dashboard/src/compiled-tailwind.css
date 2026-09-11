@@ -935,6 +935,10 @@ video {
   z-index: 9998;
 }
 
+.z-\[9999\] {
+  z-index: 9999;
+}
+
 .col-span-full {
   grid-column: 1 / -1;
 }

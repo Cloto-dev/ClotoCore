@@ -8,14 +8,19 @@
  *   below governs interruption only. A count that respected it would turn a
  *   display preference into a switch that starves agents nobody can see are
  *   stuck — and the symptom is an agent that simply never finishes.
- * * **The contents live outside the band.** The header is `select-none` so the
- *   window can be dragged by it, and text inside it cannot be selected. An
- *   audit id nobody can copy is an audit id nobody can use, so the panel turns
- *   selection back on explicitly.
+ * * **The panel is rendered outside the header, through a portal.** Two
+ *   separate reasons, and the second one is the one that bites. The header is
+ *   `select-none` so the window can be dragged by it, and an audit id nobody
+ *   can copy is an audit id nobody can use. But the header also carries
+ *   `relative z-10`, which makes it a stacking context — and `<main>` is a
+ *   later sibling with the same `z-10`, so the whole header paints *under* the
+ *   page content no matter what z-index the panel gives itself. A panel that
+ *   stays inside the header is occluded by the agent cards it floats over.
  */
 
 import { Bell } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../hooks/useApi';
 import { type DisplayLevel, displayLevel, interrupts, loadThreshold, saveThreshold } from '../lib/notificationSeverity';
@@ -37,6 +42,8 @@ export function NotificationBell() {
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [open, setOpen] = useState(false);
   const [threshold, setThreshold] = useState<DisplayLevel>(loadThreshold);
+  const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   // Read through a ref rather than depending on the object's identity. `useApi`
@@ -78,11 +85,32 @@ export function NotificationBell() {
     };
   }, [open]);
 
+  // Where to put the panel, in viewport coordinates. Recomputed while it is
+  // open because the window can be resized under it, and a panel anchored to
+  // where the bell used to be is worse than one that is simply closed.
+  useEffect(() => {
+    if (!open) {
+      setAnchor(null);
+      return;
+    }
+    const place = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      if (rect) setAnchor({ top: rect.bottom + 4, left: rect.left });
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [open]);
+
   // Close on a click anywhere else, the way the rest of the chrome behaves.
+  // Both refs are consulted: the panel is portaled out of this subtree, so a
+  // click inside it is not inside the button's container.
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (!panelRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) return;
+      setOpen(false);
     };
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
@@ -113,8 +141,9 @@ export function NotificationBell() {
   };
 
   return (
-    <div ref={panelRef} className="relative">
+    <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label={t('notifications.open', { defaultValue: 'Notifications' })}
@@ -135,107 +164,125 @@ export function NotificationBell() {
         )}
       </button>
 
-      {open && (
-        // `select-text` undoes the header's `select-none`: the panel carries
-        // audit ids and command lines, and the point of showing them is that
-        // they can be copied.
-        <div className="absolute top-full left-0 mt-1 w-[340px] max-h-[420px] overflow-y-auto rounded-lg border border-edge bg-glass backdrop-blur-md shadow-lg z-50 select-text">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-edge">
-            <span className="text-[10px] font-mono uppercase tracking-widest text-content-secondary">
-              {t('notifications.title', { defaultValue: 'Notifications' })}
-            </span>
-            {summary.blocking > 0 && (
-              <span className="text-[9px] font-mono text-red-500">
-                {t('notifications.blocking_count', {
-                  count: summary.blocking,
-                  defaultValue: '{{count}} holding an agent',
-                })}
+      {open &&
+        anchor &&
+        createPortal(
+          // Portaled to the body: inside the header this panel is trapped in a
+          // stacking context that the page content paints over, whatever
+          // z-index it claims. See the note at the top of this file.
+          //
+          // `bg-surface-primary` is opaque, and has to be. The glass tokens are
+          // 60-80% alpha, which reads well for a panel sitting over a static
+          // background — the sidebar, the actions rail — and not at all for one
+          // floating over agent cards, where high-contrast text behind it stays
+          // legible straight through. The status tooltip in the header answers
+          // this question the same way.
+          //
+          // `select-text` is kept even though the portal already escapes the
+          // header's `select-none`: it states the requirement where the panel
+          // is, so moving the panel back does not quietly lose it.
+          <div
+            ref={panelRef}
+            style={{ top: anchor.top, left: anchor.left }}
+            className="fixed w-[340px] max-h-[420px] overflow-y-auto rounded-lg border border-edge bg-surface-primary shadow-lg z-[9999] select-text"
+          >
+            <div className="flex items-center justify-between px-3 py-2 border-b border-edge">
+              <span className="text-[10px] font-mono uppercase tracking-widest text-content-secondary">
+                {t('notifications.title', { defaultValue: 'Notifications' })}
               </span>
-            )}
-          </div>
+              {summary.blocking > 0 && (
+                <span className="text-[9px] font-mono text-red-500">
+                  {t('notifications.blocking_count', {
+                    count: summary.blocking,
+                    defaultValue: '{{count}} holding an agent',
+                  })}
+                </span>
+              )}
+            </div>
 
-          <div className="px-3 py-2 border-b border-edge">
-            <div className="text-[9px] font-mono text-content-tertiary mb-1">
-              {t('notifications.threshold_label', { defaultValue: 'Interrupt me with a card at' })}
-            </div>
-            <div className="flex items-center gap-1">
-              {(['high', 'medium', 'low'] as const).map((level) => (
-                <button
-                  key={level}
-                  type="button"
-                  onClick={() => chooseThreshold(level)}
-                  className={`px-2 py-0.5 rounded text-[9px] font-mono border transition-colors ${
-                    threshold === level
-                      ? 'border-brand text-content-primary bg-glass-strong'
-                      : 'border-edge text-content-tertiary hover:border-brand'
-                  }`}
-                >
-                  {t(`notifications.threshold_${level}`, { defaultValue: level })}
-                </button>
-              ))}
-            </div>
-            <div className="text-[9px] font-mono text-content-tertiary mt-1">
-              {t('notifications.threshold_note', {
-                defaultValue: 'Everything waiting is listed here whatever you pick.',
-              })}
-            </div>
-          </div>
-
-          {items.length === 0 ? (
-            <div className="px-3 py-6 text-center text-[10px] font-mono text-content-tertiary">
-              {t('notifications.empty', { defaultValue: 'Nothing is waiting' })}
-            </div>
-          ) : (
-            <ul>
-              {items.map((item) => {
-                const level = displayLevel(item.severity);
-                return (
-                  <li
-                    key={item.item_id}
-                    data-testid="notification-item"
-                    className="px-3 py-2 border-b border-edge last:border-b-0"
+            <div className="px-3 py-2 border-b border-edge">
+              <div className="text-[9px] font-mono text-content-tertiary mb-1">
+                {t('notifications.threshold_label', { defaultValue: 'Interrupt me with a card at' })}
+              </div>
+              <div className="flex items-center gap-1">
+                {(['high', 'medium', 'low'] as const).map((level) => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => chooseThreshold(level)}
+                    className={`px-2 py-0.5 rounded text-[9px] font-mono border transition-colors ${
+                      threshold === level
+                        ? 'border-brand text-content-primary bg-glass-strong'
+                        : 'border-edge text-content-tertiary hover:border-brand'
+                    }`}
                   >
-                    <div className="flex items-start gap-2">
-                      <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-mono ${LEVEL_STYLE[level]}`}>
-                        {t(`notifications.level_${level}`, { defaultValue: level })}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] text-content-primary break-words">{item.title}</div>
-                        {item.body && (
-                          <div className="mt-0.5 text-[9px] font-mono text-content-tertiary break-words whitespace-pre-wrap">
-                            {item.body}
+                    {t(`notifications.threshold_${level}`, { defaultValue: level })}
+                  </button>
+                ))}
+              </div>
+              <div className="text-[9px] font-mono text-content-tertiary mt-1">
+                {t('notifications.threshold_note', {
+                  defaultValue: 'Everything waiting is listed here whatever you pick.',
+                })}
+              </div>
+            </div>
+
+            {items.length === 0 ? (
+              <div className="px-3 py-6 text-center text-[10px] font-mono text-content-tertiary">
+                {t('notifications.empty', { defaultValue: 'Nothing is waiting' })}
+              </div>
+            ) : (
+              <ul>
+                {items.map((item) => {
+                  const level = displayLevel(item.severity);
+                  return (
+                    <li
+                      key={item.item_id}
+                      data-testid="notification-item"
+                      className="px-3 py-2 border-b border-edge last:border-b-0"
+                    >
+                      <div className="flex items-start gap-2">
+                        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-mono ${LEVEL_STYLE[level]}`}>
+                          {t(`notifications.level_${level}`, { defaultValue: level })}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[11px] text-content-primary break-words">{item.title}</div>
+                          {item.body && (
+                            <div className="mt-0.5 text-[9px] font-mono text-content-tertiary break-words whitespace-pre-wrap">
+                              {item.body}
+                            </div>
+                          )}
+                          <div className="mt-1 flex items-center gap-2 text-[9px] font-mono text-content-tertiary">
+                            {item.blocking && (
+                              <span className="text-red-500">
+                                {t('notifications.blocking', { defaultValue: 'holding an agent' })}
+                              </span>
+                            )}
+                            {interrupts(item.severity, threshold) && (
+                              <span data-testid="will-interrupt">
+                                {t('notifications.will_interrupt', { defaultValue: 'will interrupt' })}
+                              </span>
+                            )}
+                            {!item.read_at && (
+                              <button
+                                type="button"
+                                onClick={() => void markRead(item.item_id)}
+                                className="hover:text-content-primary transition-colors"
+                              >
+                                {t('notifications.mark_read', { defaultValue: 'Mark read' })}
+                              </button>
+                            )}
                           </div>
-                        )}
-                        <div className="mt-1 flex items-center gap-2 text-[9px] font-mono text-content-tertiary">
-                          {item.blocking && (
-                            <span className="text-red-500">
-                              {t('notifications.blocking', { defaultValue: 'holding an agent' })}
-                            </span>
-                          )}
-                          {interrupts(item.severity, threshold) && (
-                            <span data-testid="will-interrupt">
-                              {t('notifications.will_interrupt', { defaultValue: 'will interrupt' })}
-                            </span>
-                          )}
-                          {!item.read_at && (
-                            <button
-                              type="button"
-                              onClick={() => void markRead(item.item_id)}
-                              className="hover:text-content-primary transition-colors"
-                            >
-                              {t('notifications.mark_read', { defaultValue: 'Mark read' })}
-                            </button>
-                          )}
                         </div>
                       </div>
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
-      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
