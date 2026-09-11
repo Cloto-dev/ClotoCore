@@ -21,6 +21,10 @@ export function SecuritySection() {
   const [confirmRegenerate, setConfirmRegenerate] = useState(false);
   const [revealed, setRevealed] = useState(false);
   const [copied, setCopied] = useState(false);
+  // Set when a rotation succeeded but will not survive a restart (the kernel
+  // takes its key from the environment). Nothing else surfaces this: the call
+  // returns 200 and the new key works until the kernel is restarted.
+  const [rotationWarning, setRotationWarning] = useState<string | null>(null);
 
   const saveAction = useAsyncAction(t('security.error_invalid_key'));
   const invalidateAction = useAsyncAction(t('security.error_invalidate_failed'));
@@ -47,6 +51,7 @@ export function SecuritySection() {
       setApiKey(result.api_key);
       setConfirmRegenerate(false);
       setRevealed(true); // show the new key once so the user can save it
+      setRotationWarning(result.survives_restart === false ? (result.warning ?? null) : null);
     });
   };
 
@@ -150,6 +155,7 @@ export function SecuritySection() {
           </div>
 
           {error && <AlertCard>{error}</AlertCard>}
+          {rotationWarning && <AlertCard variant="warning">{rotationWarning}</AlertCard>}
 
           {authApi.apiKey && (
             <div className="pt-3 border-t border-edge">

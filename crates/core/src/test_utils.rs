@@ -90,6 +90,7 @@ pub async fn create_test_app_state_with_access(
         agent_manager,
         plugin_manager,
         mcp_manager,
+        admin_key_from_env: std::sync::atomic::AtomicBool::new(false),
         config,
         data_dir,
         event_history,
