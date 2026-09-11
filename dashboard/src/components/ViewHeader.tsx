@@ -11,6 +11,13 @@ interface ViewHeaderProps {
   title: string;
   onBack?: (() => void) | string;
   right?: React.ReactNode;
+  /**
+   * Rendered immediately after the title, on the window's top edge. A slot
+   * rather than the thing itself because this header is also the setup
+   * wizard's and the settings screen's, and neither has agents behind it that
+   * could be waiting on an answer.
+   */
+  afterTitle?: React.ReactNode;
   onHelp?: () => void;
   navBack?: () => void;
   navForward?: () => void;
@@ -23,6 +30,7 @@ export function ViewHeader({
   title,
   onBack,
   right,
+  afterTitle,
   onHelp,
   navBack,
   navForward,
@@ -86,6 +94,7 @@ export function ViewHeader({
       )}
       <Icon size={14} className="text-brand shrink-0" />
       <h1 className="text-xs font-mono uppercase tracking-widest text-content-primary leading-none">{title}</h1>
+      {afterTitle}
       {right && <div className="ml-auto flex items-center gap-3">{right}</div>}
 
       {/* Help + Connection indicator + Window Controls */}

@@ -69,6 +69,52 @@ const UNINSTALL_PLAN_TIMEOUT_MS = 60_000;
 const UNINSTALL_TIMEOUT_MS = 180_000;
 
 // Health check types
+/**
+ * RFC 5424 severity — the same eight values the kernel stores and MCP logging
+ * uses. Kept as the identifier rather than a display scale on purpose: the words
+ * a reader sees are produced at render time, so there is no table here to fall
+ * out of step with the kernel's.
+ */
+export type NotificationSeverity =
+  | 'debug'
+  | 'info'
+  | 'notice'
+  | 'warning'
+  | 'error'
+  | 'critical'
+  | 'alert'
+  | 'emergency';
+
+/** What an item does to the agent that raised it. */
+export type NotificationKind = 'approval' | 'proposal' | 'notice';
+
+export interface NotificationItem {
+  item_id: string;
+  kind: NotificationKind;
+  severity: NotificationSeverity;
+  agent_id: string | null;
+  title: string;
+  body: string | null;
+  created_at: string;
+  read_at: string | null;
+  resolved_at: string | null;
+  decision: string | null;
+  /**
+   * Whether this item is holding an agent right now. Never filtered by
+   * severity anywhere: a reader who narrows the threshold must still be able to
+   * see what is stuck.
+   */
+  blocking: boolean;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface NotificationSummary {
+  /** Unresolved approvals and proposals — the number on the badge. */
+  waiting: number;
+  /** Of those, the ones holding an agent. */
+  blocking: number;
+}
+
 export interface HealthCheck {
   name: string;
   status: 'healthy' | 'degraded' | 'error';
@@ -261,6 +307,30 @@ export const api = {
     return data.episodes ?? [];
   },
   getHistory: (apiKey?: string) => fetchJson<StrictSystemEvent[]>('/history', 'fetch history', apiKey),
+  getNotificationSummary: async (apiKey?: string): Promise<NotificationSummary> => {
+    const data = await fetchJson<{ summary: NotificationSummary }>(
+      '/notifications/summary',
+      'fetch the notification summary',
+      apiKey,
+    );
+    return data.summary;
+  },
+  getNotifications: async (apiKey?: string, unresolved = true): Promise<NotificationItem[]> => {
+    const data = await fetchJson<{ items: NotificationItem[] }>(
+      `/notifications?unresolved=${unresolved}`,
+      'fetch notifications',
+      apiKey,
+    );
+    return data.items ?? [];
+  },
+  markNotificationRead: (itemId: string, apiKey?: string) =>
+    mutate(
+      `/notifications/${encodeURIComponent(itemId)}/read`,
+      'POST',
+      'mark the notification read',
+      undefined,
+      apiKey ? { 'X-API-Key': apiKey } : undefined,
+    ),
   fetchJson: <T>(path: string, apiKey: string) =>
     fetch(`${API_BASE}${path}`, { headers: { 'X-API-Key': apiKey } }).then((r) => {
       if (!r.ok) throw new Error(`${r.statusText}`);
@@ -1025,6 +1095,9 @@ export function createAuthenticatedApi(apiKey: string) {
     getMemories: (agentId?: string) => api.getMemories(k, agentId),
     getEpisodes: (agentId?: string) => api.getEpisodes(k, agentId),
     getHistory: () => api.getHistory(k),
+    getNotificationSummary: () => api.getNotificationSummary(k),
+    getNotifications: (unresolved?: boolean) => api.getNotifications(k, unresolved),
+    markNotificationRead: (itemId: string) => api.markNotificationRead(itemId, k),
     getAgentAccess: (agentId: string) => api.getAgentAccess(agentId, k),
     // Generic
     fetchJson: <T>(path: string) => api.fetchJson<T>(path, k),

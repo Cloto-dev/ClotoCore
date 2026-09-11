@@ -18,6 +18,7 @@ pub mod llm;
 pub mod marketplace;
 pub mod mcp;
 pub mod modules;
+pub mod notifications;
 pub mod permissions;
 pub mod published;
 pub mod response;

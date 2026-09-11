@@ -317,6 +317,44 @@ pub async fn list_notifications(
         .collect())
 }
 
+/// What the bell has to show without opening it.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct NotificationSummary {
+    /// Unresolved `approval` and `proposal` items — the number on the badge.
+    ///
+    /// Counted by whether they are settled, not by whether they have been read:
+    /// an approval you have looked at and not answered is still holding an
+    /// agent, and a badge that cleared on sight would say the opposite.
+    ///
+    /// `notice` is left out on purpose. So is anything an agent emits merely by
+    /// working: a count that rises whenever something runs is green every
+    /// morning after a scheduled job, and a signal that is always on is not one.
+    pub waiting: i64,
+    /// Of those, the ones holding an agent right now.
+    ///
+    /// Reported separately so a caller can show that something is stuck without
+    /// having to read every item — and so that "the badge never hides a blocked
+    /// item" is a claim something can check.
+    pub blocking: i64,
+}
+
+/// Count what is waiting, without a severity anywhere in the query.
+///
+/// The absence is the point. A severity threshold decides whether an item
+/// interrupts, never whether it exists: filtering here would turn a display
+/// preference into a switch that silently starves agents nobody can see are
+/// stuck.
+pub async fn notification_summary(pool: &SqlitePool) -> anyhow::Result<NotificationSummary> {
+    let query_future = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT COUNT(*), COALESCE(SUM(blocking), 0) FROM notifications \
+         WHERE resolved_at IS NULL AND kind IN ('approval', 'proposal')",
+    )
+    .fetch_one(pool);
+
+    let (waiting, blocking) = db_timeout(query_future).await?;
+    Ok(NotificationSummary { waiting, blocking })
+}
+
 /// Note that a reader has seen the item. Returns whether a row changed, so a
 /// caller can tell "already read" apart from "no such item".
 pub async fn mark_notification_read(pool: &SqlitePool, item_id: &str) -> anyhow::Result<bool> {
