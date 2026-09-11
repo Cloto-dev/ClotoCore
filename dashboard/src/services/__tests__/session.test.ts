@@ -88,29 +88,105 @@ describe('starting a browser session', () => {
   });
 });
 
-describe('restoring the session this tab already had', () => {
-  it('mints from the stored key before anything else asks', async () => {
-    // The ordering this exists for: a child's effect runs before its provider's,
-    // so a mint started from an effect happens after the consumers have already
-    // asked whether a credential exists — and their effects do not re-run.
+describe('restoring a session before anything else asks', () => {
+  /** Make the Access attempt — always the first request — be refused. */
+  function noEdgeInFront() {
+    fetchMock.mockResolvedValueOnce({ ok: false });
+  }
+
+  it('signs in with the assertion the edge added, and leaves the key alone', async () => {
     sessionStorage.setItem('cloto-api-key', 'k1');
-    const { restoreBrowserSession, browserSessionReady } = await load('browser');
+    const { restoreBrowserSession, browserSessionReady, API_BASE } = await load('browser');
 
     await expect(restoreBrowserSession()).resolves.toBe(true);
     await expect(browserSessionReady()).resolves.toBe(true);
+
+    // One request, and it is the Access one: a browser that came through the
+    // edge has no reason to spend the key it happens to be holding.
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][1].headers).toMatchObject({ 'X-API-Key': 'k1' });
+    expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE}/auth/session/access`);
+  });
+
+  it('sends nothing of ours on the Access request', async () => {
+    const { restoreBrowserSession } = await load('browser');
+    await restoreBrowserSession();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(init).toMatchObject({ method: 'POST', credentials: 'same-origin' });
+    // The assertion belongs to the edge and is added in front of the origin.
+    // Anything this side attached would be a credential somewhere it is not
+    // needed, which is the thing this whole module exists to stop.
+    expect(init.headers).toBeUndefined();
+    expect(init.body).toBeUndefined();
+    expect(String(url)).not.toContain('token');
+    expect(String(url)).not.toContain('key=');
+  });
+
+  it('falls back to the stored key when there is no edge in front', async () => {
+    sessionStorage.setItem('cloto-api-key', 'k1');
+    const { restoreBrowserSession, browserSessionReady, API_BASE } = await load('browser');
+    noEdgeInFront();
+
+    await expect(restoreBrowserSession()).resolves.toBe(true);
+    await expect(browserSessionReady()).resolves.toBe(true);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[1][0]).toBe(`${API_BASE}/auth/session`);
+    expect(fetchMock.mock.calls[1][1].headers).toMatchObject({ 'X-API-Key': 'k1' });
+  });
+
+  it('reports the answer to the whole sequence, not to the Access attempt alone', async () => {
+    // The ordering this exists for: a child's effect runs before its provider's,
+    // so a consumer asks whether a credential exists while the restore is still
+    // in flight — and their effects do not re-run, so whatever they are told is
+    // final for them. Being told "no" because the *first* of two attempts had
+    // failed is the regression this pins.
+    sessionStorage.setItem('cloto-api-key', 'k1');
+    const { restoreBrowserSession, browserSessionReady } = await load('browser');
+    noEdgeInFront();
+
+    const restoring = restoreBrowserSession();
+    const askedEarly = browserSessionReady();
+
+    await expect(askedEarly).resolves.toBe(true);
+    await expect(restoring).resolves.toBe(true);
+  });
+
+  it('asks the edge even when this tab has no key', async () => {
+    const { restoreBrowserSession, API_BASE } = await load('browser');
+
+    await expect(restoreBrowserSession()).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(`${API_BASE}/auth/session/access`);
+  });
+
+  it('reports no session when neither the edge nor a key grants one', async () => {
+    const { restoreBrowserSession, browserSessionReady } = await load('browser');
+    noEdgeInFront();
+
+    await expect(restoreBrowserSession()).resolves.toBe(false);
+    await expect(browserSessionReady()).resolves.toBe(false);
+    // The key was never tried, because there is none: one request, not two.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still asks the edge when storage is locked down', async () => {
+    const { restoreBrowserSession } = await load('browser');
+    const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('storage disabled');
+    });
+    try {
+      // Storage rules out the key, not the edge, which wants nothing from it.
+      await expect(restoreBrowserSession()).resolves.toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      getItem.mockRestore();
+    }
   });
 
   it('uses the key name the hook stores under', async () => {
     const { API_KEY_STORAGE_KEY } = await load('browser');
     expect(API_KEY_STORAGE_KEY).toBe('cloto-api-key');
-  });
-
-  it('asks for nothing when this tab has no key', async () => {
-    const { restoreBrowserSession } = await load('browser');
-    await expect(restoreBrowserSession()).resolves.toBe(false);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
