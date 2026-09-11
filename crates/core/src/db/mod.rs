@@ -2,7 +2,7 @@
 //!
 //! SQLite-backed persistence split into domain modules: audit logging,
 //! permissions, chat messages, MCP server state, API keys, CRON jobs,
-//! LLM routing, and trusted commands.
+//! LLM routing, trusted commands, and the notification store.
 
 pub mod api_keys;
 pub mod audit;
@@ -11,6 +11,7 @@ pub mod cron;
 pub mod health;
 pub mod llm;
 pub mod mcp;
+pub mod notifications;
 pub mod permissions;
 pub mod trusted_commands;
 
@@ -20,6 +21,7 @@ pub use chat::*;
 pub use cron::*;
 pub use llm::*;
 pub use mcp::*;
+pub use notifications::*;
 pub use permissions::*;
 pub use trusted_commands::*;
 

@@ -1384,6 +1384,31 @@ impl McpClientManager {
                         if let Err(e) = tx.send(envelope).await {
                             debug!("Failed to emit PermissionRequested event: {}", e);
                         }
+
+                        // The event tells whoever is watching; the row tells
+                        // whoever comes back later. The id is derived from the
+                        // server and the capability because a retried start is
+                        // the same waiting item, not a new one.
+                        if let Err(e) = crate::db::record_notification_once(
+                            &self.pool,
+                            crate::db::NotificationItem::new(
+                                format!("mcp-permission:{}:{}", id, perm),
+                                crate::db::NotificationKind::Approval,
+                                cloto_shared::McpLogLevel::Warning,
+                                format!("'{}' needs the '{}' capability", id, perm),
+                            )
+                            .body("The server is blocked from starting until this is granted or denied.")
+                            .blocking()
+                            .metadata(serde_json::json!({
+                                "source": "mcp_permission_gate",
+                                "server_id": id,
+                                "permission": perm,
+                            })),
+                        )
+                        .await
+                        {
+                            debug!("Failed to record permission notification: {}", e);
+                        }
                     }
                 }
                 return Err(anyhow::anyhow!(

@@ -251,6 +251,32 @@ async fn collect_untrusted_commands(
 }
 
 /// Process the user's approval decision and return denied call IDs.
+/// Announce a decision and settle the stored item in one step.
+///
+/// Kept together deliberately: a decision that reaches the dashboard while the
+/// inbox still lists the request as waiting is the shape of bug that makes
+/// people distrust the inbox and go back to watching the screen.
+async fn settle_approval(
+    pool: &SqlitePool,
+    sender: &tokio::sync::mpsc::Sender<crate::EnvelopedEvent>,
+    trace_id: ClotoId,
+    approval_id: &str,
+    decision: &str,
+) {
+    if let Err(e) = crate::db::resolve_notification(pool, approval_id, decision).await {
+        warn!(approval_id = %approval_id, "Failed to settle approval notification: {}", e);
+    }
+    emit_event(
+        sender,
+        trace_id,
+        ClotoEventData::CommandApprovalResult {
+            approval_id: approval_id.to_string(),
+            decision: decision.to_string(),
+        },
+    )
+    .await;
+}
+
 async fn process_approval_decision(
     decision: Result<
         Result<CommandApprovalDecision, oneshot::error::RecvError>,
@@ -272,15 +298,7 @@ async fn process_approval_decision(
                 }
             }
             info!(approval_id = %approval_id, "✅ Commands approved (exact)");
-            emit_event(
-                sender,
-                trace_id,
-                ClotoEventData::CommandApprovalResult {
-                    approval_id: approval_id.to_string(),
-                    decision: "approved".to_string(),
-                },
-            )
-            .await;
+            settle_approval(pool, sender, trace_id, approval_id, "approved").await;
             HashSet::new()
         }
         Ok(Ok(CommandApprovalDecision::Trust)) => {
@@ -293,28 +311,12 @@ async fn process_approval_decision(
                 }
             }
             info!(approval_id = %approval_id, "✅ Command names trusted (session)");
-            emit_event(
-                sender,
-                trace_id,
-                ClotoEventData::CommandApprovalResult {
-                    approval_id: approval_id.to_string(),
-                    decision: "trusted".to_string(),
-                },
-            )
-            .await;
+            settle_approval(pool, sender, trace_id, approval_id, "trusted").await;
             HashSet::new()
         }
         Ok(Ok(CommandApprovalDecision::Deny)) => {
             warn!(approval_id = %approval_id, "🚫 Commands denied by user");
-            emit_event(
-                sender,
-                trace_id,
-                ClotoEventData::CommandApprovalResult {
-                    approval_id: approval_id.to_string(),
-                    decision: "denied by user".to_string(),
-                },
-            )
-            .await;
+            settle_approval(pool, sender, trace_id, approval_id, "denied by user").await;
             extract_denied_ids(untrusted_cmds)
         }
         Ok(Err(_)) | Err(_) => {
@@ -331,15 +333,7 @@ async fn process_approval_decision(
                 reason = reason,
                 "📋 Approval gate audit: commands blocked due to {}", reason
             );
-            emit_event(
-                sender,
-                trace_id,
-                ClotoEventData::CommandApprovalResult {
-                    approval_id: approval_id.to_string(),
-                    decision: reason.to_string(),
-                },
-            )
-            .await;
+            settle_approval(pool, sender, trace_id, approval_id, reason).await;
             extract_denied_ids(untrusted_cmds)
         }
     }
@@ -384,6 +378,38 @@ pub(crate) async fn run_approval_gate(
 
     let (atx, arx) = oneshot::channel();
     pending_approvals.insert(approval_id.clone(), atx);
+
+    // Record the request before announcing it, and await the write. The inbox is
+    // what tells a person that an agent is stuck behind a question; an inbox that
+    // fills in afterwards is empty for exactly the window where it matters, and
+    // writing it first means anyone who reacts to the announcement finds it there.
+    //
+    // Severity is Warning because every call that reaches this gate is one the
+    // kernel routes through a sandbox validator — a command that can touch the
+    // machine. Deriving a sharper level from what the command actually does
+    // belongs with the reader-facing threshold, not here.
+    let commands_summary = untrusted_cmds
+        .iter()
+        .filter_map(|cmd| cmd.get("command").and_then(|v| v.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if let Err(e) = crate::db::record_notification(
+        pool,
+        crate::db::NotificationItem::new(
+            approval_id.clone(),
+            crate::db::NotificationKind::Approval,
+            cloto_shared::McpLogLevel::Warning,
+            format!("{} command(s) awaiting approval", untrusted_cmds.len()),
+        )
+        .agent(agent_id)
+        .body(commands_summary)
+        .blocking()
+        .metadata(serde_json::json!({ "commands": untrusted_cmds })),
+    )
+    .await
+    {
+        warn!(approval_id = %approval_id, "Failed to record approval notification: {}", e);
+    }
 
     emit_event(
         sender,
@@ -568,6 +594,86 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[tokio::test]
+    async fn the_request_is_in_the_store_before_it_is_announced_and_settles_on_the_decision() {
+        let mut h = harness().await;
+        let handle = h.spawn_gate(AGENT, vec![shell_call("c1", "rm -rf /tmp/scratch")]);
+
+        // Receiving the announcement is the earliest a reader could react to it.
+        // The row has to already be there at that instant, or the bell that the
+        // announcement rings opens onto an empty inbox.
+        let approval_id = h.next_request().await;
+        let waiting = crate::db::get_notification(&h.pool, &approval_id)
+            .await
+            .expect("store read")
+            .expect("the request is stored by the time it is announced");
+        assert_eq!(waiting.kind, crate::db::NotificationKind::Approval);
+        assert!(
+            waiting.blocking,
+            "an agent is held behind this one, and a reader filtering by severity \
+             still has to be able to see that"
+        );
+        assert_eq!(waiting.agent_id.as_deref(), Some(AGENT));
+        assert!(waiting.resolved_at.is_none(), "nobody has answered yet");
+        assert!(
+            waiting
+                .body
+                .as_deref()
+                .unwrap_or_default()
+                .contains("rm -rf /tmp/scratch"),
+            "the item has to say what is being asked about"
+        );
+
+        let (_, sender) = h
+            .pending
+            .remove(&approval_id)
+            .expect("the gate registers its oneshot before emitting the request");
+        sender
+            .send(CommandApprovalDecision::Deny)
+            .expect("the gate is still listening");
+        handle.await.expect("the gate returns");
+
+        let settled = crate::db::get_notification(&h.pool, &approval_id)
+            .await
+            .expect("store read")
+            .expect("the row survives the decision");
+        assert_eq!(
+            settled.decision.as_deref(),
+            Some("denied by user"),
+            "the stored decision matches the one the dashboard was told"
+        );
+        assert!(settled.resolved_at.is_some(), "an answered item is settled");
+        assert!(
+            !settled.blocking,
+            "nothing is held once the decision is in, so the badge must stop counting it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_request_nobody_answers_is_settled_with_the_reason_it_ended() {
+        let mut h = harness().await;
+        let handle = h.spawn_gate(AGENT, vec![shell_call("c1", "curl example.com")]);
+        let approval_id = h.next_request().await;
+
+        // Dropping the sender is what a kernel restart looks like from in here.
+        h.pending
+            .remove(&approval_id)
+            .expect("the gate registered its oneshot");
+        handle.await.expect("the gate returns");
+
+        let settled = crate::db::get_notification(&h.pool, &approval_id)
+            .await
+            .expect("store read")
+            .expect("the row survives");
+        assert_eq!(
+            settled.decision.as_deref(),
+            Some("channel closed"),
+            "the store keeps the kernel's own word for how it ended, so a reader \
+             can tell a refusal apart from a restart"
+        );
+        assert!(!settled.blocking);
     }
 
     #[tokio::test]
