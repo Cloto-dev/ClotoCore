@@ -318,7 +318,9 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
         <PowerToggleModal agent={powerTarget} onClose={() => setPowerTarget(null)} onSuccess={onRefresh} />
       )}
 
-      {cliAgentOpen && <CliAgentPanel onClose={() => setCliAgentOpen(false)} />}
+      {cliAgentOpen && (
+        <CliAgentPanel agents={agents} onAgentsChanged={onRefresh} onClose={() => setCliAgentOpen(false)} />
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteTarget && (

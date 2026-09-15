@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { McpServerInfo } from '../../types';
-import { buildEnvUpdate, findHarnessServer, isMeteredPlan, PROBE_TOOL, parseProbeResult } from '../cliHarness';
+import {
+  buildAgentMetadataUpdate,
+  buildEnvUpdate,
+  findHarnessServer,
+  isMeteredPlan,
+  PROBE_TOOL,
+  parseAgentConfig,
+  parseProbeResult,
+} from '../cliHarness';
 
 const server = (id: string, tools: string[]) => ({ id, tools }) as unknown as McpServerInfo;
 
@@ -38,6 +46,40 @@ describe('parseProbeResult', () => {
     expect(probe.configured_harness).toBeNull();
   });
 
+  it('reads the connector-owned agent configuration schema', () => {
+    const probe = parseProbeResult(
+      probeResult({
+        harnesses: [],
+        agent_config: {
+          metadata_key: 'connector_settings',
+          fields: [
+            {
+              key: 'runner',
+              label: 'Runner',
+              description: 'Runner for this agent',
+              input: 'select',
+              options: ['one', 'two'],
+              default: 'one',
+            },
+          ],
+        },
+      }),
+    );
+    expect(probe.agent_config).toEqual({
+      metadata_key: 'connector_settings',
+      fields: [
+        {
+          key: 'runner',
+          label: 'Runner',
+          description: 'Runner for this agent',
+          input: 'select',
+          options: ['one', 'two'],
+          default: 'one',
+        },
+      ],
+    });
+  });
+
   it('keeps a field absent rather than inventing a value for it', () => {
     // The connector omits what it could not read. "installed: undefined" has to
     // stay undefined so the screen can say "unknown" instead of "no".
@@ -59,6 +101,52 @@ describe('parseProbeResult', () => {
   it('accepts a host where nothing is installed', () => {
     // Distinct from the failures above: this is a real, readable answer.
     expect(parseProbeResult(probeResult({ harnesses: [] })).harnesses).toEqual([]);
+  });
+
+  it('rejects a malformed agent configuration schema', () => {
+    expect(() =>
+      parseProbeResult(probeResult({ harnesses: [], agent_config: { metadata_key: 'x', fields: [{ key: 'x' }] } })),
+    ).toThrow(/configuration field/);
+  });
+});
+
+describe('agent binding metadata', () => {
+  it('round-trips the connector-owned string object', () => {
+    expect(parseAgentConfig('{"harness":"codex","cwd":"/work"}')).toEqual({
+      harness: 'codex',
+      cwd: '/work',
+    });
+  });
+
+  it('preserves unrelated metadata and connector fields while applying edits', () => {
+    const metadata = {
+      response_language: 'en',
+      connector_settings: JSON.stringify({ harness: 'claude', future_field: 'keep-me' }),
+    };
+
+    const out = buildAgentMetadataUpdate(metadata, 'connector_settings', {
+      harness: 'codex',
+      model: '  agent-model  ',
+    });
+
+    expect(out.response_language).toBe('en');
+    expect(JSON.parse(out.connector_settings)).toEqual({
+      harness: 'codex',
+      future_field: 'keep-me',
+      model: 'agent-model',
+    });
+  });
+
+  it('removes empty fields and the namespace when no settings remain', () => {
+    expect(
+      buildAgentMetadataUpdate({ connector_settings: '{"harness":"codex"}' }, 'connector_settings', { harness: '' }),
+    ).toEqual({});
+  });
+
+  it('rejects malformed saved metadata instead of replacing it', () => {
+    expect(() => parseAgentConfig('not-json')).toThrow(/not valid JSON/);
+    expect(() => parseAgentConfig('["codex"]')).toThrow(/not an object/);
+    expect(() => parseAgentConfig('{"cwd":7}')).toThrow(/not text/);
   });
 });
 

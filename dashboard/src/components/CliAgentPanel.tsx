@@ -5,16 +5,18 @@ import { useApi } from '../hooks/useApi';
 import { useAsyncAction } from '../hooks/useAsyncAction';
 import { useMcpServers } from '../hooks/useMcpServers';
 import {
+  buildAgentMetadataUpdate,
   buildEnvUpdate,
   findHarnessServer,
   type HarnessProbe,
   isMeteredPlan,
   PROBE_TOOL,
+  parseAgentConfig,
   parseProbeResult,
 } from '../lib/cliHarness';
 import { extractError } from '../lib/errors';
 import { displayServerId } from '../lib/format';
-import type { EnvVarDef } from '../types';
+import type { AgentMetadata, EnvVarDef } from '../types';
 import { Modal } from './Modal';
 import { AlertCard } from './ui/AlertCard';
 
@@ -33,7 +35,13 @@ import { AlertCard } from './ui/AlertCard';
  * accumulate in `edits` and are applied by Save, which also restarts the
  * connector, because a harness option is read at process start.
  */
-export function CliAgentPanel({ onClose }: { onClose: () => void }) {
+interface CliAgentPanelProps {
+  agents: AgentMetadata[];
+  onAgentsChanged: () => void;
+  onClose: () => void;
+}
+
+export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPanelProps) {
   const api = useApi();
   const { t } = useTranslation('agents');
   const { t: tc } = useTranslation('common');
@@ -50,7 +58,38 @@ export function CliAgentPanel({ onClose }: { onClose: () => void }) {
   const [options, setOptions] = useState<EnvVarDef[]>([]);
   const [storedEnv, setStoredEnv] = useState<Record<string, string>>({});
   const [edits, setEdits] = useState<Record<string, string>>({});
+  const [selectedAgentId, setSelectedAgentId] = useState('');
+  const [agentEdits, setAgentEdits] = useState<Record<string, string>>({});
   const save = useAsyncAction(t('cli_agent.save_failed'));
+
+  const eligibleAgents = useMemo(
+    () => agents.filter((agent) => agent.default_engine_id === serverId),
+    [agents, serverId],
+  );
+  const selectedAgent = eligibleAgents.find((agent) => agent.id === selectedAgentId);
+  const agentSchema = probe?.agent_config;
+
+  useEffect(() => {
+    if (!eligibleAgents.some((agent) => agent.id === selectedAgentId)) {
+      setSelectedAgentId(eligibleAgents[0]?.id ?? '');
+      setAgentEdits({});
+    }
+  }, [eligibleAgents, selectedAgentId]);
+
+  const storedAgentConfig = useMemo(() => {
+    if (!selectedAgent || !agentSchema) return { values: {}, error: null };
+    try {
+      return {
+        values: parseAgentConfig(selectedAgent.metadata?.[agentSchema.metadata_key]),
+        error: null,
+      };
+    } catch (error) {
+      return {
+        values: {},
+        error: extractError(error, t('cli_agent.binding_invalid')),
+      };
+    }
+  }, [selectedAgent, agentSchema, t]);
 
   /** Ask the connector what is on the host. Only possible while it is running:
    * the probe is one of its tools, not a kernel route. */
@@ -102,24 +141,44 @@ export function CliAgentPanel({ onClose }: { onClose: () => void }) {
   const handleSave = () => {
     if (!serverId) return;
     void save.run(async () => {
-      // Every stored key is named, or the kernel's merge drops the ones left out.
-      await api.updateMcpServerSettings(serverId, { env: buildEnvUpdate(storedEnv, edits) });
-      setStoredEnv((prev) => {
-        const next = { ...prev };
-        for (const [k, v] of Object.entries(edits)) {
-          if (v === '') delete next[k];
-          else next[k] = v;
-        }
-        return next;
-      });
-      setEdits({});
-      // Saving restarts the connector, so what it reports afterwards is what
-      // the next run will actually use.
-      await runProbe();
+      const connectionDirty = Object.keys(edits).length > 0;
+      const bindingDirty = Object.keys(agentEdits).length > 0;
+
+      if (bindingDirty && selectedAgent && agentSchema) {
+        // updateAgent replaces the metadata object. Read the current row at the
+        // save boundary, then preserve every key outside this connector's
+        // namespace so changes made while the modal was open are not erased.
+        const current = (await api.getAgents()).find((agent) => agent.id === selectedAgent.id);
+        if (!current) throw new Error(t('cli_agent.agent_missing'));
+        await api.updateAgent(current.id, {
+          metadata: buildAgentMetadataUpdate(current.metadata ?? {}, agentSchema.metadata_key, agentEdits),
+        });
+        setAgentEdits({});
+        onAgentsChanged();
+      }
+
+      if (connectionDirty) {
+        // Every stored key is named, or the kernel's merge drops the ones left out.
+        await api.updateMcpServerSettings(serverId, { env: buildEnvUpdate(storedEnv, edits) });
+        setStoredEnv((prev) => {
+          const next = { ...prev };
+          for (const [k, v] of Object.entries(edits)) {
+            if (v === '') delete next[k];
+            else next[k] = v;
+          }
+          return next;
+        });
+        setEdits({});
+        // Connection settings are read at process start, so verify what the
+        // restarted connector reports before the save is considered complete.
+        await runProbe();
+      }
     });
   };
 
-  const dirty = Object.keys(edits).length > 0;
+  const connectionDirty = Object.keys(edits).length > 0;
+  const bindingDirty = Object.keys(agentEdits).length > 0;
+  const dirty = connectionDirty || bindingDirty;
 
   return (
     <Modal title={t('cli_agent.title')} icon={Terminal} size="lg" onClose={onClose}>
@@ -203,6 +262,79 @@ export function CliAgentPanel({ onClose }: { onClose: () => void }) {
               </div>
             )}
 
+            {agentSchema && (
+              <div className="space-y-2">
+                <h3 className="text-[10px] font-bold uppercase tracking-widest text-content-secondary">
+                  {t('cli_agent.agent_binding')}
+                </h3>
+                {eligibleAgents.length === 0 ? (
+                  <AlertCard variant="info">{t('cli_agent.no_bound_agents')}</AlertCard>
+                ) : (
+                  <div className="space-y-2">
+                    <label className="block space-y-1">
+                      <span className="font-mono text-[10px] text-content-secondary">{t('cli_agent.agent_label')}</span>
+                      <select
+                        value={selectedAgentId}
+                        onChange={(event) => {
+                          setSelectedAgentId(event.target.value);
+                          setAgentEdits({});
+                        }}
+                        className="w-full px-2 py-1.5 rounded-lg bg-glass-strong border border-edge text-[11px] text-content-primary focus:border-brand focus:outline-none"
+                      >
+                        {eligibleAgents.map((agent) => (
+                          <option key={agent.id} value={agent.id}>
+                            {agent.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {storedAgentConfig.error && <AlertCard variant="error">{storedAgentConfig.error}</AlertCard>}
+
+                    {!storedAgentConfig.error &&
+                      agentSchema.fields.map((field) => {
+                        const value = agentEdits[field.key] ?? storedAgentConfig.values[field.key] ?? '';
+                        return (
+                          <label key={field.key} className="block space-y-1">
+                            <span className="font-mono text-[10px] text-content-secondary">{field.label}</span>
+                            {field.description && (
+                              <span className="block text-[10px] text-content-tertiary">{field.description}</span>
+                            )}
+                            {field.input === 'select' ? (
+                              <select
+                                value={value}
+                                onChange={(event) =>
+                                  setAgentEdits((prev) => ({ ...prev, [field.key]: event.target.value }))
+                                }
+                                className="w-full px-2 py-1.5 rounded-lg bg-glass-strong border border-edge text-[11px] text-content-primary focus:border-brand focus:outline-none"
+                              >
+                                <option value="">{t('cli_agent.inherit_default')}</option>
+                                {(field.options ?? []).map((option) => (
+                                  <option key={option} value={option}>
+                                    {option}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={value}
+                                placeholder={field.default || t('cli_agent.inherit_default')}
+                                onChange={(event) =>
+                                  setAgentEdits((prev) => ({ ...prev, [field.key]: event.target.value }))
+                                }
+                                className="w-full px-2 py-1.5 rounded-lg bg-glass-strong border border-edge text-[11px] font-mono text-content-primary focus:border-brand focus:outline-none"
+                              />
+                            )}
+                          </label>
+                        );
+                      })}
+                    <p className="text-[10px] text-content-tertiary font-mono">{t('cli_agent.binding_note')}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {options.length > 0 && (
               <div className="space-y-2">
                 <h3 className="text-[10px] font-bold uppercase tracking-widest text-content-secondary">
@@ -233,8 +365,11 @@ export function CliAgentPanel({ onClose }: { onClose: () => void }) {
             <div className="flex gap-2 pt-1">
               <button
                 type="button"
-                onClick={() => setEdits({})}
-                disabled={!dirty || save.isLoading}
+                onClick={() => {
+                  setEdits({});
+                  setAgentEdits({});
+                }}
+                disabled={!dirty || save.isLoading || Boolean(storedAgentConfig.error)}
                 aria-label={tc('cancel')}
                 className="flex-1 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:bg-surface-secondary transition-all disabled:opacity-50"
               >
@@ -251,7 +386,9 @@ export function CliAgentPanel({ onClose }: { onClose: () => void }) {
                 {tc('save')}
               </button>
             </div>
-            {dirty && <p className="text-[10px] text-content-tertiary font-mono">{t('cli_agent.restart_note')}</p>}
+            {connectionDirty && (
+              <p className="text-[10px] text-content-tertiary font-mono">{t('cli_agent.restart_note')}</p>
+            )}
           </>
         )}
       </div>

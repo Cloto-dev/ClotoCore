@@ -40,6 +40,23 @@ export interface HarnessProbe {
   /** What it would actually run right now. */
   active_harness: string | null;
   working_directory: string;
+  /** Connector-owned editor for settings stored on one agent. */
+  agent_config?: AgentConfigSchema;
+}
+
+export interface AgentConfigField {
+  key: string;
+  label: string;
+  description?: string;
+  input: 'text' | 'select';
+  options?: string[];
+  default?: string;
+}
+
+export interface AgentConfigSchema {
+  /** Key in the kernel's string-valued agent metadata map. */
+  metadata_key: string;
+  fields: AgentConfigField[];
 }
 
 /** The connector that can run CLI harnesses, or undefined when none is installed. */
@@ -79,12 +96,85 @@ export function parseProbeResult(raw: unknown): HarnessProbe {
   if (typeof parsed.error === 'string') throw new Error(parsed.error);
   if (!Array.isArray(parsed.harnesses)) throw new Error('Harness probe carried no harness list');
 
+  let agentConfig: AgentConfigSchema | undefined;
+  if (parsed.agent_config !== undefined) {
+    if (
+      !isRecord(parsed.agent_config) ||
+      Array.isArray(parsed.agent_config) ||
+      typeof parsed.agent_config.metadata_key !== 'string'
+    ) {
+      throw new Error('Harness probe carried an invalid agent configuration schema');
+    }
+    const fields = Array.isArray(parsed.agent_config.fields) ? parsed.agent_config.fields : [];
+    agentConfig = {
+      metadata_key: parsed.agent_config.metadata_key,
+      fields: fields.map((field) => {
+        if (
+          !isRecord(field) ||
+          typeof field.key !== 'string' ||
+          typeof field.label !== 'string' ||
+          (field.input !== 'text' && field.input !== 'select')
+        ) {
+          throw new Error('Harness probe carried an invalid agent configuration field');
+        }
+        return {
+          key: field.key,
+          label: field.label,
+          input: field.input,
+          ...(typeof field.description === 'string' && { description: field.description }),
+          ...(typeof field.default === 'string' && { default: field.default }),
+          ...(Array.isArray(field.options) && {
+            options: field.options.filter((option): option is string => typeof option === 'string'),
+          }),
+        };
+      }),
+    };
+  }
+
   return {
     harnesses: parsed.harnesses.filter(isRecord).map((h) => h as unknown as HarnessEntry),
     configured_harness: typeof parsed.configured_harness === 'string' ? parsed.configured_harness : null,
     active_harness: typeof parsed.active_harness === 'string' ? parsed.active_harness : null,
     working_directory: typeof parsed.working_directory === 'string' ? parsed.working_directory : '',
+    ...(agentConfig && { agent_config: agentConfig }),
   };
+}
+
+/** Decode a connector-owned object from the kernel's string-valued metadata. */
+export function parseAgentConfig(raw: string | undefined): Record<string, string> {
+  if (!raw) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error('The saved agent binding is not valid JSON');
+  }
+  if (!isRecord(parsed) || Array.isArray(parsed)) throw new Error('The saved agent binding is not an object');
+
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value !== 'string') throw new Error(`The saved agent binding field "${key}" is not text`);
+    out[key] = value;
+  }
+  return out;
+}
+
+/** Merge edited connector-owned fields without dropping other agent metadata. */
+export function buildAgentMetadataUpdate(
+  metadata: Readonly<Record<string, string>>,
+  metadataKey: string,
+  edits: Readonly<Record<string, string>>,
+): Record<string, string> {
+  const next = { ...metadata };
+  const binding = parseAgentConfig(metadata[metadataKey]);
+  for (const [key, value] of Object.entries(edits)) {
+    const normalized = value.trim();
+    if (normalized) binding[key] = normalized;
+    else delete binding[key];
+  }
+  if (Object.keys(binding).length > 0) next[metadataKey] = JSON.stringify(binding);
+  else delete next[metadataKey];
+  return next;
 }
 
 /**
