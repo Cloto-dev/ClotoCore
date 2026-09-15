@@ -666,80 +666,54 @@ resolution. The future approach (C) will use Python package-based invocation
 - **Third-party Support**: Introduce OS-level sandboxing (seccomp / AppArmor) per MGP isolation design
 - **Remote MCP Transport**: See §13.1
 
-### 13.1 Remote MCP Transport (Streamable HTTP) — Planned
+### 13.1 Remote MCP Transport (Streamable HTTP)
 
-**Status:** Not implemented. All MCP connections currently use stdio (subprocess spawning).
+Streamable HTTP is implemented alongside stdio. The kernel selects the transport from
+`McpServerConfig.transport`, enforces HTTPS for non-loopback endpoints, carries the MCP
+session identifier for legacy servers, and supports the stateless modern protocol era.
 
-**Problem:** `McpClient::connect()` unconditionally calls `StdioTransport::start()`,
-ignoring `McpServerConfig.transport`. The `transport` field exists in the config struct
-and `mcp.toml` schema but is never read during connection. `MGP_SPEC.md` §1.4 declares
-Streamable HTTP support, but the implementation does not match the specification.
+Remote servers can be supplied by the legacy `mcp.toml` ingestion path or created through
+`POST /api/mcp/servers`. The REST form uses `transport = "streamable-http"`, `url`, and an
+optional `auth_token`; it rejects stdio-only `code`, `command`, and `args` fields. The token
+is persisted for reconnect but is never returned by settings APIs, which expose only
+`auth_token_configured`.
 
-**Existing provisions (already in place):**
-- `McpServerConfig.transport`: `String` field (default `"stdio"`)
-- Discovery API: `transport` enum includes `["stdio", "http"]`
-- `reqwest`: Already a workspace dependency (used in marketplace, capabilities, LLM proxy)
-
-**Design:**
+Example legacy configuration:
 
 ```
 mcp.toml
 
   [[servers]]
   id = "memory.cpersona"
-  transport = "streamable-http"       # ← new transport type
-  url = "https://cpersona.example.com/mcp"  # ← new field (replaces command/args)
+  transport = "streamable-http"
+  url = "https://cpersona.example.com/mcp"
+  auth_token = "${CPERSONA_AUTH_TOKEN}"
   auto_restart = true
-  [servers.env]
-  CPERSONA_AUTH_TOKEN = "${CPERSONA_AUTH_TOKEN}"
 ```
 
-**Implementation scope:**
+Example REST request:
 
-1. **`HttpTransport` struct** (`mcp_transport.rs`)
-   - HTTP POST for JSON-RPC requests (`reqwest::Client`)
-   - SSE (Server-Sent Events) response parsing
-   - `Mcp-Session-Id` header tracking
-   - Bearer token authentication (`Authorization` header from env)
-   - Reconnection with exponential backoff on connection loss
-   - Same `sender()` / `recv()` interface as `StdioTransport` (trait extraction)
+```json
+{
+  "name": "memory.example",
+  "transport": "streamable-http",
+  "url": "https://memory.example.com/mcp",
+  "auth_token": "<bearer token>"
+}
+```
 
-2. **Transport trait extraction**
-   - Extract common interface from `StdioTransport` into a `McpTransport` trait
-   - `HttpTransport` and `StdioTransport` both implement the trait
-   - `McpClient` becomes transport-agnostic
+The database stores `transport`, `url`, and `auth_token` together so boot restore and a
+manual stop/start reconstruct the same connection. Stdio rows keep both remote fields NULL.
 
-3. **`McpClient::connect()` branching** (`mcp_client.rs`)
-   ```rust
-   match config.transport.as_str() {
-       "stdio" => StdioTransport::start(command, args, env, ...),
-       "streamable-http" => HttpTransport::connect(url, auth, ...),
-       _ => bail!("unsupported transport: {}", config.transport),
-   }
-   ```
-
-4. **`McpServerConfig` extension** (`mcp_protocol.rs`)
-   - Add `url: Option<String>` field
-   - Validation: `transport="stdio"` requires `command`; `transport="streamable-http"` requires `url`
-
-5. **`mcp.toml` parser update**
-   - Accept `url` field for HTTP servers
-   - Reject `command`/`args` when `transport="streamable-http"` (mutual exclusion)
-
-6. **Security considerations**
-   - HTTP servers bypass OS-level process isolation (no subprocess)
-   - Bearer token or mTLS authentication required
-   - HTTPS enforcement for non-localhost URLs
-   - MGP isolation profiles may need adaptation (no process to sandbox)
-
-7. **Dashboard UI**
-   - MCP Server management page: transport type indicator (stdio / HTTP)
-   - Connection status for HTTP servers (latency, last heartbeat)
+**Security considerations:**
+- HTTP servers bypass OS-level process isolation because there is no child process to sandbox.
+- Non-loopback remote endpoints require HTTPS.
+- Settings responses must never return the bearer token.
+- Access to remote tools still passes through the same per-agent MCP grants as stdio tools.
 
 **What this does NOT cover:**
 - WebSocket transport (not part of MCP spec)
 - MCP server discovery/registration via HTTP (out of scope)
 - Automatic migration of stdio servers to HTTP
 
-**Dependency:** None — can be implemented independently of other roadmap items.
 Existing stdio servers are unaffected.

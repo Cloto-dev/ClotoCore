@@ -4564,6 +4564,19 @@
       "status": "fixed",
       "notes": "FIXED in two parts. (1) qa/issue-registry.schema.md now exists and describes this registry's actual shape -- including the fields the siblings do not have and the statuses they do not use -- rather than a shape shared with repositories that had already diverged from it. The verifier refuses a registry whose `$schema` is absent, is a URL or an absolute path (neither form can be followed from here), or does not resolve to a file inside the repository; measured across all four shapes, each exiting 0 before and 1 after. (2) The root `version` field is removed rather than given a meaning: the registry has one producer and one consumer, both in this repository and versioned together by git, so there is no version skew for such a field to describe, and a number nothing compares is not a version. Per-entry `version` fields are unaffected -- those say which release the defect was found in, which is a real fact.",
       "github_issue": 550
+    },
+    {
+      "id": "bug-513",
+      "summary": "HIGH: Streamable HTTP MCP servers could connect only for the lifetime of the process that created them. The persistence record stored the transport name but omitted the remote URL and bearer credential, while every database restore path rebuilt the server with transport=\"stdio\", url=None, and auth_token=None. The public POST /api/mcp/servers endpoint also required a local command or generated code and offered no remote registration form. A remote server therefore could not survive a kernel restart or be restored after a manual stop/start, despite native Streamable HTTP transport support.",
+      "severity": "HIGH",
+      "discovered": "2026-09-15T00:00:00Z",
+      "version": "0.6.9-a.1",
+      "file": "docs/MCP_PLUGIN_ARCHITECTURE.md",
+      "pattern": "Status:\\*\\* Not implemented\\. All MCP connections currently use stdio",
+      "expected": "absent",
+      "status": "fixed",
+      "notes": "FIXED on branch fix/remote-mcp-persistence. The database now stores url and auth_token with transport; legacy config migration, priority boot restore, general boot restore, and manual start all reconstruct the complete persisted connection. POST /api/mcp/servers accepts a streamable-http request with url and optional auth_token, rejects mixed stdio fields, and settings responses expose only auth_token_configured. Validation: the six focused remote tests pass; the 11 migration tests pass; cargo fmt and the repository-derived clippy gate pass; verify-issues reports 349 total, 0 stale, 0 errors. The full cloto_core library run passed 869/874; the five unrelated llm_proxy listener tests were blocked by the managed sandbox refusing TcpListener::bind(127.0.0.1:0) with Operation not permitted. Mutation proof: in one temporary run, dropping the stored URL, dropping the restored URL, dropping the parsed token, accepting a mixed command, and returning the token made the five corresponding tests fail (exit 101); restoring the files returned all six focused tests to green.",
+      "github_issue": 594
     }
   ]
 }

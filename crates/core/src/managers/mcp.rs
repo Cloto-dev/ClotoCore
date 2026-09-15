@@ -52,6 +52,29 @@ pub(super) fn clamp_instructions(text: &str, limit: usize) -> String {
     format!("{head}… [truncated by the kernel at {limit} characters]")
 }
 
+fn persisted_server_config(record: &crate::db::McpServerRecord) -> McpServerConfig {
+    McpServerConfig {
+        id: record.name.clone(),
+        command: record.command.clone(),
+        args: serde_json::from_str(&record.args).unwrap_or_default(),
+        env: serde_json::from_str(&record.env).unwrap_or_default(),
+        transport: record.transport.clone(),
+        url: record.url.clone(),
+        auth_token: record.auth_token.clone(),
+        auto_restart: Some(record.auto_restart),
+        display_name: record.display_name.clone(),
+        mgp: record
+            .trust_level
+            .clone()
+            .map(|trust_level| super::mcp_mgp::MgpServerConfig {
+                trust_level: Some(trust_level),
+            }),
+        seal: record.seal.clone(),
+        marketplace_id: record.marketplace_id.clone(),
+        ..Default::default()
+    }
+}
+
 /// The always-loaded files an agent may carry, in the order they are placed in
 /// the prompt. The list is fixed rather than a directory listing: the order a
 /// filesystem hands back its entries is not stable, and an unstable order
@@ -737,6 +760,8 @@ impl McpClientManager {
                 args: serde_json::to_string(&config.args).unwrap_or_else(|_| "[]".to_string()),
                 env: serde_json::to_string(&config.env).unwrap_or_else(|_| "{}".to_string()),
                 transport: config.transport.clone(),
+                url: config.url.clone(),
+                auth_token: config.auth_token.clone(),
                 directory,
                 display_name: config.display_name.clone(),
                 auto_restart: config.auto_restart.unwrap_or(true),
@@ -816,6 +841,8 @@ impl McpClientManager {
                 args: serde_json::to_string(&config.args).unwrap_or_else(|_| "[]".to_string()),
                 env: serde_json::to_string(&config.env).unwrap_or_else(|_| "{}".to_string()),
                 transport: config.transport.clone(),
+                url: config.url.clone(),
+                auth_token: config.auth_token.clone(),
                 directory,
                 display_name: config.display_name.clone(),
                 auto_restart: config.auto_restart.unwrap_or(true),
@@ -852,24 +879,7 @@ impl McpClientManager {
         let all_configs: Vec<McpServerConfig> = records
             .iter()
             .filter(|r| r.command != "config-loaded")
-            .map(|r| McpServerConfig {
-                id: r.name.clone(),
-                command: r.command.clone(),
-                args: serde_json::from_str(&r.args).unwrap_or_default(),
-                env: serde_json::from_str(&r.env).unwrap_or_default(),
-                transport: r.transport.clone(),
-                display_name: r.display_name.clone(),
-                auto_restart: Some(r.auto_restart),
-                mgp: r
-                    .trust_level
-                    .clone()
-                    .map(|tl| super::mcp_mgp::MgpServerConfig {
-                        trust_level: Some(tl),
-                    }),
-                seal: r.seal.clone(),
-                marketplace_id: r.marketplace_id.clone(),
-                ..Default::default()
-            })
+            .map(persisted_server_config)
             .collect();
 
         // Partition into priority (granted to default agent) and deferred
@@ -1159,32 +1169,7 @@ impl McpClientManager {
                 }
             }
 
-            let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
-            let db_env: HashMap<String, String> =
-                serde_json::from_str(&record.env).unwrap_or_default();
-            configs.push(McpServerConfig {
-                id: record.name.clone(),
-                command: record.command.clone(),
-                args,
-                env: db_env,
-                transport: "stdio".to_string(),
-                url: None,
-                auth_token: None,
-                auto_restart: Some(true),
-                required_permissions: Vec::new(),
-                display_name: None,
-                mgp: record
-                    .trust_level
-                    .clone()
-                    .map(|tl| super::mcp_mgp::MgpServerConfig {
-                        trust_level: Some(tl),
-                    }),
-                restart_policy: None,
-                seal: record.seal.clone(),
-                isolation: None,
-                marketplace_id: record.marketplace_id.clone(),
-                protocol_era: None,
-            });
+            configs.push(persisted_server_config(&record));
         }
 
         if configs.is_empty() {
@@ -3278,6 +3263,20 @@ impl McpClientManager {
             protocol_era: None,
         };
 
+        self.add_server_config(config, script_content, description)
+            .await
+    }
+
+    /// Add a server from a complete transport configuration, connect it, and
+    /// persist enough information to reconstruct the same connection on boot.
+    pub async fn add_server_config(
+        &self,
+        config: McpServerConfig,
+        script_content: Option<String>,
+        description: Option<String>,
+    ) -> Result<Vec<String>> {
+        let id = config.id.clone();
+
         // Persist to DB first (so server is always tracked even if connect fails).
         // trust_level + seal flow from the MgpServerConfig + RegistryEntry the
         // caller built (e.g., from registry.json during marketplace install)
@@ -3286,13 +3285,18 @@ impl McpClientManager {
         let trust_level = config.mgp.as_ref().and_then(|m| m.trust_level.clone());
         let record = crate::db::McpServerRecord {
             name: id.clone(),
-            command: command.clone(),
-            args: serde_json::to_string(&args)?,
-            env: serde_json::to_string(&env)?,
+            command: config.command.clone(),
+            args: serde_json::to_string(&config.args)?,
+            env: serde_json::to_string(&config.env)?,
+            transport: config.transport.clone(),
+            url: config.url.clone(),
+            auth_token: config.auth_token.clone(),
             script_content,
             description,
+            display_name: config.display_name.clone(),
+            auto_restart: config.auto_restart.unwrap_or(true),
             trust_level,
-            seal,
+            seal: config.seal.clone(),
             created_at: chrono::Utc::now().timestamp(),
             is_active: true,
             ..Default::default()
@@ -3714,32 +3718,7 @@ impl McpClientManager {
             ));
         }
 
-        let args: Vec<String> = serde_json::from_str(&record.args).unwrap_or_default();
-        let mgp = record
-            .trust_level
-            .clone()
-            .map(|tl| super::mcp_mgp::MgpServerConfig {
-                trust_level: Some(tl),
-            });
-
-        let config = McpServerConfig {
-            id: id.to_string(),
-            command: record.command,
-            args,
-            env: serde_json::from_str(&record.env).unwrap_or_default(),
-            transport: "stdio".to_string(),
-            url: None,
-            auth_token: None,
-            auto_restart: Some(true),
-            required_permissions: Vec::new(),
-            display_name: None,
-            mgp,
-            restart_policy: None,
-            seal: None,
-            isolation: None,
-            marketplace_id: record.marketplace_id.clone(),
-            protocol_era: None,
-        };
+        let config = persisted_server_config(&record);
 
         self.connect_server(config).await
     }
@@ -4251,6 +4230,30 @@ mod tests {
     /// enricher tests that are about the other four keys — the token path has
     /// its own tests, which register a server and negotiate the extension.
     const NO_TOKEN_ENGINE: &str = "engine.not-registered";
+
+    #[test]
+    fn persisted_remote_server_reconstructs_the_same_connection() {
+        let record = crate::db::McpServerRecord {
+            name: "memory.example".to_string(),
+            command: String::new(),
+            transport: "streamable-http".to_string(),
+            url: Some("https://memory.example.com/mcp".to_string()),
+            auth_token: Some("test-bearer".to_string()),
+            auto_restart: false,
+            display_name: Some("Remote memory".to_string()),
+            ..Default::default()
+        };
+
+        let config = persisted_server_config(&record);
+        assert_eq!(config.transport, "streamable-http");
+        assert_eq!(
+            config.url.as_deref(),
+            Some("https://memory.example.com/mcp")
+        );
+        assert_eq!(config.auth_token.as_deref(), Some("test-bearer"));
+        assert_eq!(config.auto_restart, Some(false));
+        assert_eq!(config.display_name.as_deref(), Some("Remote memory"));
+    }
 
     // ── normalize_legacy_server_id ──
 

@@ -403,6 +403,57 @@ fn validate_server_name(name: &str) -> AppResult<()> {
     Ok(())
 }
 
+fn remote_server_config(
+    name: &str,
+    body: &serde_json::Value,
+) -> AppResult<Option<crate::managers::mcp_protocol::McpServerConfig>> {
+    let transport = body
+        .get("transport")
+        .and_then(|v| v.as_str())
+        .unwrap_or("stdio");
+    if transport == "stdio" {
+        return Ok(None);
+    }
+    if transport != "streamable-http" {
+        return Err(AppError::Validation(format!(
+            "Unsupported MCP transport: {transport}"
+        )));
+    }
+    if body.get("code").is_some() || body.get("command").is_some() || body.get("args").is_some() {
+        return Err(AppError::Validation(
+            "streamable-http servers accept 'url' instead of 'code', 'command', or 'args'".into(),
+        ));
+    }
+    let url = body
+        .get("url")
+        .and_then(|v| v.as_str())
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| {
+            AppError::Validation("Missing required field for streamable-http server: url".into())
+        })?;
+
+    Ok(Some(crate::managers::mcp_protocol::McpServerConfig {
+        id: name.to_string(),
+        transport: transport.to_string(),
+        url: Some(url.to_string()),
+        auth_token: body
+            .get("auth_token")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
+            .map(str::to_string),
+        auto_restart: Some(
+            body.get("auto_restart")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(true),
+        ),
+        display_name: body
+            .get("display_name")
+            .and_then(|v| v.as_str())
+            .map(str::to_string),
+        ..Default::default()
+    }))
+}
+
 pub async fn create_mcp_server(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -416,6 +467,24 @@ pub async fn create_mcp_server(
         .ok_or_else(|| AppError::Validation("Missing required field: name".into()))?;
 
     validate_server_name(name)?;
+
+    if let Some(config) = remote_server_config(name, &body)? {
+        let description = body
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        let tool_names = state
+            .mcp_manager
+            .add_server_config(config, None, description)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to add MCP server: {}", e)))?;
+
+        tracing::info!(name = %name, tools = ?tool_names, "Remote MCP server added");
+        return ok_data(serde_json::json!({
+            "name": name,
+            "tools": tool_names,
+        }));
+    }
 
     // Determine command/args: either explicit or auto-generated from code
     let (command, args, script_content) =
@@ -578,6 +647,9 @@ pub async fn get_mcp_server_settings(
             "config": {},
             "env": masked_env,
             "auto_restart": record.auto_restart,
+            "transport": record.transport,
+            "url": record.url,
+            "auth_token_configured": record.auth_token.is_some(),
             "command": record.command,
             "args": serde_json::from_str::<Vec<String>>(&record.args).unwrap_or_default(),
             "description": record.description,
@@ -1215,6 +1287,91 @@ mod tests {
                 name
             );
         }
+    }
+
+    #[test]
+    fn remote_server_request_keeps_connection_fields() {
+        let body = serde_json::json!({
+            "transport": "streamable-http",
+            "url": "https://memory.example.com/mcp",
+            "auth_token": "test-bearer",
+            "auto_restart": true,
+            "display_name": "Remote memory"
+        });
+        let Ok(Some(config)) = remote_server_config("memory.example", &body) else {
+            panic!("valid remote request must produce a complete config")
+        };
+
+        assert_eq!(config.id, "memory.example");
+        assert_eq!(config.transport, "streamable-http");
+        assert_eq!(
+            config.url.as_deref(),
+            Some("https://memory.example.com/mcp")
+        );
+        assert_eq!(config.auth_token.as_deref(), Some("test-bearer"));
+        assert_eq!(config.auto_restart, Some(true));
+    }
+
+    #[test]
+    fn remote_server_request_rejects_stdio_fields_and_missing_url() {
+        for body in [
+            serde_json::json!({"transport": "streamable-http"}),
+            serde_json::json!({
+                "transport": "streamable-http",
+                "url": "https://memory.example.com/mcp",
+                "command": "python"
+            }),
+            serde_json::json!({"transport": "websocket", "url": "wss://example.com"}),
+        ] {
+            assert!(
+                remote_server_config("memory.example", &body).is_err(),
+                "invalid remote request must be rejected: {body}"
+            );
+        }
+        assert!(matches!(
+            remote_server_config("local", &serde_json::json!({})),
+            Ok(None)
+        ));
+    }
+
+    #[tokio::test]
+    async fn remote_server_settings_never_return_the_bearer_token() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        crate::db::save_mcp_server(
+            &state.pool,
+            &crate::db::McpServerRecord {
+                name: "memory.example".to_string(),
+                transport: "streamable-http".to_string(),
+                url: Some("https://memory.example.com/mcp".to_string()),
+                auth_token: Some("test-bearer".to_string()),
+                is_active: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", "admin-key".parse().unwrap());
+
+        let Ok(Json(response)) =
+            get_mcp_server_settings(State(state), Path("memory.example".to_string()), headers)
+                .await
+        else {
+            panic!("settings request must succeed")
+        };
+
+        assert_eq!(
+            response.pointer("/data/auth_token_configured"),
+            Some(&serde_json::json!(true))
+        );
+        assert_eq!(
+            response.pointer("/data/url"),
+            Some(&serde_json::json!("https://memory.example.com/mcp"))
+        );
+        assert!(
+            !response.to_string().contains("test-bearer"),
+            "settings response must not expose the stored bearer token"
+        );
     }
 
     #[test]

@@ -92,6 +92,11 @@ pub struct McpServerRecord {
     pub args: String,
     pub env: String, // JSON-serialized HashMap<String, String>
     pub transport: String,
+    /// Remote endpoint for `streamable-http` servers. NULL for stdio servers.
+    pub url: Option<String>,
+    /// Bearer credential for a remote server. This is never returned by API
+    /// responses; settings surfaces expose only whether it is configured.
+    pub auth_token: Option<String>,
     pub directory: Option<String>,
     pub display_name: Option<String>,
     pub auto_restart: bool,
@@ -120,6 +125,8 @@ impl Default for McpServerRecord {
             args: "[]".to_string(),
             env: "{}".to_string(),
             transport: "stdio".to_string(),
+            url: None,
+            auth_token: None,
             directory: None,
             display_name: None,
             auto_restart: true,
@@ -141,15 +148,17 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
     db_timeout(
         sqlx::query(
             "INSERT INTO mcp_servers \
-             (name, command, args, env, transport, directory, display_name, auto_restart, \
+             (name, command, args, env, transport, url, auth_token, directory, display_name, auto_restart, \
               script_content, description, default_policy, marketplace_id, installed_version, \
               trust_level, seal, is_active, created_at, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) \
              ON CONFLICT(name) DO UPDATE SET \
                command = excluded.command, \
                args = excluded.args, \
                env = excluded.env, \
                transport = excluded.transport, \
+               url = excluded.url, \
+               auth_token = excluded.auth_token, \
                directory = COALESCE(excluded.directory, mcp_servers.directory), \
                display_name = COALESCE(excluded.display_name, mcp_servers.display_name), \
                auto_restart = excluded.auto_restart, \
@@ -167,6 +176,8 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
         .bind(&record.args)
         .bind(&record.env)
         .bind(&record.transport)
+        .bind(&record.url)
+        .bind(&record.auth_token)
         .bind(&record.directory)
         .bind(&record.display_name)
         .bind(record.auto_restart)
@@ -189,7 +200,7 @@ pub async fn save_mcp_server(pool: &SqlitePool, record: &McpServerRecord) -> any
 pub async fn load_active_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<McpServerRecord>> {
     db_timeout(
         sqlx::query_as::<_, McpServerRecord>(
-            "SELECT name, command, args, env, transport, directory, display_name, auto_restart, \
+            "SELECT name, command, args, env, transport, url, auth_token, directory, display_name, auto_restart, \
              script_content, description, default_policy, marketplace_id, installed_version, \
              trust_level, seal, is_active, created_at, updated_at \
              FROM mcp_servers WHERE is_active = 1 ORDER BY created_at ASC",
@@ -698,7 +709,7 @@ pub async fn get_mcp_server_settings(
 ) -> anyhow::Result<Option<McpServerRecord>> {
     db_timeout(
         sqlx::query_as::<_, McpServerRecord>(
-            "SELECT name, command, args, env, transport, directory, display_name, auto_restart, \
+            "SELECT name, command, args, env, transport, url, auth_token, directory, display_name, auto_restart, \
              script_content, description, default_policy, marketplace_id, installed_version, \
              trust_level, seal, is_active, created_at, updated_at \
              FROM mcp_servers WHERE name = ?",
@@ -883,6 +894,8 @@ mod tests {
             args: "[\"server.py\"]".to_string(),
             env: "{}".to_string(),
             transport: "stdio".to_string(),
+            url: None,
+            auth_token: None,
             directory: None,
             display_name: None,
             auto_restart: true,
@@ -929,6 +942,33 @@ mod tests {
             .expect("settings query must not error (seal NULL)")
             .expect("server row must exist");
         assert_eq!(unsealed.seal, None);
+    }
+
+    #[tokio::test]
+    async fn remote_transport_fields_survive_database_round_trip() {
+        let state = crate::test_utils::create_test_app_state(None).await;
+        let pool = &state.pool;
+        let mut record = sample_record("remote-memory", None);
+        record.command.clear();
+        record.args = "[]".to_string();
+        record.transport = "streamable-http".to_string();
+        record.url = Some("https://memory.example.com/mcp".to_string());
+        record.auth_token = Some("test-bearer".to_string());
+
+        save_mcp_server(pool, &record).await.unwrap();
+        let restored = load_active_mcp_servers(pool)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|row| row.name == "remote-memory")
+            .expect("saved remote server must be returned");
+
+        assert_eq!(restored.transport, "streamable-http");
+        assert_eq!(
+            restored.url.as_deref(),
+            Some("https://memory.example.com/mcp")
+        );
+        assert_eq!(restored.auth_token.as_deref(), Some("test-bearer"));
     }
 
     /// grant_default_engine_to_agents grants a freshly-installed engine to the
