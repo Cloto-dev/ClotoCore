@@ -76,7 +76,7 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
     }
   }, [eligibleAgents, selectedAgentId]);
 
-  const storedAgentConfig = useMemo(() => {
+  const storedAgentConfig = useMemo<{ values: Record<string, string>; error: string | null }>(() => {
     if (!selectedAgent || !agentSchema) return { values: {}, error: null };
     try {
       return {
