@@ -54,12 +54,20 @@ only in density and colour.
 |---|---|---|
 | Screens | Chat, the agent's face, questions the agent asks | MCP servers, cron, settings, memory, logs |
 | Who faces whom | The person and their agent | The person and the machine |
-| Density | Open. Body text 15–16 px, few controls | Dense. Tables, lists, numbers |
+| Density | Open. Body text 15–16 px, few controls | Dense. Lists that say what each row is *for*; a table only where the columns actually differ |
 | Colour | The colour of the agent who is present | Neutral, plus status colours only |
 | Corner radius | Composer 18 px, surfaces 10 px | Controls 6 px |
 
 This removes a whole class of sameness at once: a workshop screen has no reason
 to be a grid of cards, so it isn't one.
+
+The workshop is not "tables everywhere" either. A list of five agents is a
+roster, not a table: the columns would all read the same. A list of seventeen
+servers is readable only when each row says what the server is for — a name
+plus a repeated "running" is noise. Memory is read along time, so it sits on
+a vertical axis with days as thin bands and empty stretches compressed. The
+shape follows what the person does on the screen (find, compare, read back),
+not a register-wide rule.
 
 ## 4. Six decisions
 

@@ -9,10 +9,10 @@ Japanese locale so that line lengths and wrapping are the ones users will see.
 |---|---|---|
 | `01-chat-empty.html` | Chat, no conversation yet — the agent is present, not a blank page | living room |
 | `02-chat-conversation.html` | Chat in progress — inner voice, code, a question from the agent, streaming | living room |
-| `03-agents.html` | Agents as a table with a split detail pane | workshop |
-| `04-mcp-servers.html` | MCP servers as a table | workshop |
+| `03-agents.html` | Agents as a roster (face, name, one line of state) with a detail pane | workshop |
+| `04-mcp-servers.html` | MCP servers in one column, grouped by capability, each with a sentence saying what it is for; status written only when it deviates | workshop |
 | `05-settings.html` | Settings as a page, not a modal | workshop |
-| `06-memory.html` | Memory as a timeline with the episode stream beside it | workshop |
+| `06-memory.html` | Memory on a vertical time axis — days as thin bands, empty stretches compressed, a 30-day density strip beside it | workshop |
 
 View them with any static server, one folder, one port:
 
