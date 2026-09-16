@@ -69,6 +69,11 @@ a vertical axis with days as thin bands and empty stretches compressed. The
 shape follows what the person does on the screen (find, compare, read back),
 not a register-wide rule.
 
+Detail pages in the workshop — one server, one agent, the CLI harnesses —
+share a single skeleton with the settings page: sections on the left, rows of
+"item, explanation, control" on the right, and a save bar that says changes
+are not applied until saved. One part, used everywhere it fits.
+
 ## 4. Six decisions
 
 1. **Neutral scale.** Not a framework palette. A near-black tinted 4 % toward

@@ -13,6 +13,9 @@ Japanese locale so that line lengths and wrapping are the ones users will see.
 | `04-mcp-servers.html` | MCP servers in one column, grouped by capability, each with a sentence saying what it is for; status written only when it deviates | workshop |
 | `05-settings.html` | Settings as a page, not a modal | workshop |
 | `06-memory.html` | Memory on a vertical time axis — days as thin bands, empty stretches compressed, a 30-day density strip beside it | workshop |
+| `07-mcp-server-detail.html` | One MCP server: overview, environment, tools with weekly call counts, per-agent access, log — sections on the left, rows on the right, a deferred save bar | workshop |
+| `08-agent-settings.html` | One agent: identity, engine and routing, memory, appearance including the agent's colour, tool grants, dangerous actions | workshop |
+| `09-cli-agents.html` | CLI harnesses found on this machine (billing, credential location, who uses them), connection options, per-agent run settings | workshop |
 
 View them with any static server, one folder, one port:
 
