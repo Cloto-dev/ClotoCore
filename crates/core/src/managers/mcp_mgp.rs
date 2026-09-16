@@ -73,9 +73,7 @@ pub const MGP_ERR_TOOL_NAME_CONFLICT: i64 = 4003;
 pub const MGP_ERR_RESOURCE_NOT_FOUND: i64 = 4004;
 
 // Discovery errors (4100–4199)
-pub const MGP_ERR_DISCOVERY_UNAVAILABLE: i64 = 4100;
 pub const MGP_ERR_SERVER_ALREADY_REGISTERED: i64 = 4101;
-pub const MGP_ERR_CANNOT_DEREGISTER_CONFIG: i64 = 4102;
 
 // External service errors (5000–5099)
 pub const MGP_ERR_UPSTREAM_ERROR: i64 = 5000;
@@ -274,16 +272,8 @@ impl MgpError {
 
     // ── Discovery errors (4100–4199) ──
 
-    pub fn discovery_unavailable(msg: impl Into<String>) -> Self {
-        Self::new(MGP_ERR_DISCOVERY_UNAVAILABLE, msg)
-    }
-
     pub fn server_already_registered(msg: impl Into<String>) -> Self {
         Self::new(MGP_ERR_SERVER_ALREADY_REGISTERED, msg)
-    }
-
-    pub fn cannot_deregister_config(msg: impl Into<String>) -> Self {
-        Self::new(MGP_ERR_CANNOT_DEREGISTER_CONFIG, msg)
     }
 
     // ── External service errors (5000–5099) ──

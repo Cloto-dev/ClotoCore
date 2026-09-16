@@ -1923,6 +1923,39 @@ mod tests {
         }
     }
 
+    /// A server id that is already taken is not a missing resource. Answering it
+    /// with the 404 of the rows above would send the caller off to check an id
+    /// that is plainly there.
+    #[tokio::test]
+    async fn registering_a_taken_server_id_is_a_conflict() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        // `mgp.discovery.register` is privileged and refuses before the
+        // duplicate check without this.
+        state
+            .mcp_manager
+            .yolo_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        state
+            .mcp_manager
+            .insert_test_server_providing("srv.memory", "recall")
+            .await;
+
+        let (status, body) = call_and_render_body(
+            &state,
+            agent_headers(&state).await,
+            "mgp.discovery.register",
+            serde_json::json!({ "id": "srv.memory", "command": "noop", "transport": "stdio" }),
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::CONFLICT, "got {body}");
+        assert_eq!(body["error"]["code"], 4101, "got {body}");
+        let message = body["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("Server 'srv.memory' is already registered"),
+            "the caller must be told which id is taken; got: {message}"
+        );
+    }
+
     #[tokio::test]
     async fn a_caller_of_the_wrong_kind_is_told_so_rather_than_told_nothing() {
         let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;

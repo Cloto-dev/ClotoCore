@@ -331,7 +331,10 @@ impl axum::response::IntoResponse for AppError {
                     3000 | 3002 => axum::http::StatusCode::TOO_MANY_REQUESTS,
                     3003 | 5001 => axum::http::StatusCode::GATEWAY_TIMEOUT,
                     4000 => axum::http::StatusCode::BAD_REQUEST,
-                    4001..=4004 | 4100..=4102 => axum::http::StatusCode::NOT_FOUND,
+                    4001..=4004 => axum::http::StatusCode::NOT_FOUND,
+                    // The id is taken, not missing: a 404 would send the caller
+                    // looking for something that is plainly there.
+                    4101 => axum::http::StatusCode::CONFLICT,
                     _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 };
                 let body = axum::Json(serde_json::json!({
