@@ -331,6 +331,19 @@ export const api = {
       undefined,
       apiKey ? { 'X-API-Key': apiKey } : undefined,
     ),
+  /**
+   * Reply to a proposal. Seeing a question and answering it are separate calls
+   * because they have separate consequences: this one settles the item and is
+   * what the agent that asked reads back.
+   */
+  answerNotification: (itemId: string, decision: string, apiKey?: string) =>
+    mutate(
+      `/notifications/${encodeURIComponent(itemId)}/answer`,
+      'POST',
+      'send the answer',
+      { decision },
+      apiKey ? { 'X-API-Key': apiKey } : undefined,
+    ),
   fetchJson: <T>(path: string, apiKey: string) =>
     fetch(`${API_BASE}${path}`, { headers: { 'X-API-Key': apiKey } }).then((r) => {
       if (!r.ok) throw new Error(`${r.statusText}`);
@@ -1098,6 +1111,7 @@ export function createAuthenticatedApi(apiKey: string) {
     getNotificationSummary: () => api.getNotificationSummary(k),
     getNotifications: (unresolved?: boolean) => api.getNotifications(k, unresolved),
     markNotificationRead: (itemId: string) => api.markNotificationRead(itemId, k),
+    answerNotification: (itemId: string, decision: string) => api.answerNotification(itemId, decision, k),
     getAgentAccess: (agentId: string) => api.getAgentAccess(agentId, k),
     // Generic
     fetchJson: <T>(path: string) => api.fetchJson<T>(path, k),

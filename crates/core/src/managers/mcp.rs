@@ -2389,6 +2389,31 @@ impl McpClientManager {
         if offers_skills {
             schemas.push(super::mcp_kernel_tool::skill_load_schema());
         }
+        // Asking the operator a question, and reading the answer. Offered to
+        // every agent unconditionally, and deliberately not from the YOLO list
+        // above: that list is privileges, and YOLO is the mode where the
+        // operator has said not to ask. Gating the asking tool on it would mean
+        // an agent can only raise a question when questions have been switched
+        // off. An explicit Deny on the synthetic `kernel` server still removes
+        // it, the same lever every other kernel tool answers to.
+        for schema in [
+            super::mcp_kernel_tool::operator_ask_schema(),
+            super::mcp_kernel_tool::operator_replies_schema(),
+        ] {
+            let name = schema
+                .get("function")
+                .and_then(|f| f.get("name"))
+                .and_then(|n| n.as_str())
+                .unwrap_or("")
+                .to_string();
+            let denied = matches!(
+                crate::db::resolve_explicit_permission(&self.pool, agent_id, "kernel", &name).await,
+                Ok(Some(crate::db::mcp::PermissionLevel::Deny))
+            );
+            if !denied {
+                schemas.push(schema);
+            }
+        }
         // Track seen tool names to prevent duplicates sent to LLM (bug-341)
         let mut seen_tool_names: std::collections::HashSet<String> = schemas
             .iter()
@@ -2621,6 +2646,13 @@ impl McpClientManager {
             // Inter-agent delegation
             "mgp.agent.ask" => {
                 return super::mcp_kernel_tool::execute_mgp_agent_ask(self, args).await;
+            }
+            // Asking the person, which — unlike the line above — does not wait.
+            super::mcp_kernel_tool::TOOL_NAME_OPERATOR_ASK => {
+                return super::mcp_kernel_tool::execute_operator_ask(self, caller, args).await;
+            }
+            super::mcp_kernel_tool::TOOL_NAME_OPERATOR_REPLIES => {
+                return super::mcp_kernel_tool::execute_operator_replies(self, caller, args).await;
             }
             // GUI documentation
             "gui.map" => {

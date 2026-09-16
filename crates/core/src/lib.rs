@@ -1663,6 +1663,12 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/notifications/{item_id}/read",
             post(handlers::notifications::mark_notification_read),
         )
+        // Answering, which is not the same as having seen it: this settles the
+        // item and is what the asking agent reads back.
+        .route(
+            "/notifications/{item_id}/answer",
+            post(handlers::notifications::answer_notification),
+        )
         .route("/published", get(handlers::published::list_published))
         .route(
             "/published/{publisher}",

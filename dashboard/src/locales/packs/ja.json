@@ -91,7 +91,9 @@
       "level_low": "小",
       "will_interrupt": "カードが出ます",
       "mark_read": "既読にする",
-      "answer": "カードを開く"
+      "answer": "カードを開く",
+      "answer_yes": "はい",
+      "answer_no": "いいえ"
     }
   },
   "agents": {

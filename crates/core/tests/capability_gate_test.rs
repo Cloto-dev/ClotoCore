@@ -347,8 +347,9 @@ async fn kernel_rbac_blocks_only_on_explicit_deny() {
 
 // ────────── presentation vs execution, outside YOLO ──────────
 
-/// Outside YOLO the kernel offers an agent exactly two kernel-native tools, the
-/// `mgp.tools.*` discovery pair, and nothing in the gate chain stops it from
+/// Outside YOLO the kernel offers an agent four kernel-native tools — the
+/// `mgp.tools.*` discovery pair and the `mgp.operator.*` asking pair — and
+/// nothing in the gate chain stops it from
 /// naming one of the others: the approval gate does not ask about kernel-native
 /// names (they pass kernel RBAC instead), kernel RBAC is Deny-only, and
 /// `execute_tool_for_agent` filters `allowed_plugin_ids` on the Rust-plugin side
@@ -370,8 +371,19 @@ async fn outside_yolo_a_kernel_tool_that_reaches_another_server_is_refused() {
 
     const AGENT: &str = "agent.zero_grants";
 
-    // Presentation: the agent is offered the discovery pair and nothing else
-    // from the kernel's own set.
+    // Presentation: the agent is offered the unprivileged kernel tools and
+    // nothing else from the kernel's own set.
+    //
+    // Kept as an exact list rather than a "none of the privileged ones" check,
+    // because the exact list catches both directions: a privileged tool leaking
+    // out of the YOLO gate, and an unprivileged one being added here without
+    // anyone deciding it belongs on a zero-grant agent's surface. Either is a
+    // change worth stopping to look at.
+    //
+    // `mgp.operator.*` is on this list on purpose. Those two let an agent raise
+    // a question for the operator and read the answer; they reach nothing and
+    // grant nothing, and gating them on YOLO would mean an agent can only ask
+    // for a person's opinion in the mode where the person has said not to ask.
     let offered: Vec<String> = mgr
         .collect_tool_schemas_for_agent(AGENT)
         .await
@@ -382,9 +394,11 @@ async fn outside_yolo_a_kernel_tool_that_reaches_another_server_is_refused() {
         offered,
         vec![
             "mgp.tools.discover".to_string(),
-            "mgp.tools.request".to_string()
+            "mgp.tools.request".to_string(),
+            "mgp.operator.ask".to_string(),
+            "mgp.operator.replies".to_string(),
         ],
-        "outside YOLO only the discovery pair is offered"
+        "outside YOLO only the discovery pair and the asking pair are offered"
     );
 
     // Disconnecting a server is privileged, like registering one. Both halves of

@@ -355,6 +355,37 @@ pub async fn notification_summary(pool: &SqlitePool) -> anyhow::Result<Notificat
     Ok(NotificationSummary { waiting, blocking })
 }
 
+/// One agent's answered questions, newest first.
+///
+/// Narrow on purpose. It is read by a tool an agent calls, so it returns only
+/// that agent's rows, only `proposal`, and only the ones somebody has actually
+/// answered — an unanswered question coming back with a null decision would let
+/// an agent read "no reply yet" as a reply.
+pub async fn list_answered_proposals(
+    pool: &SqlitePool,
+    agent_id: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<NotificationItem>> {
+    // The audit `AssertSqlSafe` asks for: the only interpolation is
+    // `SELECT_COLUMNS`, a constant in this file. `agent_id` and `limit` are
+    // `bind`ed and travel as parameters.
+    let sql = format!(
+        "SELECT {SELECT_COLUMNS} FROM notifications \
+         WHERE kind = 'proposal' AND agent_id = ? AND resolved_at IS NOT NULL \
+         ORDER BY id DESC LIMIT ?"
+    );
+    let query_future = sqlx::query_as::<_, NotificationRow>(sqlx::AssertSqlSafe(sql))
+        .bind(agent_id)
+        .bind(limit)
+        .fetch_all(pool);
+
+    Ok(db_timeout(query_future)
+        .await?
+        .into_iter()
+        .map(row_to_item)
+        .collect())
+}
+
 /// Note that a reader has seen the item. Returns whether a row changed, so a
 /// caller can tell "already read" apart from "no such item".
 pub async fn mark_notification_read(pool: &SqlitePool, item_id: &str) -> anyhow::Result<bool> {

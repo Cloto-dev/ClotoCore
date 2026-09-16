@@ -44,6 +44,7 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [threshold, setThreshold] = useState<DisplayLevel>(loadThreshold);
   const [anchor, setAnchor] = useState<{ top: number; left: number } | null>(null);
+  const [answering, setAnswering] = useState<string | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -141,6 +142,31 @@ export function NotificationBell() {
   const raise = (itemId: string) => {
     window.dispatchEvent(new CustomEvent(RAISE_APPROVAL_EVENT, { detail: { approvalId: itemId } }));
     setOpen(false);
+  };
+
+  /**
+   * Reply to a proposal.
+   *
+   * Answered in place rather than by raising a card, which is the opposite of
+   * what the button above does for an approval — and the difference is the
+   * point. An approval releases a blocked agent and can destroy something, so it
+   * gets one deliberate surface with the command in front of you. A proposal
+   * stops nothing; making someone open a card to say "yes" would add a step to
+   * the cheap case and teach them to skip the expensive one.
+   */
+  const answer = async (itemId: string, decision: string) => {
+    setAnswering(itemId);
+    try {
+      await apiRef.current.answerNotification(itemId, decision);
+      setItems((prev) => prev.filter((i) => i.item_id !== itemId));
+      void refreshSummary();
+    } catch {
+      // Leave it in the list: the next open re-reads what actually happened,
+      // and an item that vanished without being answered is the one thing this
+      // panel must never show.
+    } finally {
+      setAnswering(null);
+    }
   };
 
   const markRead = async (itemId: string) => {
@@ -272,6 +298,28 @@ export function NotificationBell() {
                               <span className="text-red-500">
                                 {t('notifications.blocking', { defaultValue: 'holding an agent' })}
                               </span>
+                            )}
+                            {item.kind === 'proposal' && !item.resolved_at && (
+                              <>
+                                <button
+                                  type="button"
+                                  data-testid="answer-yes"
+                                  disabled={answering === item.item_id}
+                                  onClick={() => void answer(item.item_id, 'yes')}
+                                  className="text-emerald-400 hover:text-emerald-300 disabled:opacity-50 transition-colors"
+                                >
+                                  {t('notifications.answer_yes', { defaultValue: 'Yes' })}
+                                </button>
+                                <button
+                                  type="button"
+                                  data-testid="answer-no"
+                                  disabled={answering === item.item_id}
+                                  onClick={() => void answer(item.item_id, 'no')}
+                                  className="text-content-secondary hover:text-red-400 disabled:opacity-50 transition-colors"
+                                >
+                                  {t('notifications.answer_no', { defaultValue: 'No' })}
+                                </button>
+                              </>
                             )}
                             {item.kind === 'approval' && item.blocking && (
                               <button

@@ -88,3 +88,43 @@ pub async fn mark_notification_read(
 
     ok_data(serde_json::json!({ "item_id": item_id, "changed": changed }))
 }
+
+#[derive(Debug, serde::Deserialize)]
+pub struct AnswerBody {
+    /// What the operator said, in their own words. Stored verbatim: the agent
+    /// that asked reads this back, and a normalized yes/no would throw away the
+    /// part of the answer worth asking a person for.
+    pub decision: String,
+}
+
+/// POST /api/notifications/{item_id}/answer — the operator replies.
+///
+/// Separate from `/read` because seeing a question is not answering it, and the
+/// two have different consequences: reading moves nothing, answering settles the
+/// item, takes it off the bell, and is what `mgp.operator.replies` hands back to
+/// the agent that asked.
+///
+/// `changed: false` means the item was already settled. That is reported rather
+/// than treated as an error, because two people answering the same question at
+/// once is ordinary, and the first answer standing is the right outcome.
+pub async fn answer_notification(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(item_id): Path<String>,
+    Json(body): Json<AnswerBody>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let decision = body.decision.trim();
+    if decision.is_empty() {
+        return Err(AppError::Validation(
+            "an answer with no words in it is not an answer".to_string(),
+        ));
+    }
+
+    let changed = crate::db::resolve_notification(&state.pool, &item_id, decision)
+        .await
+        .map_err(AppError::Internal)?;
+
+    ok_data(serde_json::json!({ "item_id": item_id, "changed": changed }))
+}

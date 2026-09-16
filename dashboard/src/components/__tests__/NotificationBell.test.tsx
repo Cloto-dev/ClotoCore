@@ -8,13 +8,14 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
-const { getNotificationSummary, getNotifications, markNotificationRead } = vi.hoisted(() => ({
+const { getNotificationSummary, getNotifications, markNotificationRead, answerNotification } = vi.hoisted(() => ({
   getNotificationSummary: vi.fn(),
   getNotifications: vi.fn(),
   markNotificationRead: vi.fn(),
+  answerNotification: vi.fn(),
 }));
 vi.mock('../../hooks/useApi', () => ({
-  useApi: () => ({ getNotificationSummary, getNotifications, markNotificationRead }),
+  useApi: () => ({ getNotificationSummary, getNotifications, markNotificationRead, answerNotification }),
 }));
 
 import { NotificationBell } from '../NotificationBell';
@@ -43,6 +44,7 @@ beforeEach(() => {
   getNotificationSummary.mockResolvedValue({ waiting: 0, blocking: 0 });
   getNotifications.mockResolvedValue([]);
   markNotificationRead.mockResolvedValue(undefined);
+  answerNotification.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -199,6 +201,41 @@ describe('NotificationBell', () => {
     } finally {
       window.removeEventListener('cloto-raise-approval', onRaise);
     }
+  });
+
+  it('a proposal is answered here, without opening anything', async () => {
+    // The opposite of the approval above, and deliberately so: a proposal stops
+    // nothing, so making someone open a card to say yes would add a step to the
+    // cheap case and train them to click through the expensive one.
+    getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 0 });
+    getNotifications.mockResolvedValue([
+      item({ item_id: 'p1', kind: 'proposal', blocking: false, title: 'Shall I retire the timer?' }),
+    ]);
+
+    render(<NotificationBell />);
+    fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
+    fireEvent.click(await screen.findByTestId('answer-yes'));
+
+    await waitFor(() => expect(answerNotification).toHaveBeenCalledWith('p1', 'yes'));
+    // It leaves the list because it is settled — not because it was seen.
+    await waitFor(() => expect(screen.queryByTestId('notification-item')).not.toBeInTheDocument());
+  });
+
+  it('a proposal carries no way to raise a card, and an approval no way to answer in place', async () => {
+    getNotificationSummary.mockResolvedValue({ waiting: 2, blocking: 1 });
+    getNotifications.mockResolvedValue([
+      item({ item_id: 'p1', kind: 'proposal', blocking: false }),
+      item({ item_id: 'a1', kind: 'approval', blocking: true }),
+    ]);
+
+    render(<NotificationBell />);
+    fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
+    await screen.findAllByTestId('notification-item');
+
+    // One of each, never two of either: the surface a destructive command is
+    // approved on stays single.
+    expect(screen.getAllByTestId('answer-yes')).toHaveLength(1);
+    expect(screen.getAllByTestId('raise-approval')).toHaveLength(1);
   });
 
   it('offers no such button for an item nothing is waiting on', async () => {

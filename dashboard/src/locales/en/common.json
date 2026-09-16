@@ -86,6 +86,8 @@
     "level_low": "Low",
     "will_interrupt": "will interrupt",
     "mark_read": "Mark read",
-    "answer": "Answer"
+    "answer": "Answer",
+    "answer_yes": "Yes",
+    "answer_no": "No"
   }
 }

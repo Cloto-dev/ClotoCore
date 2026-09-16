@@ -22,6 +22,16 @@ pub const TOOL_NAME_SKILL_LOAD: &str = "mgp.skill.load";
 /// the literal — anchored in this module since the schema definition is the
 /// source of truth for the wire name.
 pub const TOOL_NAME_CREATE_MCP_SERVER: &str = "mgp.kernel.create_mcp_server";
+
+/// Ask the operator something, without stopping to wait for the answer.
+///
+/// Named against [`mgp.agent.ask`](execute_mgp_agent_ask), which asks another
+/// agent: the difference the name carries is who is being asked, and only one
+/// of the two blocks.
+pub const TOOL_NAME_OPERATOR_ASK: &str = "mgp.operator.ask";
+
+/// Read the answers to questions this agent asked earlier.
+pub const TOOL_NAME_OPERATOR_REPLIES: &str = "mgp.operator.replies";
 use super::mcp_tool_validator::{
     validate_mcp_code, BLOCKED_IMPORTS, BLOCKED_PATTERNS, MAX_CODE_SIZE,
 };
@@ -99,6 +109,182 @@ pub(super) fn llm_meta_tool_schemas() -> Vec<Value> {
         super::mcp_tool_discovery::tools_discover_schema(),
         super::mcp_tool_discovery::tools_request_schema(),
     ]
+}
+
+/// Schema for asking the operator something.
+///
+/// Not in [`kernel_tool_schemas`], for the reason spelled out on
+/// [`skill_load_schema`] and with more force here: that list is gated on YOLO
+/// mode, which is the mode where the operator has said not to ask. A tool whose
+/// entire purpose is asking, offered only when asking has been switched off, is
+/// the wrong way round. Injected per agent instead — see
+/// `McpClientManager::collect_tool_schemas_for_agent`.
+pub(super) fn operator_ask_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": TOOL_NAME_OPERATOR_ASK,
+            // Two things the description has to get across, because an agent
+            // that misreads either will use the wrong tool: this does not wait,
+            // and nothing is blocked on the answer.
+            "description": "Put a question or a suggestion in front of your operator and carry on. \
+                            This does not wait for an answer and does not hold you up: the question \
+                            goes to the operator's inbox, and you read the answer later with \
+                            `mgp.operator.replies`. Use it for 'may I', 'how about', and anything \
+                            worth a person's opinion but not worth stopping for. It has no deadline, \
+                            so an unanswered question is not an error.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "One line, readable on its own in a list."
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "The detail: what you propose, and what you would do with a yes."
+                    },
+                    "severity": {
+                        "type": "string",
+                        "enum": ["critical", "error", "warning", "notice", "info"],
+                        "description": "How much this matters. Nothing stops for it either way — this \
+                                        only affects whether it interrupts the operator or waits quietly \
+                                        in their inbox. Reserve the loud end for questions that go stale."
+                    }
+                },
+                "required": ["title"]
+            }
+        }
+    })
+}
+
+/// Schema for reading the answers back.
+pub(super) fn operator_replies_schema() -> Value {
+    serde_json::json!({
+        "type": "function",
+        "function": {
+            "name": TOOL_NAME_OPERATOR_REPLIES,
+            "description": "Read the answers to questions you asked with `mgp.operator.ask`. \
+                            Returns your own answered questions, newest first. Questions nobody \
+                            has answered yet are not included — their absence means 'not yet', \
+                            never 'no'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "description": "How many to return. Default 10."
+                    }
+                }
+            }
+        }
+    })
+}
+
+/// Execute `mgp.operator.ask` — raise a `proposal` in the operator's inbox.
+///
+/// **The severity is taken as declared, unlike the approval gate's, which is
+/// derived.** The reason they differ is that nothing waits on this one: an agent
+/// that inflates its own urgency here makes the inbox noisier and nothing else,
+/// and the operator's threshold still decides what interrupts them. The approval
+/// gate cannot afford the same trust, because there the answer is what releases
+/// a blocked agent.
+///
+/// **There is deliberately no way to make this block.** A `blocking` option
+/// would let "just checking" be written as a stop, and the panel-watching this
+/// whole line exists to end would come straight back. An agent that needs to
+/// stop has the approval gate, which is bounded by what it is allowed to ask
+/// about.
+pub(super) async fn execute_operator_ask(
+    manager: &McpClientManager,
+    caller: &Caller,
+    args: Value,
+) -> Result<Value> {
+    let Caller::Agent(agent_id) = caller else {
+        return Err(anyhow::anyhow!(
+            "mgp.operator.ask identifies the asker by agent, and this call was not made by one"
+        )
+        .into());
+    };
+
+    let title = args
+        .get("title")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: title"))?;
+
+    let severity = args
+        .get("severity")
+        .and_then(|v| v.as_str())
+        .and_then(|s| serde_json::from_value(Value::String(s.to_string())).ok())
+        .unwrap_or(cloto_shared::McpLogLevel::Notice);
+
+    let item_id = format!("proposal-{}", uuid::Uuid::new_v4());
+    let mut item = crate::db::NotificationItem::new(
+        item_id.clone(),
+        crate::db::NotificationKind::Proposal,
+        severity,
+        title,
+    )
+    .agent(agent_id);
+    if let Some(body) = args.get("body").and_then(|v| v.as_str()) {
+        item = item.body(body);
+    }
+    // Not `.blocking()`, and not conditionally either — see the note above.
+    crate::db::record_notification(manager.pool(), item).await?;
+
+    Ok(serde_json::json!({
+        "item_id": item_id,
+        "status": "waiting",
+        "detail": "Asked. Nothing is waiting on this — read the answer later with \
+                   mgp.operator.replies.",
+    }))
+}
+
+/// Execute `mgp.operator.replies` — what the operator said.
+///
+/// Answered items only. An unanswered question is left out rather than returned
+/// with an empty answer, because "no reply yet" and "replied with nothing" are
+/// different things and an agent acting on the second when it got the first is
+/// the failure this shape avoids.
+pub(super) async fn execute_operator_replies(
+    manager: &McpClientManager,
+    caller: &Caller,
+    args: Value,
+) -> Result<Value> {
+    let Caller::Agent(agent_id) = caller else {
+        return Err(anyhow::anyhow!(
+            "mgp.operator.replies returns one agent's questions, and this call was not made by one"
+        )
+        .into());
+    };
+
+    let limit = args
+        .get("limit")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(10)
+        .clamp(1, 50);
+
+    let answered = crate::db::list_answered_proposals(manager.pool(), agent_id, limit).await?;
+    let replies: Vec<Value> = answered
+        .into_iter()
+        .map(|item| {
+            serde_json::json!({
+                "item_id": item.item_id,
+                "title": item.title,
+                "body": item.body,
+                "answer": item.decision,
+                "answered_at": item.resolved_at.map(|t| t.to_rfc3339()),
+            })
+        })
+        .collect();
+
+    Ok(serde_json::json!({
+        "replies": replies,
+        "detail": "Answered questions only. A question you asked that is not here has not been \
+                   answered yet, which is not the same as a no.",
+    }))
 }
 
 /// Schema for the kernel-native skill loader.
