@@ -1673,6 +1673,74 @@ mod tests {
         }
     }
 
+    /// One row per place a kernel tool refuses a value it was given. Each is its
+    /// own call site, so each gets its own row: a site left untyped would answer
+    /// this caller with a 500 while every other row stays green.
+    #[tokio::test]
+    async fn each_unusable_value_is_named_to_the_caller() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        // Two of these tools are privileged. Without the flag they refuse before
+        // they ever look at the value, and the row would be measuring that.
+        state
+            .mcp_manager
+            .yolo_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        let grant = |entry_type: &str, permission: &str| {
+            serde_json::json!({
+                "agent_id": "agent.growth",
+                "server_id": "srv.memory",
+                "entry_type": entry_type,
+                "permission": permission,
+            })
+        };
+        let rows = [
+            (
+                "mgp.kernel.create_mcp_server",
+                serde_json::json!({ "name": "srv", "code": "", "server_type": "hybrid" }),
+                "Invalid server_type 'hybrid'",
+            ),
+            (
+                "mgp.kernel.create_mcp_server",
+                serde_json::json!({ "name": "", "code": "" }),
+                "Server name must be 1-64 characters",
+            ),
+            (
+                "mgp.kernel.create_mcp_server",
+                serde_json::json!({ "name": "no spaces", "code": "" }),
+                "Server name must contain only alphanumeric",
+            ),
+            (
+                "mgp.access.grant",
+                grant("sideways", "allow"),
+                "Invalid entry_type: 'sideways'",
+            ),
+            (
+                "mgp.access.grant",
+                grant("server_grant", "maybe"),
+                "Invalid permission: 'maybe'",
+            ),
+            (
+                "mgp.tools.discover",
+                serde_json::json!({ "query": "memory", "strategy": "category" }),
+                "Category search requires filter.categories",
+            ),
+        ];
+        for (tool, arguments, says) in rows {
+            let (status, message) =
+                call_and_render(&state, agent_headers(&state).await, tool, arguments).await;
+            assert_eq!(
+                status,
+                axum::http::StatusCode::BAD_REQUEST,
+                "{tool} ({says}): got: {message}"
+            );
+            assert!(
+                message.contains(says),
+                "{tool}: the caller must be told what is wrong with the value; got: {message}"
+            );
+        }
+    }
+
     #[tokio::test]
     async fn an_unusable_value_and_a_missing_grant_are_said_in_words_too() {
         let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
