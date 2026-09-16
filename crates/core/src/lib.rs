@@ -331,7 +331,7 @@ impl axum::response::IntoResponse for AppError {
                     3000 | 3002 => axum::http::StatusCode::TOO_MANY_REQUESTS,
                     3003 | 5001 => axum::http::StatusCode::GATEWAY_TIMEOUT,
                     4000 => axum::http::StatusCode::BAD_REQUEST,
-                    4001..=4003 | 4100..=4102 => axum::http::StatusCode::NOT_FOUND,
+                    4001..=4004 | 4100..=4102 => axum::http::StatusCode::NOT_FOUND,
                     _ => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
                 };
                 let body = axum::Json(serde_json::json!({

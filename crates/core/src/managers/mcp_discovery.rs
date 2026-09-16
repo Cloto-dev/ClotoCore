@@ -392,7 +392,9 @@ pub(super) async fn execute_discovery_deregister(
     {
         let state = manager.state.read().await;
         if !state.servers.contains_key(id) {
-            return Err(anyhow::anyhow!("Server '{}' not found", id).into());
+            return Err(
+                super::mcp_mgp::resource_not_found(format!("Server '{id}' not found")).into(),
+            );
         }
     }
 

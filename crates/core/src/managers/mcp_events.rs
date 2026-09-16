@@ -398,8 +398,9 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
         });
         subs.get(sub_id).map(|s| s.channels.clone())
     };
-    let channels =
-        channels.ok_or_else(|| anyhow::anyhow!("Subscription '{}' not found", sub_id))?;
+    let channels = channels.ok_or_else(|| {
+        super::mcp_mgp::resource_not_found(format!("Subscription '{sub_id}' not found"))
+    })?;
 
     let events = manager
         .events
@@ -573,11 +574,21 @@ pub(super) async fn respond_to_callback(manager: &McpClientManager, args: Value)
         .and_then(|v| v.as_str())
         .ok_or_else(|| super::mcp_mgp::missing_tool_arg("response"))?;
 
+    // `resolve_callback` answers both "never existed" and "already answered"
+    // with `None`. They call for different next steps from the caller — check
+    // the id, or stop answering — so they are told apart here, where a recorded
+    // response is still there to be asked about.
     let server_id = manager
         .events
         .resolve_callback(callback_id, response)
         .ok_or_else(|| {
-            anyhow::anyhow!("Callback '{}' not found or already responded", callback_id)
+            if manager.events.get_recorded_response(callback_id).is_some() {
+                super::mcp_mgp::resource_not_found(format!(
+                    "Callback '{callback_id}' has already been answered"
+                ))
+            } else {
+                super::mcp_mgp::resource_not_found(format!("Callback '{callback_id}' not found"))
+            }
         })?;
 
     let is_llm = manager.events.is_llm_completion(callback_id);
@@ -587,14 +598,19 @@ pub(super) async fn respond_to_callback(manager: &McpClientManager, args: Value)
 
     // Send response to the originating server
     let state = manager.state.read().await;
-    let handle = state
-        .servers
-        .get(&server_id)
-        .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", server_id))?;
-    let client = handle
-        .client
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Server '{}' not connected", server_id))?;
+    let handle = state.servers.get(&server_id).ok_or_else(|| {
+        super::mcp_mgp::resource_not_found(format!("Server '{server_id}' not found"))
+    })?;
+    // No retry hint on this one. The callback was marked answered above, before
+    // the send, so sending the same answer again reports "already answered"
+    // rather than succeeding — advertising a retry would promise what the
+    // second attempt cannot deliver.
+    let client = handle.client.as_ref().ok_or_else(|| {
+        anyhow::Error::new(super::mcp_mgp::MgpError::new(
+            super::mcp_mgp::MGP_ERR_SERVER_NOT_READY,
+            format!("Server '{server_id}' not connected"),
+        ))
+    })?;
 
     let params = serde_json::json!({
         "callback_id": callback_id,

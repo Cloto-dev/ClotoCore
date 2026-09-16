@@ -1606,6 +1606,20 @@ mod tests {
         tool_name: &str,
         arguments: serde_json::Value,
     ) -> (axum::http::StatusCode, String) {
+        let (status, body) = call_and_render_body(state, headers, tool_name, arguments).await;
+        let message = body["error"]["message"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the refusal carries a message field; got {body}"))
+            .to_string();
+        (status, message)
+    }
+
+    async fn call_and_render_body(
+        state: &Arc<crate::AppState>,
+        headers: HeaderMap,
+        tool_name: &str,
+        arguments: serde_json::Value,
+    ) -> (axum::http::StatusCode, serde_json::Value) {
         use axum::response::IntoResponse;
 
         let response = match call_mcp_tool(
@@ -1627,11 +1641,7 @@ mod tests {
             .await
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        let message = body["error"]["message"]
-            .as_str()
-            .unwrap_or_else(|| panic!("the refusal carries a message field; got {body}"))
-            .to_string();
-        (status, message)
+        (status, body)
     }
 
     async fn agent_headers(state: &Arc<crate::AppState>) -> HeaderMap {
@@ -1781,6 +1791,136 @@ mod tests {
             message.contains("has no grant for server 'srv.memory'"),
             "the caller must be told the refusal is about access; got: {message}"
         );
+    }
+
+    /// Registers `server_id` and grants it to the test agent. The callback and
+    /// lifecycle tools authorize against the named server before they look
+    /// anything up, so without a grant every row would measure that refusal.
+    async fn grant_test_agent(state: &Arc<crate::AppState>, server_id: &str) {
+        sqlx::query(
+            "INSERT OR IGNORE INTO mcp_servers (name, command, created_at, default_policy) \
+             VALUES (?, 'noop', 0, 'opt-in')",
+        )
+        .bind(server_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_at) \
+             VALUES ('server_grant', 'agent.growth', ?, NULL, 'allow', 't0')",
+        )
+        .bind(server_id)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    }
+
+    /// One row per place a kernel tool is asked about something that is not
+    /// there. A missing tool is also a 404, so the status cannot tell these rows
+    /// from that case — each row reads the MGP code in the body as well.
+    #[tokio::test]
+    async fn each_missing_resource_is_named_to_the_caller() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        // `mgp.discovery.deregister` is privileged and refuses before the lookup
+        // without this.
+        state
+            .mcp_manager
+            .yolo_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        // Granted, but never loaded by the kernel.
+        grant_test_agent(&state, "srv.gone").await;
+        assert!(state
+            .mcp_manager
+            .register_test_callback("cb-gone", "srv.gone"));
+        // Loaded, but with no live client behind it.
+        state
+            .mcp_manager
+            .insert_test_server_providing("srv.memory", "recall")
+            .await;
+        grant_test_agent(&state, "srv.memory").await;
+        assert!(state
+            .mcp_manager
+            .register_test_callback("cb-idle", "srv.memory"));
+
+        let answer = |id: &str| serde_json::json!({ "callback_id": id, "response": "yes", "agent_id": "agent.growth" });
+        let rows = [
+            (
+                "mgp.events.replay",
+                serde_json::json!({ "subscription_id": "sub-nope" }),
+                404,
+                4004,
+                "Subscription 'sub-nope' not found",
+            ),
+            (
+                "mgp.callback.respond",
+                answer("cb-nope"),
+                404,
+                4004,
+                "Callback 'cb-nope' not found",
+            ),
+            (
+                "mgp.callback.respond",
+                answer("cb-gone"),
+                404,
+                4004,
+                "Server 'srv.gone' not found",
+            ),
+            (
+                "mgp.callback.respond",
+                answer("cb-idle"),
+                503,
+                2000,
+                "Server 'srv.memory' not connected",
+            ),
+            // The row above marked the callback answered before the send failed.
+            (
+                "mgp.callback.respond",
+                answer("cb-idle"),
+                404,
+                4004,
+                "Callback 'cb-idle' has already been answered",
+            ),
+            (
+                "mgp.lifecycle.shutdown",
+                serde_json::json!({
+                    "server_id": "srv.gone",
+                    "agent_id": "agent.growth",
+                    "reason": "probe",
+                }),
+                404,
+                4004,
+                "Server 'srv.gone' not found",
+            ),
+            (
+                "mgp.discovery.deregister",
+                serde_json::json!({ "id": "srv.nope" }),
+                404,
+                4004,
+                "Server 'srv.nope' not found",
+            ),
+        ];
+        for (tool, arguments, status, code, says) in rows {
+            let (got, body) =
+                call_and_render_body(&state, agent_headers(&state).await, tool, arguments).await;
+            assert_eq!(got.as_u16(), status, "{tool} ({says}): got {body}");
+            assert_eq!(body["error"]["code"], code, "{tool} ({says}): got {body}");
+            let message = body["error"]["message"].as_str().unwrap_or_default();
+            assert!(
+                message.contains(says),
+                "{tool}: the caller must be told what was not there; got: {message}"
+            );
+            let retryable = &body["error"]["data"]["_mgp"]["retryable"];
+            if code == 4004 {
+                // Sending the same id again cannot start resolving.
+                assert_eq!(retryable, false, "{tool} ({says}): got {body}");
+            } else {
+                // A retry of this answer reports "already answered", so no hint
+                // may promise one.
+                assert!(retryable.is_null(), "{tool} ({says}): got {body}");
+            }
+        }
     }
 
     #[tokio::test]

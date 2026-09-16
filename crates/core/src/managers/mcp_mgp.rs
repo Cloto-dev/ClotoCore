@@ -70,6 +70,7 @@ pub const MGP_ERR_INVALID_TOOL_ARGS: i64 = 4000;
 pub const MGP_ERR_TOOL_NOT_FOUND: i64 = 4001;
 pub const MGP_ERR_TOOL_DISABLED: i64 = 4002;
 pub const MGP_ERR_TOOL_NAME_CONFLICT: i64 = 4003;
+pub const MGP_ERR_RESOURCE_NOT_FOUND: i64 = 4004;
 
 // Discovery errors (4100–4199)
 pub const MGP_ERR_DISCOVERY_UNAVAILABLE: i64 = 4100;
@@ -259,6 +260,18 @@ impl MgpError {
         Self::new(MGP_ERR_TOOL_NAME_CONFLICT, msg)
     }
 
+    /// §14.3.1: the request names something — a server, a subscription, a
+    /// callback — by an id that does not exist or no longer does. Never for a
+    /// tool, which has its own code. Not retryable: the same id cannot start
+    /// resolving by being sent again.
+    pub fn resource_not_found(msg: impl Into<String>) -> Self {
+        Self::new(MGP_ERR_RESOURCE_NOT_FOUND, msg).with_recovery(MgpErrorRecovery {
+            category: "validation".into(),
+            retryable: false,
+            ..Default::default()
+        })
+    }
+
     // ── Discovery errors (4100–4199) ──
 
     pub fn discovery_unavailable(msg: impl Into<String>) -> Self {
@@ -339,6 +352,15 @@ pub fn missing_tool_arg(name: &str) -> anyhow::Error {
 #[must_use]
 pub fn invalid_tool_arg(msg: impl Into<String>) -> anyhow::Error {
     anyhow::Error::new(MgpError::invalid_tool_args(msg))
+}
+
+/// `4004 RESOURCE_NOT_FOUND` for an id the caller passed that resolves to
+/// nothing. The message should name the kind and the id as given, so the caller
+/// can tell which argument to change. Typed for the same reason as
+/// [`missing_tool_arg`]: an untyped error is withheld as an internal fault.
+#[must_use]
+pub fn resource_not_found(msg: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::new(MgpError::resource_not_found(msg))
 }
 
 // ============================================================

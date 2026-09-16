@@ -2480,6 +2480,14 @@ impl McpClientManager {
     /// are distinguishable in the error text. That is what lets a test tell
     /// "routing resolved to this server" from "routing found nothing" without
     /// reaching a real one.
+    /// Test-only: leave a callback pending against `server_id`, the way a server
+    /// asking a question would, so a test can answer it through the tool.
+    #[cfg(test)]
+    pub(crate) fn register_test_callback(&self, callback_id: &str, server_id: &str) -> bool {
+        self.events
+            .register_callback(callback_id, server_id, "elicitation", "pick one", None)
+    }
+
     #[cfg(test)]
     pub(crate) async fn insert_test_server_providing(&self, server_id: &str, tool_name: &str) {
         let handle = McpServerHandle {
@@ -3574,7 +3582,7 @@ impl McpClientManager {
             let handle = state
                 .servers
                 .get_mut(id)
-                .ok_or_else(|| anyhow::anyhow!("Server '{}' not found", id))?;
+                .ok_or_else(|| mcp_mgp::resource_not_found(format!("Server '{id}' not found")))?;
             handle.status = ServerStatus::Draining;
         }
 
