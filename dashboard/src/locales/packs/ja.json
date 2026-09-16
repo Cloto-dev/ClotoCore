@@ -78,20 +78,20 @@
     "notifications": {
       "open": "通知",
       "title": "通知",
-      "empty": "待っているものはありません",
-      "blocking": "エージェントを止めています",
-      "blocking_count_other": "{{count}} 件がエージェントを止めています",
-      "threshold_label": "カードで割り込む下限",
+      "empty": "待機中の通知はありません",
+      "blocking": "エージェントを待たせています",
+      "blocking_count_other": "{{count}} 件がエージェントを待たせています",
+      "threshold_label": "カードを出す重要度",
       "threshold_high": "大のみ",
       "threshold_medium": "中以上",
       "threshold_low": "すべて",
-      "threshold_note": "待っているものは、どれを選んでもすべてここに出ます。",
+      "threshold_note": "カードが出ないものも、この一覧にはすべて表示されます。",
       "level_high": "大",
       "level_medium": "中",
       "level_low": "小",
-      "will_interrupt": "割り込みます",
+      "will_interrupt": "カードが出ます",
       "mark_read": "既読にする",
-      "answer": "答える"
+      "answer": "カードを開く"
     }
   },
   "agents": {
