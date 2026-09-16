@@ -395,8 +395,8 @@ pub struct ToolCall {
 pub enum RejectionCode {
     /// Privileged (YOLO) mode is required but currently disabled.
     YoloRequired,
-    /// Access control policy denies this agent from using the tool.
-    /// Phase G target — enum reserved for forward compatibility.
+    /// Access control policy denies this agent from using the tool: no grant,
+    /// an explicit Deny, or a delegated call whose original actor lacks access.
     AccessDenied,
     /// MCP server is not signed at the required trust level.
     /// Phase G target — enum reserved for forward compatibility.
@@ -413,6 +413,10 @@ pub enum RejectionCode {
     DelegationDepth,
     /// Delegation target equals caller. Hard rejection.
     SelfDelegation,
+    /// A server named for runtime deregistration was installed by the
+    /// operator, not registered at runtime. Removing it is an uninstall, which
+    /// discovery does not do. Hard rejection.
+    NotDynamicallyRegistered,
     /// External MCP server returned a rejection-shaped response that the
     /// kernel could not map to a specific code (Phase E fallback).
     Unknown,
@@ -459,7 +463,13 @@ pub enum ToolFailure {
 
 impl From<anyhow::Error> for ToolFailure {
     fn from(err: anyhow::Error) -> Self {
-        Self::Error(err)
+        // A rejection raised under an `anyhow::Result` travels wrapped. Unwrap
+        // it here, or it reaches the agentic loop as a runtime error and loses
+        // its "do not retry" and its place in the loop-break count.
+        match err.downcast::<ToolFailure>() {
+            Ok(failure) => failure,
+            Err(err) => Self::Error(err),
+        }
     }
 }
 

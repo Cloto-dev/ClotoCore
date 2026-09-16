@@ -289,6 +289,10 @@ pub enum AppError {
     /// prompt, an uninstall with nothing to remove.
     Conflict(String),
     Mgp(Box<managers::mcp_mgp::MgpError>),
+    /// A tool call refused on policy grounds (MGP §14.7). Rendered with the
+    /// same text the agentic loop gives the model, so a harness calling over
+    /// HTTP is told not to retry in the same words.
+    Rejected(Box<cloto_shared::ToolRejection>),
 }
 
 impl axum::response::IntoResponse for AppError {
@@ -339,6 +343,24 @@ impl axum::response::IntoResponse for AppError {
                 };
                 let body = axum::Json(serde_json::json!({
                     "error": e.to_json_rpc_error()
+                }));
+                return (status, body).into_response();
+            }
+            AppError::Rejected(ref r) => {
+                // Access control keeps the 403 it had as a JSON-RPC error; every
+                // other rejection keeps the 400 it already had.
+                let status = match r.code {
+                    cloto_shared::RejectionCode::AccessDenied => axum::http::StatusCode::FORBIDDEN,
+                    _ => axum::http::StatusCode::BAD_REQUEST,
+                };
+                let body = axum::Json(serde_json::json!({
+                    "error": {
+                        "type": "ToolRejection",
+                        "code": r.code,
+                        "message": handlers::system::compose_rejection_text(r),
+                        "retryable": r.retryable,
+                        "remediation_hint": r.remediation_hint,
+                    }
                 }));
                 return (status, body).into_response();
             }

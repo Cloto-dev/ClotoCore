@@ -1013,24 +1013,7 @@ pub async fn call_mcp_tool(
             .mcp_manager
             .execute_tool(&caller, &body.tool_name, body.arguments)
             .await
-            .map_err(|failure| match failure {
-                // A rejection is a policy answer, not a fault: it carries the
-                // reason the caller is meant to read, so it travels as the
-                // refusal text rather than being flattened into a 500.
-                cloto_shared::ToolFailure::Rejection(r) => AppError::Validation(r.reason),
-                // Kernel tools refuse a call the caller got wrong — a missing
-                // argument, the wrong kind of caller — with an MGP-typed error,
-                // whose message is written for the caller and goes out with its
-                // code. Anything untyped is a fault, and its text stays in the
-                // log: widening this to forward it would put the contents of
-                // genuine faults into response bodies.
-                cloto_shared::ToolFailure::Error(e) => {
-                    match e.downcast::<crate::managers::mcp_mgp::MgpError>() {
-                        Ok(mgp) => AppError::Mgp(Box::new(mgp)),
-                        Err(other) => AppError::Internal(other),
-                    }
-                }
-            })?;
+            .map_err(tool_failure_to_app_error)?;
         return ok_data(result);
     }
 
@@ -1067,16 +1050,32 @@ pub async fn call_mcp_tool(
         .mcp_manager
         .call_server_tool(&caller, &server_id, &body.tool_name, body.arguments)
         .await
-        .map_err(
-            |e| match e.downcast::<crate::managers::mcp_mgp::MgpError>() {
-                Ok(mgp) => AppError::Mgp(Box::new(mgp)),
-                Err(other) => AppError::Internal(other),
-            },
-        )?;
+        .map_err(|e| tool_failure_to_app_error(cloto_shared::ToolFailure::from(e)))?;
 
     let value = serde_json::to_value(result)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to serialize result: {}", e)))?;
     ok_data(value)
+}
+
+/// How a failed tool call is answered over HTTP.
+fn tool_failure_to_app_error(failure: cloto_shared::ToolFailure) -> AppError {
+    match failure {
+        // A rejection is a policy answer, not a fault: it goes out with its
+        // code and the same "do not retry" text the agentic loop uses.
+        cloto_shared::ToolFailure::Rejection(r) => AppError::Rejected(Box::new(r)),
+        // A call the caller got wrong — a missing argument, the wrong kind of
+        // caller, a malformed delegation — is refused with an MGP-typed error,
+        // whose message is written for the caller and goes out with its code.
+        // Anything untyped is a fault, and its text stays in the log: widening
+        // this to forward it would put the contents of genuine faults into
+        // response bodies.
+        cloto_shared::ToolFailure::Error(e) => {
+            match e.downcast::<crate::managers::mcp_mgp::MgpError>() {
+                Ok(mgp) => AppError::Mgp(Box::new(mgp)),
+                Err(other) => AppError::Internal(other),
+            }
+        }
+    }
 }
 
 // ============================================================
@@ -1484,6 +1483,7 @@ mod tests {
             }
             Err(AppError::Internal(e)) => panic!("refused before routing: {e}"),
             Err(AppError::Mgp(e)) => panic!("refused before routing: {e}"),
+            Err(AppError::Rejected(r)) => panic!("refused before routing: {}", r.reason),
         }
     }
 
@@ -1774,8 +1774,9 @@ mod tests {
         );
 
         // Well-formed, but the agent holds no grant on the server it named. That
-        // is a refusal to stop asking, and a 500 reads as one to retry.
-        let (status, message) = call_and_render(
+        // is a policy answer (a Tool Rejection), still a 403, and it goes out
+        // with the same "do not retry" the agentic loop gives the model.
+        let (status, body) = call_and_render_body(
             &state,
             agent_headers(&state).await,
             "mgp.events.subscribe",
@@ -1786,10 +1787,115 @@ mod tests {
             }),
         )
         .await;
-        assert_eq!(status, axum::http::StatusCode::FORBIDDEN, "got: {message}");
+        assert_eq!(status, axum::http::StatusCode::FORBIDDEN, "got: {body}");
+        assert_eq!(body["error"]["type"], "ToolRejection", "got: {body}");
+        assert_eq!(body["error"]["code"], "ACCESS_DENIED", "got: {body}");
+        let message = body["error"]["message"].as_str().unwrap_or_default();
         assert!(
             message.contains("has no grant for server 'srv.memory'"),
             "the caller must be told the refusal is about access; got: {message}"
+        );
+        assert!(
+            message.contains("Do not retry"),
+            "a refusal on access must tell the caller not to retry; got: {message}"
+        );
+    }
+
+    /// Only access control moved to 403. A rejection for any other reason keeps
+    /// the 400 it had before rejections had their own rendering.
+    #[tokio::test]
+    async fn a_rejection_that_is_not_about_access_keeps_its_400() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        // YOLO is off in a fresh state, so registration is refused on that.
+        let (status, body) = call_and_render_body(
+            &state,
+            agent_headers(&state).await,
+            "mgp.discovery.register",
+            serde_json::json!({ "id": "srv.new", "command": "noop", "transport": "stdio" }),
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "got: {body}");
+        assert_eq!(body["error"]["type"], "ToolRejection", "got: {body}");
+        assert_eq!(body["error"]["code"], "YOLO_REQUIRED", "got: {body}");
+    }
+
+    /// A server with a row was installed and comes back from it on the next
+    /// start. Deregistering it is refused, and it stays loaded.
+    #[tokio::test]
+    async fn deregistering_an_installed_server_is_refused_and_leaves_it_loaded() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        state
+            .mcp_manager
+            .yolo_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        grant_test_agent(&state, "srv.installed").await; // writes the mcp_servers row
+        state
+            .mcp_manager
+            .insert_test_server_providing("srv.installed", "recall")
+            .await;
+
+        let (status, body) = call_and_render_body(
+            &state,
+            agent_headers(&state).await,
+            "mgp.discovery.deregister",
+            serde_json::json!({ "id": "srv.installed" }),
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "got: {body}");
+        assert_eq!(
+            body["error"]["code"], "NOT_DYNAMICALLY_REGISTERED",
+            "got: {body}"
+        );
+        assert_eq!(body["error"]["retryable"], false, "got: {body}");
+        assert!(
+            state
+                .mcp_manager
+                .list_servers()
+                .await
+                .iter()
+                .any(|s| s.id == "srv.installed"),
+            "a refused deregistration must leave the server loaded"
+        );
+    }
+
+    /// A server with no row was registered at runtime, and deregistering it
+    /// removes it — the refusal above must not reach this case.
+    #[tokio::test]
+    async fn deregistering_a_runtime_server_removes_it() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        state
+            .mcp_manager
+            .yolo_mode
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        state
+            .mcp_manager
+            .insert_test_server_providing("srv.runtime", "recall")
+            .await;
+
+        let answer = call_mcp_tool(
+            State(state.clone()),
+            agent_headers(&state).await,
+            Json(CallMcpToolRequest {
+                server_id: String::new(),
+                tool_name: "mgp.discovery.deregister".to_string(),
+                arguments: serde_json::json!({ "id": "srv.runtime" }),
+            }),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("a runtime-registered server must be deregistered"));
+        assert_eq!(
+            answer.0["data"]["status"], "deregistered",
+            "got: {}",
+            answer.0
+        );
+        assert!(
+            !state
+                .mcp_manager
+                .list_servers()
+                .await
+                .iter()
+                .any(|s| s.id == "srv.runtime"),
+            "the deregistered server must be gone"
         );
     }
 

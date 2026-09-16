@@ -86,6 +86,9 @@ pub fn compose_rejection_final_response(rejections: &[(String, ToolRejection)]) 
         RejectionCode::RiskUnapproved => format!(
             "Tool(s) {tools_str} are classified as dangerous and have not been approved for autonomous execution. Please approve them in the dashboard."
         ),
+        RejectionCode::NotDynamicallyRegistered => {
+            "The server was not removed: it was installed by the operator, not registered at runtime, and only the operator can uninstall it.".to_string()
+        }
         RejectionCode::Unknown => format!(
             "Tool(s) {tools_str} were rejected by the MCP server. Reason: {}",
             last.reason

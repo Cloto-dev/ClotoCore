@@ -1303,13 +1303,12 @@ async fn require_server_access(
         .ok_or_else(|| super::mcp_mgp::missing_tool_arg("agent_id"))?;
     let authorized = granted_servers(manager, args).await?.contains(server_id);
     if !authorized {
-        return Err(
-            anyhow::Error::new(super::mcp_mgp::MgpError::access_denied(format!(
+        return Err(ToolFailure::Rejection(super::mcp::access_denied_rejection(
+            format!(
                 "Access denied: agent '{agent_id}' has no grant for server \
              '{server_id}' (bug-441 ownership check)"
-            )))
-            .into(),
-        );
+            ),
+        )));
     }
     Ok(())
 }

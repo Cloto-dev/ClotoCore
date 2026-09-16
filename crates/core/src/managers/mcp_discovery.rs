@@ -398,6 +398,31 @@ pub(super) async fn execute_discovery_deregister(
         }
     }
 
+    // Deregistration removes what registration added, and registration writes
+    // no row. A server with a row was installed — by the dashboard, the
+    // marketplace or the config file — and comes back from that row on the next
+    // start, so taking it out of memory would only hide it while answering that
+    // it was removed. Uninstalling is what removes the row.
+    let installed: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM mcp_servers WHERE name = ?)")
+            .bind(id)
+            .fetch_one(manager.pool())
+            .await
+            .map_err(anyhow::Error::from)?;
+    if installed {
+        return Err(ToolFailure::Rejection(ToolRejection {
+                code: RejectionCode::NotDynamicallyRegistered,
+                reason: format!(
+                    "Server '{id}' was installed by the operator, not registered at runtime, so it cannot be deregistered. Only servers added with mgp.discovery.register can be removed this way."
+                ),
+                remediation_hint: Some(
+                    "Ask the operator to uninstall the server if it should be removed.".to_string(),
+                ),
+                retryable: false,
+                details: None,
+            }));
+    }
+
     let reason = args
         .get("reason")
         .and_then(|v| v.as_str())

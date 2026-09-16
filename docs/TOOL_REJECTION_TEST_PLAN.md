@@ -23,7 +23,8 @@ All `RejectionCode` variants and their trigger sites. The **Phase** column indic
 | `SelfDelegation` | B | `execute_mgp_agent_ask` (mcp_kernel_tool.rs:1319) | `false` | `None` |
 | `DelegationDepth` | B | `execute_mgp_agent_ask` (mcp_kernel_tool.rs:1332) | `false` | `{"chain": [agent_id, ...]}` |
 | `DelegationCycle` | B | `execute_mgp_agent_ask` (mcp_kernel_tool.rs:1345) | `false` | `{"chain": [agent_id, ...]}` |
-| `AccessDenied` | deferred (G) | `registry.rs:341-346` (MCP access-control Deny) | `true` | `None` |
+| `AccessDenied` | G | `enforce_caller_grant` (no grant), `enforce_kernel_rbac` (explicit Deny), the §5.6.1 permission intersection in `resolve_tool_call_target` (mcp.rs), `require_server_access` (mcp_kernel_tool.rs) | `true` | `None` |
+| `NotDynamicallyRegistered` | G | `execute_discovery_deregister` on a server that has an `mcp_servers` row (mcp_discovery.rs) | `false` | `None` |
 | `SealUnsigned` | deferred (G) | `mcp.rs:910, 923-929` (Seal verification) | `true` | `None` |
 | `CodeUnsafe` | deferred (G) | `execute_create_mcp_server` validator (mcp_kernel_tool.rs:309) | `true` | `{"violations": [...]}` |
 | `RiskUnapproved` | dormant | (no enforcer exists) | `true` | — |
@@ -53,9 +54,16 @@ All texts are self-contained English that does **not** depend on the LLM underst
 - **reason:** `"Inter-agent delegation would form a cycle — the target agent is already in the current delegation chain. This is a hard logical constraint enforced by the kernel."`
 - **remediation_hint:** `None`
 
-### `AccessDenied` (Phase G — template reserved)
-- **reason:** `"Access to this tool is denied by the access control policy. The operator has explicitly restricted this agent from using this tool."`
-- **remediation_hint:** `"Ask the operator to grant access in the Agent Workspace."`
+### `AccessDenied`
+- **reason:** names the agent, the tool and the server, and says which check refused it — e.g. `"Access denied: agent 'agent.growth' is not granted 'recall' on server 'srv.memory'"`. The specific form replaced the generic template above so a caller can tell which grant is missing.
+- **remediation_hint:** `"Ask the operator to grant this agent access to the tool."`
+- **Boundary:** only the answer to "may this caller use this tool" is a rejection. A request that fails validation — a `_mgp.delegation` envelope deeper than 3 or naming an unknown actor or server (MGP §5.6.2–5.6.3), or a caller of the wrong kind — stays a JSON-RPC error (`1000`). An access check that could not run (a database failure) stays `1001`: it is a fault, not a policy answer.
+- **HTTP:** `POST /api/mcp/call` answers 403 with `{"error": {"type": "ToolRejection", "code": "ACCESS_DENIED", "message": <the same text the agentic loop gives the model>}}`. Every other rejection code keeps 400.
+
+### `NotDynamicallyRegistered`
+- **reason:** `"Server '<id>' was installed by the operator, not registered at runtime, so it cannot be deregistered. Only servers added with mgp.discovery.register can be removed this way."`
+- **remediation_hint:** `"Ask the operator to uninstall the server if it should be removed."`
+- **Why:** registration writes no `mcp_servers` row, so a server with a row was installed and comes back from it on the next start. Removing it from memory would answer "deregistered" for something that returns.
 
 ### `SealUnsigned` (Phase G — template reserved)
 - **reason:** `"The MCP server providing this tool is not signed and cannot execute at the current trust level. The kernel blocks unsigned servers when trust level is elevated."`
@@ -114,6 +122,7 @@ When the loop breaks due to rejection, the kernel **does not call the LLM for th
 | `SealUnsigned` | `"Tool(s) {tools} could not be executed because the providing MCP server is not signed at the required trust level. Please sign the server or lower its trust level."` |
 | `CodeUnsafe` | `"Generated MCP server code failed safety validation. Please review the violations reported in the rejection details."` |
 | `RiskUnapproved` | `"Tool(s) {tools} are classified as dangerous and have not been approved for autonomous execution. Please approve them in the dashboard."` |
+| `NotDynamicallyRegistered` | `"The server was not removed: it was installed by the operator, not registered at runtime, and only the operator can uninstall it."` |
 | `Unknown` | `"Tool(s) {tools} were rejected by the MCP server. Reason: {reason_of_last_rejection}"` |
 
 The mechanical response is emitted as `ClotoEventData::AgentFinalResponse { content: <template>, agent_id, trace_id, ... }` — identical envelope to LLM-generated responses.

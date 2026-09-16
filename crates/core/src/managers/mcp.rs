@@ -14,7 +14,7 @@ use super::mcp_protocol::{McpConfigFile, McpServerConfig, ToolContent};
 use super::mcp_tool_validator::validate_tool_arguments;
 use super::mcp_transport;
 use anyhow::{Context, Result};
-use cloto_shared::ToolFailure;
+use cloto_shared::{RejectionCode, ToolFailure, ToolRejection};
 use serde_json::Value;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
@@ -50,6 +50,32 @@ pub(super) fn clamp_instructions(text: &str, limit: usize) -> String {
     }
     let head: String = text.chars().take(limit).collect();
     format!("{head}… [truncated by the kernel at {limit} characters]")
+}
+
+/// Refusal of a caller that access control does not allow to use a tool.
+///
+/// Whether this caller may use this tool is a policy answer, so it is a Tool
+/// Rejection (MGP §14.7) rather than a JSON-RPC error: the agentic loop tells
+/// the model not to retry and counts it toward the loop break, and
+/// `POST /api/mcp/call` still answers 403. Failures to validate the request
+/// itself — a malformed delegation envelope, a caller of the wrong kind — stay
+/// JSON-RPC errors.
+pub(crate) fn access_denied_rejection(reason: String) -> ToolRejection {
+    ToolRejection {
+        code: RejectionCode::AccessDenied,
+        reason,
+        remediation_hint: Some(
+            "Ask the operator to grant this agent access to the tool.".to_string(),
+        ),
+        retryable: true,
+        details: None,
+    }
+}
+
+/// [`access_denied_rejection`] for code that returns `anyhow::Result`. It
+/// travels wrapped, and `ToolFailure::from` unwraps it on the way out.
+fn access_denied(reason: String) -> anyhow::Error {
+    anyhow::Error::new(ToolFailure::Rejection(access_denied_rejection(reason)))
 }
 
 fn persisted_server_config(record: &crate::db::McpServerRecord) -> McpServerConfig {
@@ -2946,10 +2972,9 @@ impl McpClientManager {
                     tool = %tool_name,
                     "🔒 capability gate: access denied (bug-421)"
                 );
-                Err(mcp_mgp::MgpError::access_denied(format!(
+                Err(access_denied(format!(
                     "Access denied: agent '{agent_id}' is not granted '{tool_name}' on server '{server_id}'"
-                ))
-                .into())
+                )))
             }
             Err(e) => {
                 warn!(
@@ -2998,10 +3023,9 @@ impl McpClientManager {
                 tool = %tool_name,
                 "🔒 kernel RBAC: explicit deny (bug-421)"
             );
-            return Err(mcp_mgp::MgpError::access_denied(format!(
+            return Err(access_denied(format!(
                 "Access denied: agent '{agent_id}' cannot use kernel tool '{tool_name}'"
-            ))
-            .into());
+            )));
         }
         Ok(())
     }
@@ -3086,10 +3110,10 @@ impl McpClientManager {
                             tool = %tool_name,
                             "Delegation rejected: original_actor lacks access (§5.6.1)"
                         );
-                        return Err(mcp_mgp::MgpError::access_denied(format!(
+                        return Err(access_denied(format!(
                             "Delegation rejected: original_actor '{}' does not have access to {}.{} (MGP §5.6.1)",
                             original_actor, server_id, tool_name
-                        )).into());
+                        )));
                     }
                 }
 
@@ -4507,6 +4531,153 @@ while True:\n\
             .downcast::<mcp_mgp::MgpError>()
             .expect("the refusal is MGP-typed");
         assert_eq!(mgp.message, "Callback 'cb-1' has already been answered");
+    }
+
+    /// A migrated in-memory manager with one opt-in server row and one enabled
+    /// agent, and no grants: every access question it is asked answers Deny.
+    async fn manager_with_ungranted_agent() -> McpClientManager {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        for server in ["srv.memory", "kernel"] {
+            sqlx::query(
+                "INSERT OR IGNORE INTO mcp_servers (name, command, created_at, default_policy) \
+                 VALUES (?, 'noop', 0, 'opt-in')",
+            )
+            .bind(server)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        sqlx::query(
+            "INSERT INTO agents (id, name, description, default_engine_id, enabled) \
+             VALUES ('agent.growth', 'growth', '', 'mind.none', 1)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        McpClientManager::new(pool, true, 120, 30)
+    }
+
+    fn expect_access_rejection(failure: ToolFailure, says: &str) {
+        match failure {
+            ToolFailure::Rejection(r) => {
+                assert_eq!(r.code, RejectionCode::AccessDenied, "reason: {}", r.reason);
+                assert!(
+                    r.retryable,
+                    "an operator can grant access, so it is retryable"
+                );
+                assert!(r.reason.contains(says), "reason: {}", r.reason);
+            }
+            ToolFailure::Error(e) => {
+                panic!("a refusal on access must be a Tool Rejection, got an error: {e}")
+            }
+        }
+    }
+
+    /// No grant on a server tool: a policy answer, so a rejection. It is raised
+    /// under `anyhow::Result`, so this also measures that the conversion to
+    /// `ToolFailure` keeps it one.
+    #[tokio::test]
+    async fn a_missing_grant_is_a_rejection() {
+        let manager = manager_with_ungranted_agent().await;
+        let err = manager
+            .enforce_caller_grant(
+                &Caller::Agent("agent.growth".to_string()),
+                "srv.memory",
+                "recall",
+            )
+            .await
+            .expect_err("no grant must refuse");
+        expect_access_rejection(ToolFailure::from(err), "is not granted 'recall'");
+    }
+
+    /// An explicit Deny on a kernel tool, through `execute_tool` as the agentic
+    /// loop calls it.
+    #[tokio::test]
+    async fn an_explicit_kernel_deny_is_a_rejection() {
+        let manager = manager_with_ungranted_agent().await;
+        sqlx::query(
+            "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_at) \
+             VALUES ('tool_grant', 'agent.growth', 'kernel', 'mgp.audit.replay', 'deny', 't0')",
+        )
+        .execute(manager.pool())
+        .await
+        .unwrap();
+        let failure = manager
+            .execute_tool(
+                &Caller::Agent("agent.growth".to_string()),
+                "mgp.audit.replay",
+                serde_json::json!({}),
+            )
+            .await
+            .expect_err("an explicit deny must refuse");
+        expect_access_rejection(failure, "cannot use kernel tool 'mgp.audit.replay'");
+    }
+
+    /// A delegated call whose original actor lacks access to the tool is refused
+    /// on access (§5.6.1), and is a rejection like any other access refusal.
+    #[tokio::test]
+    async fn a_delegated_call_for_an_actor_without_access_is_a_rejection() {
+        let manager = manager_with_ungranted_agent().await;
+        let err = manager
+            .call_server_tool(
+                &Caller::System,
+                "srv.memory",
+                "recall",
+                serde_json::json!({
+                    "_mgp": { "delegation": { "original_actor": "agent.growth" } }
+                }),
+            )
+            .await
+            .expect_err("an actor without access must be refused");
+        expect_access_rejection(
+            ToolFailure::from(err),
+            "does not have access to srv.memory.recall",
+        );
+    }
+
+    /// The other half of the rule: a delegation envelope that fails validation
+    /// is a malformed request, not a policy answer, and stays a JSON-RPC error
+    /// (MGP §5.6.2 / §5.6.3).
+    #[tokio::test]
+    async fn a_malformed_delegation_stays_a_json_rpc_error() {
+        let manager = manager_with_ungranted_agent().await;
+        for (delegation, says) in [
+            (
+                serde_json::json!({ "chain": ["a", "b", "c", "d"] }),
+                "exceeds maximum of 3",
+            ),
+            (
+                serde_json::json!({ "original_actor": "agent.nobody" }),
+                "is not a known active agent",
+            ),
+        ] {
+            let err = manager
+                .call_server_tool(
+                    &Caller::System,
+                    "srv.memory",
+                    "recall",
+                    serde_json::json!({ "_mgp": { "delegation": delegation } }),
+                )
+                .await
+                .expect_err("a malformed delegation must be refused");
+            match ToolFailure::from(err) {
+                ToolFailure::Error(e) => {
+                    let mgp = e
+                        .downcast::<mcp_mgp::MgpError>()
+                        .expect("a malformed delegation is MGP-typed");
+                    assert_eq!(mgp.code, mcp_mgp::MGP_ERR_PERMISSION_DENIED, "{says}");
+                    assert!(mgp.message.contains(says), "got: {}", mgp.message);
+                }
+                ToolFailure::Rejection(r) => panic!(
+                    "a malformed delegation must stay a JSON-RPC error, got rejection: {}",
+                    r.reason
+                ),
+            }
+        }
     }
 
     #[test]
