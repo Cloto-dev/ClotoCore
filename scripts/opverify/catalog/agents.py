@@ -321,6 +321,41 @@ class AgentsLastUsage(Operation):
 
 
 @register
+class AgentsInstructionFiles(Operation):
+    """What an agent's always-loaded files cost, and which reach the prompt.
+
+    Read-only. The default agent normally has no instruction directory, so the
+    three declared files come back absent. The assertion is on the shape a
+    settings screen relies on: the budget is present (so the screen never copies
+    the number) and every declared file has a row in declared order, whether or
+    not it exists.
+    """
+
+    domain = "agents"
+    name = "instruction_files"
+    covers = ["GET /api/agents/{id}/instruction-files"]
+    phase0 = True
+
+    def drive(self, ctx: RunContext):
+        return ctx.client.get(f"/api/agents/{_DEFAULT_AGENT}/instruction-files")
+
+    def assert_success(self, ctx: RunContext, result):
+        assert isinstance(result, dict), f"instruction-files not an object: {result!r}"
+        budget = result.get("budget_chars")
+        assert isinstance(budget, int) and budget > 0, f"no usable budget: {result!r}"
+        files = result.get("files")
+        assert isinstance(files, list), f"files is not a list: {result!r}"
+        names = [f.get("name") for f in files]
+        assert names == ["CLAUDE.md", "AGENTS.md", "MEMORY.md"], (
+            f"every declared file must have a row, in order: {names!r}"
+        )
+        for f in files:
+            assert f.get("loaded") is False or f.get("present") is True, (
+                f"a file cannot be loaded without being present: {f!r}"
+            )
+
+
+@register
 class AgentsVisemes(Operation):
     """Text → lip-sync timeline.
 

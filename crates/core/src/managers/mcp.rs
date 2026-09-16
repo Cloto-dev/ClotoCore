@@ -82,14 +82,39 @@ fn persisted_server_config(record: &crate::db::McpServerRecord) -> McpServerConf
 /// same reason [`McpClientManager::compose_server_instructions`] sorts.
 const AGENT_INSTRUCTION_FILES: [&str; 3] = ["CLAUDE.md", "AGENTS.md", "MEMORY.md"];
 
-/// Per-file ceiling, matching the per-server allowance: one source's share of
-/// the prompt is one source's share, whoever wrote it.
-const AGENT_INSTRUCTIONS_PER_FILE_CHARS: usize = 3_000;
+/// Budget for the files above, taken together. This text is the operator's own,
+/// so it is not bounded because it is untrusted; it is bounded because it rides
+/// on every dispatch.
+///
+/// There is no per-file ceiling, and no file is ever cut. Files of this kind put
+/// their authority and output contract at the end, so keeping the head of one
+/// drops exactly the part that must not be dropped — the first real brief to
+/// meet a 3,000-character per-file cut lost its last 21%, which held what the
+/// agent was allowed to do. A file that does not fit is left out whole and
+/// named, to the model in the prompt and to the operator in the log and in
+/// `GET /api/agents/{id}/instruction-files`.
+pub const AGENT_INSTRUCTIONS_TOTAL_CHARS: usize = 9_000;
 
-/// Ceiling on the whole composed block — the three files above at full size.
-/// This text is the operator's own, so it is not bounded because it is
-/// untrusted; it is bounded because it rides on every dispatch.
-const AGENT_INSTRUCTIONS_TOTAL_CHARS: usize = 9_000;
+/// One always-loaded file, as the kernel found it for an agent.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct AgentInstructionFile {
+    pub name: &'static str,
+    /// Whether the file exists with something other than whitespace in it.
+    pub present: bool,
+    /// Characters after trimming; 0 when the file is not present.
+    pub chars: usize,
+    /// Whether the file is in the prompt. Files are taken in declared order, so
+    /// a present file is left out when it does not fit what the files before it
+    /// left of the budget.
+    pub loaded: bool,
+}
+
+/// What an agent's always-loaded files cost against the budget.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct AgentInstructionsReport {
+    pub budget_chars: usize,
+    pub files: Vec<AgentInstructionFile>,
+}
 
 /// Whether `id` may be used as a single path segment.
 ///
@@ -113,14 +138,17 @@ pub(super) fn agent_instructions_root() -> PathBuf {
     crate::config::data_dir().join("agents")
 }
 
-/// Compose an agent's always-loaded instruction block from `base/<agent_id>/`.
+/// Read an agent's always-loaded files from `base/<agent_id>/` and decide which
+/// of them fit the budget. Returns the per-file report and the bodies that are
+/// loaded, in declared order; `None` when `agent_id` is not usable as a path
+/// segment.
 ///
-/// Returns `None` when the agent has no readable, non-empty instruction file —
-/// the common case, and the one that has to cost nothing.
-///
-/// Takes the base directory rather than reading [`crate::config::data_dir`]
-/// itself, so the composition can be tested against a temporary tree.
-async fn compose_agent_instructions_in(base: &Path, agent_id: &str) -> Option<String> {
+/// The prompt and the operator-facing report both come from this one pass, so
+/// what the operator is shown cannot drift from what the model received.
+async fn read_agent_instructions_in(
+    base: &Path,
+    agent_id: &str,
+) -> Option<(Vec<AgentInstructionFile>, Vec<(&'static str, String)>)> {
     if !is_safe_path_segment(agent_id) {
         warn!(
             agent_id,
@@ -130,48 +158,106 @@ async fn compose_agent_instructions_in(base: &Path, agent_id: &str) -> Option<St
     }
     let dir = base.join(agent_id);
 
-    let mut sections: Vec<String> = Vec::new();
+    let mut files = Vec::with_capacity(AGENT_INSTRUCTION_FILES.len());
+    let mut loaded = Vec::new();
     let mut used = 0usize;
-    let mut omitted = 0usize;
     for name in AGENT_INSTRUCTION_FILES {
-        let Ok(text) = tokio::fs::read_to_string(dir.join(name)).await else {
-            continue;
-        };
+        let text = tokio::fs::read_to_string(dir.join(name))
+            .await
+            .unwrap_or_default();
         let text = text.trim();
         if text.is_empty() {
+            files.push(AgentInstructionFile {
+                name,
+                present: false,
+                chars: 0,
+                loaded: false,
+            });
             continue;
         }
-        let body = clamp_instructions(text, AGENT_INSTRUCTIONS_PER_FILE_CHARS);
-        let cost = body.chars().count();
-        if used + cost > AGENT_INSTRUCTIONS_TOTAL_CHARS {
-            omitted += 1;
-            continue;
+        let chars = text.chars().count();
+        let fits = used + chars <= AGENT_INSTRUCTIONS_TOTAL_CHARS;
+        if fits {
+            used += chars;
+            loaded.push((name, text.to_string()));
         }
-        used += cost;
-        sections.push(format!("## {name}\n\n{body}"));
+        files.push(AgentInstructionFile {
+            name,
+            present: true,
+            chars,
+            loaded: fits,
+        });
     }
+    Some((files, loaded))
+}
 
-    if sections.is_empty() {
+/// The report behind `GET /api/agents/{id}/instruction-files`: which of the
+/// agent's always-loaded files exist, what each costs, and which reach the
+/// prompt. `None` when `agent_id` is not usable as a path segment.
+pub async fn agent_instructions_report(agent_id: &str) -> Option<AgentInstructionsReport> {
+    agent_instructions_report_in(&agent_instructions_root(), agent_id).await
+}
+
+async fn agent_instructions_report_in(
+    base: &Path,
+    agent_id: &str,
+) -> Option<AgentInstructionsReport> {
+    let (files, _) = read_agent_instructions_in(base, agent_id).await?;
+    Some(AgentInstructionsReport {
+        budget_chars: AGENT_INSTRUCTIONS_TOTAL_CHARS,
+        files,
+    })
+}
+
+/// Compose an agent's always-loaded instruction block from `base/<agent_id>/`.
+///
+/// Returns `None` when the agent has no readable, non-empty instruction file —
+/// the common case, and the one that has to cost nothing.
+///
+/// Takes the base directory rather than reading [`crate::config::data_dir`]
+/// itself, so the composition can be tested against a temporary tree.
+async fn compose_agent_instructions_in(base: &Path, agent_id: &str) -> Option<String> {
+    use std::fmt::Write as _;
+
+    let (files, loaded) = read_agent_instructions_in(base, agent_id).await?;
+    let left_out: Vec<&AgentInstructionFile> =
+        files.iter().filter(|f| f.present && !f.loaded).collect();
+    if loaded.is_empty() && left_out.is_empty() {
         return None;
     }
 
-    let mut block = String::from(
-        "# Operator Instructions\n\n\
-         The following files were placed by your operator in this agent's \
-         instruction directory. Each section below names the file it came from.\n",
-    );
-    for section in sections {
-        block.push('\n');
-        block.push_str(&section);
-        block.push('\n');
+    let mut block = String::from("# Operator Instructions\n");
+    if !loaded.is_empty() {
+        block.push_str(
+            "\nThe following files were placed by your operator in this agent's \
+             instruction directory. Each section below names the file it came from.\n",
+        );
+        for (name, body) in &loaded {
+            let _ = write!(block, "\n## {name}\n\n{body}\n");
+        }
     }
-    if omitted > 0 {
-        use std::fmt::Write as _;
-        let plural = if omitted == 1 { "" } else { "s" };
+    // Even when nothing else fits, the block exists to say so: a model that
+    // silently lacks its brief cannot tell anyone it is missing.
+    if !left_out.is_empty() {
+        for file in &left_out {
+            warn!(
+                agent_id,
+                file = file.name,
+                chars = file.chars,
+                budget = AGENT_INSTRUCTIONS_TOTAL_CHARS,
+                "instruction file left out: it does not fit the always-loaded budget"
+            );
+        }
+        let named: Vec<String> = left_out
+            .iter()
+            .map(|f| format!("{} ({} characters)", f.name, f.chars))
+            .collect();
         let _ = write!(
             block,
-            "\n({omitted} further instruction file{plural} did not fit the prompt \
-             budget and were left out.)\n"
+            "\n(Left out whole because they did not fit the \
+             {AGENT_INSTRUCTIONS_TOTAL_CHARS}-character budget for these files: {}. \
+             Nothing from them is in this prompt.)\n",
+            named.join(", ")
         );
     }
     Some(block)
@@ -5509,70 +5595,192 @@ while True:\n\
         );
     }
 
-    /// An operator who pastes a huge file cannot spend the whole prompt, and
-    /// the clip says so rather than ending mid-sentence.
+    /// A brief is read whole. The first real one was 3,813 characters with its
+    /// authority and output contract in the last lines, and a per-file cut kept
+    /// its head and dropped exactly those.
     #[tokio::test]
-    async fn an_oversized_instruction_file_is_clamped_and_says_so() {
+    async fn a_brief_is_never_cut_short() {
         let base = tempfile::tempdir().unwrap();
-        // Multi-byte on purpose: the clamp counts characters, and a byte-wise
-        // cut through this text would not be valid UTF-8.
-        let flood: String = "あ".repeat(AGENT_INSTRUCTIONS_PER_FILE_CHARS + 500);
-        let block = compose_from(base.path(), "agent.verbose", &[("CLAUDE.md", &flood)])
+        // Multi-byte on purpose, and longer than any per-file allowance the
+        // kernel has had: the tail line is the one a head cut would drop.
+        let brief = format!(
+            "{}\nAuthority: Proposal Only.",
+            "あ".repeat(AGENT_INSTRUCTIONS_TOTAL_CHARS / 2)
+        );
+        let block = compose_from(base.path(), "agent.brief", &[("AGENTS.md", &brief)])
             .await
-            .expect("an oversized file still composes");
+            .expect("a brief within the budget composes");
+        assert!(
+            block.contains("Authority: Proposal Only."),
+            "the last line of the brief must reach the prompt"
+        );
         assert_eq!(
             block.matches('あ').count(),
-            AGENT_INSTRUCTIONS_PER_FILE_CHARS,
-            "exactly the per-file allowance survives"
-        );
-        assert!(
-            block.contains("truncated by the kernel"),
-            "a clipped file must say it was clipped"
+            AGENT_INSTRUCTIONS_TOTAL_CHARS / 2,
+            "nothing before the last line may be dropped either"
         );
     }
 
-    /// Dropping a file silently is the one failure a reader cannot detect, so
-    /// the block names how many it left out.
+    /// Files are taken in declared order, and one that does not fit what is left
+    /// of the budget is left out whole — a later file that still fits is kept.
+    /// The block names what it left out, so the model knows its brief is short.
     #[tokio::test]
-    async fn files_beyond_the_total_budget_are_named_as_left_out() {
+    async fn a_file_that_does_not_fit_is_left_out_whole_and_named() {
         let base = tempfile::tempdir().unwrap();
-        // Three files at the per-file ceiling exactly fill the total, so a
-        // fourth would not fit — but only three are ever read. Make each one
-        // large enough that the third cannot fit instead.
-        let big: String = "x".repeat(AGENT_INSTRUCTIONS_PER_FILE_CHARS);
+        let claude = "c".repeat(AGENT_INSTRUCTIONS_TOTAL_CHARS - 1_000);
+        let agents = format!("{}AGENTS-TAIL", "a".repeat(1_500));
         let block = compose_from(
             base.path(),
-            "agent.greedy",
+            "agent.crowded",
             &[
-                ("CLAUDE.md", &big),
-                ("AGENTS.md", &big),
-                ("MEMORY.md", &big),
-            ],
-        )
-        .await
-        .expect("the first files still compose");
-        assert!(
-            !block.contains("left out"),
-            "three files at the ceiling fit the total exactly"
-        );
-
-        // Push one over: now the last file cannot fit and must be announced.
-        let over = format!("{big}yyy");
-        let block = compose_from(
-            base.path(),
-            "agent.overflowing",
-            &[
-                ("CLAUDE.md", &over),
-                ("AGENTS.md", &over),
-                ("MEMORY.md", &over),
+                ("CLAUDE.md", &claude),
+                ("AGENTS.md", &agents),
+                ("MEMORY.md", "MEMORY-BODY"),
             ],
         )
         .await
         .expect("the files that fit still compose");
+        assert!(block.contains(&claude), "the first file fits and is whole");
         assert!(
-            block.contains("did not fit the prompt"),
-            "an omitted file must be announced, got tail: {}",
-            &block[block.len().saturating_sub(200)..]
+            !block.contains("AGENTS-TAIL") && !block.contains(&"a".repeat(100)),
+            "a file that does not fit contributes nothing, not a head"
+        );
+        assert!(
+            block.contains("MEMORY-BODY"),
+            "a later file that still fits is not dropped with it"
+        );
+        assert!(
+            block.contains("AGENTS.md (1511 characters)"),
+            "the left-out file is named with its size, got tail: {}",
+            &block[block.len().saturating_sub(300)..]
+        );
+
+        let report = agent_instructions_report_in(base.path(), "agent.crowded")
+            .await
+            .expect("a usable id reports");
+        assert_eq!(report.budget_chars, AGENT_INSTRUCTIONS_TOTAL_CHARS);
+        let loaded: Vec<(&str, bool)> = report.files.iter().map(|f| (f.name, f.loaded)).collect();
+        assert_eq!(
+            loaded,
+            vec![
+                ("CLAUDE.md", true),
+                ("AGENTS.md", false),
+                ("MEMORY.md", true)
+            ],
+            "the report must say what the prompt carried"
+        );
+    }
+
+    /// Files that exactly fill the budget all fit; one character more and the
+    /// last one is out. Pins the boundary so an off-by-one cannot hide.
+    #[tokio::test]
+    async fn the_budget_boundary_is_inclusive() {
+        let base = tempfile::tempdir().unwrap();
+        let third = "x".repeat(AGENT_INSTRUCTIONS_TOTAL_CHARS / 3);
+        let block = compose_from(
+            base.path(),
+            "agent.exact",
+            &[
+                ("CLAUDE.md", &third),
+                ("AGENTS.md", &third),
+                ("MEMORY.md", &third),
+            ],
+        )
+        .await
+        .unwrap();
+        assert!(
+            !block.contains("Left out"),
+            "an exact fit leaves nothing out"
+        );
+
+        let over = format!("{third}y");
+        let block = compose_from(
+            base.path(),
+            "agent.over",
+            &[
+                ("CLAUDE.md", &third),
+                ("AGENTS.md", &third),
+                ("MEMORY.md", &over),
+            ],
+        )
+        .await
+        .unwrap();
+        assert!(
+            block.contains("MEMORY.md (3001 characters)"),
+            "one character over the budget leaves the last file out, got tail: {}",
+            &block[block.len().saturating_sub(300)..]
+        );
+    }
+
+    /// When the only file is over the budget there is nothing to load, and the
+    /// block still exists to say the brief was left out. Composing nothing would
+    /// leave a model that silently lacks its instructions.
+    #[tokio::test]
+    async fn a_lone_oversized_file_is_still_announced() {
+        let base = tempfile::tempdir().unwrap();
+        let flood = "z".repeat(AGENT_INSTRUCTIONS_TOTAL_CHARS + 1);
+        let block = compose_from(base.path(), "agent.flooded", &[("AGENTS.md", &flood)])
+            .await
+            .expect("a left-out file must still reach the prompt as a notice");
+        assert!(
+            block.contains("AGENTS.md (9001 characters)"),
+            "the notice names the file, got: {block}"
+        );
+        assert!(!block.contains("zzz"), "no part of the file is loaded");
+    }
+
+    /// The report lists every declared file, present or not, so a settings
+    /// screen can show the three rows without knowing the list itself.
+    #[tokio::test]
+    async fn the_report_lists_absent_files_and_refuses_an_unusable_id() {
+        let base = tempfile::tempdir().unwrap();
+        compose_from(base.path(), "agent.sparse", &[("MEMORY.md", "short")]).await;
+        let report = agent_instructions_report_in(base.path(), "agent.sparse")
+            .await
+            .unwrap();
+        assert_eq!(
+            report.files,
+            vec![
+                AgentInstructionFile {
+                    name: "CLAUDE.md",
+                    present: false,
+                    chars: 0,
+                    loaded: false
+                },
+                AgentInstructionFile {
+                    name: "AGENTS.md",
+                    present: false,
+                    chars: 0,
+                    loaded: false
+                },
+                AgentInstructionFile {
+                    name: "MEMORY.md",
+                    present: true,
+                    chars: 5,
+                    loaded: true
+                },
+            ]
+        );
+        assert!(
+            agent_instructions_report_in(base.path(), "../outside")
+                .await
+                .is_none(),
+            "an id that could escape the root reports nothing"
+        );
+    }
+
+    /// The report is only useful if an operator can reach it. The router is
+    /// built inline during boot, so registration is read from the source.
+    #[test]
+    fn the_instruction_files_report_is_routed() {
+        let wiring = include_str!("../lib.rs");
+        assert!(
+            wiring.contains("\"/agents/{id}/instruction-files\""),
+            "the report route is not registered"
+        );
+        assert!(
+            wiring.contains("handlers::get_agent_instruction_files"),
+            "the registered route does not reach the report handler"
         );
     }
 

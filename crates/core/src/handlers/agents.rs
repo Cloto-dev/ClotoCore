@@ -34,6 +34,26 @@ pub async fn get_agent_last_usage(
     ok_data(serde_json::json!({ "usage": usage }))
 }
 
+/// GET /api/agents/:id/instruction-files
+///
+/// Which of the agent's always-loaded files (CLAUDE.md / AGENTS.md / MEMORY.md)
+/// exist, what each costs against the shared budget, and which reach the
+/// prompt. A file that does not fit is left out whole; this is where an
+/// operator can see that it was, since the notice in the prompt is read only by
+/// the model. The budget travels with the answer so a screen never has to copy
+/// the number.
+pub async fn get_agent_instruction_files(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let report = crate::managers::mcp::agent_instructions_report(&agent_id)
+        .await
+        .ok_or_else(|| AppError::Validation(format!("'{agent_id}' is not a usable agent id")))?;
+    ok_data(report)
+}
+
 #[derive(Deserialize)]
 pub struct CreateAgentRequest {
     pub name: String,
