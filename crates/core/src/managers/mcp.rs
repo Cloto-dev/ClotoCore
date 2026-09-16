@@ -4305,6 +4305,124 @@ mod tests {
         );
     }
 
+    /// An answer the server did not accept is not spent. The kernel marks a
+    /// callback answered before it sends, so without taking that mark back the
+    /// caller's next attempt is refused as "already answered", and the answer
+    /// arrives only if the server asks again.
+    #[tokio::test]
+    async fn an_answer_the_server_did_not_accept_can_be_sent_again() {
+        // Mock MCP server: answers every request, except that it refuses the
+        // first `mgp/callback/respond` with a JSON-RPC error.
+        const MOCK: &str = "import sys, json\n\
+refused = False\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   if 'id' not in req:\n\
+\x20       continue\n\
+\x20   if req.get('method') == 'mgp/callback/respond' and not refused:\n\
+\x20       refused = True\n\
+\x20       out = {'jsonrpc': '2.0', 'id': req['id'], 'error': {'code': -32000, 'message': 'busy'}}\n\
+\x20   else:\n\
+\x20       out = {'jsonrpc': '2.0', 'id': req['id'], 'result': {}}\n\
+\x20   sys.stdout.write(json.dumps(out) + '\\n')\n\
+\x20   sys.stdout.flush()\n";
+
+        // Ask for a successful `--version`, not just a process that started: on
+        // Windows `python3` can resolve to a stub that runs and fails.
+        let python_runs = std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !python_runs {
+            eprintln!(
+                "skipping an_answer_the_server_did_not_accept_can_be_sent_again: python3 not usable"
+            );
+            return;
+        }
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let manager = McpClientManager::new(pool, false, 30, 30);
+        let (notif_tx, _notif_rx) = tokio::sync::mpsc::channel::<McpNotification>(16);
+        let (client, _negotiated) = McpClient::connect(
+            "mock-callback",
+            "python3",
+            &["-c".to_string(), MOCK.to_string()],
+            &std::collections::HashMap::new(),
+            notif_tx,
+            5,
+            5,
+            None,
+            0,
+            "",
+            &[],
+            crate::managers::mcp_client::DEFAULT_MCP_LOG_LEVEL,
+            None,
+        )
+        .await
+        .expect("mock server should complete the initialize handshake");
+        let handle = McpServerHandle {
+            id: "mock-callback".to_string(),
+            config: McpServerConfig {
+                id: "mock-callback".to_string(),
+                command: "python3".to_string(),
+                ..Default::default()
+            },
+            client: Some(std::sync::Arc::new(client)),
+            tools: Vec::new(),
+            handshake: None,
+            mgp_negotiated: None,
+            status: ServerStatus::Connected,
+            audit_seq: std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            connected_at: Some(std::time::Instant::now()),
+            isolation_profile: None,
+            protocol_era: None,
+            instructions: None,
+        };
+        manager
+            .state
+            .write()
+            .await
+            .servers
+            .insert("mock-callback".to_string(), handle);
+        assert!(manager.register_test_callback("cb-1", "mock-callback"));
+        let answer = serde_json::json!({ "callback_id": "cb-1", "response": "yes" });
+
+        let first = manager.respond_to_callback(answer.clone()).await;
+        assert!(
+            first.is_err(),
+            "the server refused the first answer; got {first:?}"
+        );
+        assert!(
+            manager
+                .events
+                .pending_callbacks()
+                .iter()
+                .any(|(id, ..)| id == "cb-1"),
+            "an answer the server refused leaves the callback waiting for one"
+        );
+
+        let second = manager
+            .respond_to_callback(answer.clone())
+            .await
+            .expect("the answer is accepted when sent again");
+        assert_eq!(second["status"], "responded");
+
+        let third = manager
+            .respond_to_callback(answer)
+            .await
+            .expect_err("an answer the server accepted is spent");
+        let mgp = third
+            .downcast::<mcp_mgp::MgpError>()
+            .expect("the refusal is MGP-typed");
+        assert_eq!(mgp.message, "Callback 'cb-1' has already been answered");
+    }
+
     #[test]
     fn persisted_remote_server_reconstructs_the_same_connection() {
         let record = crate::db::McpServerRecord {

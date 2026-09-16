@@ -1867,6 +1867,16 @@ mod tests {
                 4004,
                 "Server 'srv.gone' not found",
             ),
+            // An answer that reached no server did not use the callback up, so
+            // the second attempt meets the same missing server, not "already
+            // answered".
+            (
+                "mgp.callback.respond",
+                answer("cb-gone"),
+                404,
+                4004,
+                "Server 'srv.gone' not found",
+            ),
             (
                 "mgp.callback.respond",
                 answer("cb-idle"),
@@ -1874,13 +1884,12 @@ mod tests {
                 2000,
                 "Server 'srv.memory' not connected",
             ),
-            // The row above marked the callback answered before the send failed.
             (
                 "mgp.callback.respond",
                 answer("cb-idle"),
-                404,
-                4004,
-                "Callback 'cb-idle' has already been answered",
+                503,
+                2000,
+                "Server 'srv.memory' not connected",
             ),
             (
                 "mgp.lifecycle.shutdown",
@@ -1916,8 +1925,8 @@ mod tests {
                 // Sending the same id again cannot start resolving.
                 assert_eq!(retryable, false, "{tool} ({says}): got {body}");
             } else {
-                // A retry of this answer reports "already answered", so no hint
-                // may promise one.
+                // The answer can be sent again, but a server that went away may
+                // no longer know the callback, so no hint may promise delivery.
                 assert!(retryable.is_null(), "{tool} ({says}): got {body}");
             }
         }

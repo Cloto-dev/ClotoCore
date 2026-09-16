@@ -217,6 +217,22 @@ impl EventManager {
         Some(cb.server_id.clone())
     }
 
+    /// Take back a `resolve_callback` whose answer never reached the server.
+    ///
+    /// The callback goes back to pending with no recorded response, so it is
+    /// listed again and the next answer is accepted instead of being refused as
+    /// already answered.
+    pub fn reopen_callback(&self, callback_id: &str) {
+        let mut cbs = self.callbacks.lock().unwrap_or_else(|e| {
+            warn!("EventManager mutex was poisoned, recovering");
+            e.into_inner()
+        });
+        if let Some(cb) = cbs.get_mut(callback_id) {
+            cb.responded = false;
+            cb.recorded_response = None;
+        }
+    }
+
     /// Get the recorded response for a previously responded callback (§13.4 dedup re-send).
     pub fn get_recorded_response(&self, callback_id: &str) -> Option<(String, String)> {
         let cbs = self.callbacks.lock().unwrap_or_else(|e| {
@@ -596,15 +612,45 @@ pub(super) async fn respond_to_callback(manager: &McpClientManager, args: Value)
         debug!(callback_id = %callback_id, "LLM completion callback — routing response");
     }
 
-    // Send response to the originating server
+    // The callback was marked answered above, before the send, so a second
+    // answer cannot race this one to the server. If this answer does not arrive,
+    // the mark is taken back. Left in place it would refuse the caller's next
+    // attempt as "already answered", and the answer would reach the server only
+    // if the server sent its request again — which §13.4 makes a SHOULD, not a
+    // MUST.
+    let sent = send_callback_response(manager, callback_id, &server_id, response).await;
+    if sent.is_err() {
+        manager.events.reopen_callback(callback_id);
+    }
+    sent?;
+
+    info!(
+        callback_id = %callback_id,
+        server = %server_id,
+        "Callback responded"
+    );
+
+    Ok(serde_json::json!({
+        "callback_id": callback_id,
+        "server_id": server_id,
+        "status": "responded",
+    }))
+}
+
+/// Deliver an answer to the server that asked for it.
+async fn send_callback_response(
+    manager: &McpClientManager,
+    callback_id: &str,
+    server_id: &str,
+    response: &str,
+) -> Result<()> {
     let state = manager.state.read().await;
-    let handle = state.servers.get(&server_id).ok_or_else(|| {
+    let handle = state.servers.get(server_id).ok_or_else(|| {
         super::mcp_mgp::resource_not_found(format!("Server '{server_id}' not found"))
     })?;
-    // No retry hint on this one. The callback was marked answered above, before
-    // the send, so sending the same answer again reports "already answered"
-    // rather than succeeding — advertising a retry would promise what the
-    // second attempt cannot deliver.
+    // No retry hint. The callback is reopened, so the same answer can be sent
+    // again, but a server that went away and came back may no longer know this
+    // callback: a hint would promise a delivery the next attempt cannot.
     let client = handle.client.as_ref().ok_or_else(|| {
         anyhow::Error::new(super::mcp_mgp::MgpError::new(
             super::mcp_mgp::MGP_ERR_SERVER_NOT_READY,
@@ -620,18 +666,7 @@ pub(super) async fn respond_to_callback(manager: &McpClientManager, args: Value)
         .call("mgp/callback/respond", Some(params))
         .await
         .map_err(|e| anyhow::anyhow!("Failed to send callback response: {}", e))?;
-
-    info!(
-        callback_id = %callback_id,
-        server = %server_id,
-        "Callback responded"
-    );
-
-    Ok(serde_json::json!({
-        "callback_id": callback_id,
-        "server_id": server_id,
-        "status": "responded",
-    }))
+    Ok(())
 }
 
 #[cfg(test)]
@@ -758,6 +793,33 @@ mod tests {
 
         // Unknown callback
         assert!(em.resolve_callback("cb-unknown", "x").is_none());
+    }
+
+    #[test]
+    fn a_reopened_callback_is_pending_and_can_be_answered_again() {
+        let em = EventManager::new();
+        em.register_callback("cb-1", "s1", "confirm", "msg", None);
+        assert!(em.resolve_callback("cb-1", "first").is_some());
+
+        em.reopen_callback("cb-1");
+
+        assert!(
+            em.pending_callbacks().iter().any(|(id, ..)| id == "cb-1"),
+            "a reopened callback is listed as waiting for an answer"
+        );
+        assert_eq!(
+            em.get_recorded_response("cb-1"),
+            None,
+            "an answer that was never delivered must not be re-sent on a duplicate request"
+        );
+        assert_eq!(
+            em.resolve_callback("cb-1", "second"),
+            Some("s1".to_string())
+        );
+        assert_eq!(
+            em.get_recorded_response("cb-1"),
+            Some(("s1".to_string(), "second".to_string()))
+        );
     }
 
     #[test]
