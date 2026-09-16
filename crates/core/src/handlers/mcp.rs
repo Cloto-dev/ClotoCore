@@ -7,6 +7,7 @@ use serde::Deserialize;
 use std::{collections::HashMap, sync::Arc};
 use tracing::{error, info};
 
+use crate::managers::McpClientManager;
 use crate::{AppError, AppResult, AppState};
 
 use super::{check_auth, ok_data, spawn_admin_audit};
@@ -991,11 +992,45 @@ pub async fn call_mcp_tool(
     // coordinator credential and still runs as System.
     let caller = crate::handlers::resolve_tool_caller(&state, &headers).await?;
 
+    // Kernel-native tools have no server to route to, and the index below only
+    // knows about connected MCP servers — so they have to be dispatched before
+    // routing is attempted, not after it fails.
+    //
+    // This is the path an external harness takes: a CLI agent runs as a
+    // subprocess and calls back in over HTTP, so *every* tool it was offered
+    // arrives here. `collect_tool_schemas_for_agent` offers the `mgp.tools.*`
+    // discovery pair, `mgp.skill.load` and the `mgp.operator.*` pair to agents
+    // that hold no grants at all, and before this branch existed not one of them
+    // could be called through this endpoint — the kernel answered "no connected
+    // MCP server provides tool", naming a tool it had just advertised itself.
+    // The in-process agentic loop never hit it because it calls `execute_tool`
+    // directly.
+    //
+    // `execute_tool` applies the same capability gate, so routing past the index
+    // does not route past the gate: kernel RBAC still refuses an explicit Deny.
+    if McpClientManager::is_kernel_native_tool(&body.tool_name) {
+        let result = state
+            .mcp_manager
+            .execute_tool(&caller, &body.tool_name, body.arguments)
+            .await
+            .map_err(|failure| match failure {
+                // A rejection is a policy answer, not a fault: it carries the
+                // reason the caller is meant to read, so it travels as the
+                // refusal text rather than being flattened into a 500.
+                cloto_shared::ToolFailure::Rejection(r) => AppError::Validation(r.reason),
+                cloto_shared::ToolFailure::Error(e) => {
+                    match e.downcast::<crate::managers::mcp_mgp::MgpError>() {
+                        Ok(mgp) => AppError::Mgp(Box::new(mgp)),
+                        Err(other) => AppError::Internal(other),
+                    }
+                }
+            })?;
+        return ok_data(result);
+    }
+
     // Resolve the provider when the caller did not name one. The index is the
-    // kernel's own answer to "who serves this tool", and it is the same answer
-    // `collect_tool_schemas_for_agent` deduplicated the agent's tool list by —
-    // so a name that reached a caller through that list resolves to the server
-    // the caller was shown.
+    // kernel's own answer to "who serves this tool" for everything a server
+    // provides.
     let server_id = if body.server_id.is_empty() {
         state
             .mcp_manager
@@ -1462,6 +1497,55 @@ mod tests {
             "an omitted server_id must resolve to the indexed provider and get \
              past routing; got: {err}"
         );
+    }
+
+    /// The path an external harness actually takes.
+    ///
+    /// A CLI agent runs as a subprocess and calls back in over HTTP, so every
+    /// tool it was offered arrives at this handler — including the kernel's own,
+    /// which no server provides and the index below therefore cannot resolve.
+    /// Before this was handled, the kernel refused tools it had itself
+    /// advertised, and nothing caught it: the in-process loop calls
+    /// `execute_tool` directly and never comes through here, so a test written
+    /// against `execute_tool` passes while the real caller gets a 400.
+    #[tokio::test]
+    async fn a_kernel_native_tool_is_dispatched_here_rather_than_routed_to_a_server() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        let token = state.agent_tokens.mint_default("agent.growth").await;
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::managers::agent_token::AGENT_TOKEN_HEADER,
+            token.parse().unwrap(),
+        );
+        let out = call_mcp_tool(
+            State(state.clone()),
+            headers,
+            Json(CallMcpToolRequest {
+                server_id: String::new(),
+                tool_name: "mgp.operator.ask".to_string(),
+                arguments: serde_json::json!({ "title": "may I?" }),
+            }),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            panic!(
+                "a tool the kernel offers must be callable through the endpoint it \
+                 offers it on"
+            )
+        });
+
+        let item_id = out.0["data"]["item_id"]
+            .as_str()
+            .expect("the caller gets the id of the question it raised");
+        let item = crate::db::get_notification(&state.pool, item_id)
+            .await
+            .unwrap()
+            .expect("the question reached the store");
+        assert_eq!(item.kind, crate::db::NotificationKind::Proposal);
+        // The caller was an agent token, so the question is attributed to that
+        // agent and not to the coordinator.
+        assert_eq!(item.agent_id.as_deref(), Some("agent.growth"));
     }
 
     #[tokio::test]
