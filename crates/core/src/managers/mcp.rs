@@ -2873,8 +2873,11 @@ impl McpClientManager {
                     error = %e,
                     "🔒 capability gate: access check failed (bug-421)"
                 );
+                // The lookup failed, so this is a fault, not a policy answer. It
+                // still refuses (fail closed), but the error stays in the log
+                // line above: this message is rendered into the response body.
                 Err(mcp_mgp::MgpError::access_denied(format!(
-                    "Access check failed for agent '{agent_id}' on '{server_id}.{tool_name}': {e}"
+                    "Access check failed for agent '{agent_id}' on '{server_id}.{tool_name}'"
                 ))
                 .into())
             }
@@ -4270,6 +4273,37 @@ mod tests {
     /// enricher tests that are about the other four keys — the token path has
     /// its own tests, which register a server and negotiate the extension.
     const NO_TOKEN_ENGINE: &str = "engine.not-registered";
+
+    /// When the grant lookup itself fails, the gate refuses, and the refusal
+    /// says so without the database error. The message is rendered verbatim
+    /// into an HTTP body and into the tool result an agent reads, so anything
+    /// appended to it leaves the process.
+    #[tokio::test]
+    async fn a_failed_access_check_refuses_without_the_database_error() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let manager = McpClientManager::new(pool.clone(), false, 120, 30);
+        pool.close().await;
+
+        let err = manager
+            .enforce_caller_grant(
+                &Caller::Agent("agent.growth".to_string()),
+                "srv.memory",
+                "recall",
+            )
+            .await
+            .expect_err("an access check that could not run must refuse");
+        let mgp = err
+            .downcast::<mcp_mgp::MgpError>()
+            .expect("the refusal is MGP-typed, so it reaches the caller as 1001");
+        assert_eq!(mgp.code, mcp_mgp::MGP_ERR_ACCESS_DENIED);
+        assert_eq!(
+            mgp.message,
+            "Access check failed for agent 'agent.growth' on 'srv.memory.recall'"
+        );
+    }
 
     #[test]
     fn persisted_remote_server_reconstructs_the_same_connection() {
