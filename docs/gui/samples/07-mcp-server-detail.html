@@ -1,0 +1,369 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><title>MCP サーバー詳細 v2 — ClotoCore</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+JP:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ---------- Decisions (each line says why) — see docs/DESIGN_PHILOSOPHY.md ---------- */
+:root {
+  /* 中立色: slate を捨て、相手の色相 (cyan, h≈190) を 4% 混ぜた墨。4 段の階段を数値で固定 */
+  --h: 190;
+  --ink-0: hsl(var(--h) 6% 8%);   /* 基底 (作業領域) */
+  --ink-1: hsl(var(--h) 7% 12%);  /* 後退面 (サイドバー) — 基底より明るく、作業領域が前に出る */
+  --ink-2: hsl(var(--h) 7% 16%);  /* 浮いた面 (composer・hover) */
+  --ink-3: hsl(var(--h) 7% 22%);  /* 境界の代わりに使う明度 (罫線は引かない) */
+  --fg-0: hsl(var(--h) 10% 92%);  /* 本文 */
+  --fg-1: hsl(var(--h) 8% 68%);   /* 補助 */
+  --fg-2: hsl(var(--h) 6% 48%);   /* 後退 */
+  /* アクセント: いま話している相手の色。装飾に使わず、相手に属するもの (顔・発言・送信・選択) だけ */
+  --agent: hsl(190 70% 58%);
+  --agent-ink: hsl(190 50% 10%);
+  --agent-dim: hsl(190 40% 58% / .16);
+  --agent-name: "サフィー";
+  /* 角丸 3 段: 道具 6 / 面 10 / composer 18 (唯一の柔らかい要素) */
+  --r-tool: 6px; --r-face: 10px; --r-soft: 18px;
+  --reading: 720px;
+  --sans: "IBM Plex Sans JP", "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, monospace; /* 数値・コードだけ */
+}
+* { box-sizing: border-box; } html, body { margin: 0; height: 100%; }
+body { background: var(--ink-0); color: var(--fg-0); font-family: var(--sans); font-size: 15px; line-height: 1.7; -webkit-font-smoothing: antialiased; }
+button, input, textarea { font: inherit; color: inherit; } button { background: none; border: 0; padding: 0; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--agent); outline-offset: 2px; border-radius: var(--r-tool); }
+::-webkit-scrollbar { width: 10px; } ::-webkit-scrollbar-thumb { background: var(--ink-3); border-radius: 8px; border: 3px solid var(--ink-0); }
+svg { width: 15px; height: 15px; flex: none; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+.shell { display: grid; grid-template-columns: 264px 1fr; height: 100vh; overflow: hidden; }
+
+/* ---------- サイドバー: 後退する面。色は無し、アイコンはナビだけ ---------- */
+.side { background: var(--ink-1); display: flex; flex-direction: column; min-height: 0; padding: 14px 10px 10px; }
+.side-head { display: flex; align-items: center; padding: 2px 8px 10px; }
+.side-head .app { font-weight: 600; font-size: 14px; letter-spacing: 0; flex: 1; color: var(--fg-1); }
+.side-head button { width: 30px; height: 30px; border-radius: var(--r-tool); display: grid; place-items: center; color: var(--fg-2); }
+.side-head button:hover { background: var(--ink-2); color: var(--fg-0); }
+.newchat { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--r-tool); font-weight: 500; text-align: left; width: 100%; color: var(--fg-0); }
+.newchat:hover { background: var(--ink-2); }
+.newchat .kbd { margin-left: auto; font-size: 12px; color: var(--fg-2); }
+.convs { flex: 1; overflow-y: auto; min-height: 0; margin-top: 10px; }
+.glabel { font-size: 12px; color: var(--fg-2); padding: 14px 10px 4px; }
+.glabel:first-child { padding-top: 4px; }
+.conv { display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left; padding: 6px 10px; border-radius: var(--r-tool); color: var(--fg-1); font-size: 13.5px; line-height: 1.5; }
+.conv:hover { background: var(--ink-2); color: var(--fg-0); }
+.conv .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.conv .who { font-size: 12px; color: var(--fg-2); flex: none; }
+.conv.mine .who { color: var(--agent); }           /* いま話している相手との会話だけ、相手の色で名を出す */
+.conv .live { width: 6px; height: 6px; border-radius: 50%; background: var(--agent); flex: none; align-self: center; }
+.folder { padding-left: 12px; }
+.more { color: var(--fg-2); font-size: 13px; padding: 6px 10px; }
+.nav { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--ink-2); }
+.nav a { display: flex; align-items: center; gap: 9px; padding: 6px 10px; border-radius: var(--r-tool); color: var(--fg-1); text-decoration: none; font-size: 13.5px; }
+.nav a svg { width: 14px; height: 14px; color: var(--fg-2); }
+.nav a:hover { background: var(--ink-2); color: var(--fg-0); }
+.nav a.on { color: var(--fg-0); background: var(--ink-2); }
+.side-foot { padding: 10px 10px 2px; font-size: 12px; color: var(--fg-2); display: flex; gap: 8px; }
+.side-foot .ok { color: var(--fg-1); }
+
+/* ---------- 居間: 相手がいる面 ---------- */
+.room { display: flex; flex-direction: column; min-height: 0; }
+.face { display: flex; align-items: center; gap: 14px; padding: 18px 28px 14px; }
+.face .pic { width: 44px; height: 44px; border-radius: 50%; background: var(--agent); color: var(--agent-ink); display: grid; place-items: center; overflow: hidden; }
+.face .pic svg { width: 26px; height: 26px; }
+.face .who { line-height: 1.35; }
+.face .name { font-size: 17px; font-weight: 600; }
+.face .state { font-size: 13px; color: var(--fg-1); }
+.face .state b { color: var(--agent); font-weight: 500; }
+.face .spacer { flex: 1; }
+.face .tool { color: var(--fg-2); width: 32px; height: 32px; border-radius: var(--r-tool); display: grid; place-items: center; }
+.face .tool:hover { background: var(--ink-2); color: var(--fg-0); }
+
+.stream { flex: 1; overflow-y: auto; min-height: 0; }
+.col { width: min(var(--reading), 100% - 56px); margin: 0 auto; }
+.said { display: flex; gap: 14px; padding-top: 28px; }
+.said .mark { width: 8px; height: 8px; border-radius: 50%; background: var(--agent); margin-top: 11px; flex: none; }
+.said .body { font-size: 16px; line-height: 1.8; }
+.said .body p { margin: 0 0 .6em; } .said .body p:last-child { margin: 0; }
+.said .when { font-size: 12px; color: var(--fg-2); margin-top: 6px; }
+.threads { margin-top: 36px; }
+.threads .h { font-size: 12.5px; color: var(--fg-2); padding-bottom: 6px; }
+.threads a { display: flex; align-items: baseline; gap: 12px; padding: 9px 0; color: var(--fg-1); text-decoration: none; border-top: 1px solid var(--ink-2); }
+.threads a:hover { color: var(--fg-0); }
+.threads a .t { flex: 1; }
+.threads a .d { font-size: 12.5px; color: var(--fg-2); flex: none; }
+
+.write { padding: 12px 0 14px; }
+.box { background: var(--ink-2); border-radius: var(--r-soft); padding: 12px 14px 10px; }  /* 境界なし・影なし: 明度だけで浮かせる */
+.box:focus-within { box-shadow: 0 0 0 1px var(--ink-3); }
+.box textarea { width: 100%; background: none; border: 0; outline: none; resize: none; min-height: 48px; max-height: 240px; font-size: 15.5px; line-height: 1.7; padding: 4px 4px 2px; color: var(--fg-0); }
+.box textarea::placeholder { color: var(--fg-2); }
+.row { display: flex; align-items: center; gap: 2px; margin-top: 6px; }
+.row .ib { width: 32px; height: 32px; border-radius: var(--r-tool); display: grid; place-items: center; color: var(--fg-1); }
+.row .ib:hover { background: var(--ink-3); color: var(--fg-0); }
+.row .ctx { display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 13px; color: var(--fg-1); height: 32px; border-radius: var(--r-tool); }
+.row .ctx:hover { background: var(--ink-3); }
+.row .ctx .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--agent); }
+.row .sep { width: 1px; height: 16px; background: var(--ink-3); margin: 0 6px; }
+.row .spacer { flex: 1; }
+.row .meter { font-size: 12px; color: var(--fg-2); margin-right: 8px; }
+.send { width: 32px; height: 32px; border-radius: 50%; background: var(--agent); color: var(--agent-ink); display: grid; place-items: center; }
+.send svg { width: 16px; height: 16px; } .send:hover { filter: brightness(1.08); }
+.hint { font-size: 12px; color: var(--fg-2); padding: 8px 4px 0; }
+.face.slim { padding: 12px 20px 0; }
+.stream.empty { display: flex; }
+.presence { display: flex; flex-direction: column; align-items: center; justify-content: center; padding-bottom: 6vh; }
+.presence .pic { width: 84px; height: 84px; border-radius: 50%; background: var(--agent); color: var(--agent-ink); display: grid; place-items: center; margin-bottom: 16px; }
+.presence .pic svg { width: 44px; height: 44px; }
+.presence .name { font-size: 22px; font-weight: 600; line-height: 1.3; }
+.presence .state { font-size: 13.5px; color: var(--fg-1); margin-top: 2px; }
+.presence .state b { color: var(--agent); font-weight: 500; }
+.presence .remark { font-size: 16px; color: var(--fg-0); margin: 22px 0 0; max-width: 34em; text-align: center; line-height: 1.8; }
+.presence .threads { width: min(520px, 100%); margin-top: 40px; }
+.presence .threads .h { text-align: center; }
+
+.conv.on { background: var(--ink-2); color: var(--fg-0); }
+.face.talk { padding: 14px 24px 10px; gap: 12px; }
+.face.talk .pic { width: 40px; height: 40px; } .face.talk .pic svg { width: 22px; height: 22px; }
+.face.talk .name { font-size: 16px; } .face.talk .state { font-size: 12.5px; }
+.face.talk .state b { color: var(--agent); font-weight: 500; }
+.face.talk .topic { font-size: 13px; color: var(--fg-2); margin-left: 14px; padding-left: 14px; border-left: 1px solid var(--ink-3); align-self: center; }
+.face .txt { color: var(--fg-1); font-size: 13px; padding: 0 10px; height: 32px; border-radius: var(--r-tool); display: inline-flex; align-items: center; gap: 6px; }
+.face .txt:hover { background: var(--ink-2); color: var(--fg-0); }
+.flow { padding: 18px 0 8px; display: flex; flex-direction: column; gap: 26px; }
+.day { text-align: center; font-size: 12px; color: var(--fg-2); }
+.me { display: flex; justify-content: flex-end; }
+.me .b { max-width: 76%; background: var(--ink-2); border-radius: var(--r-face); padding: 10px 14px; font-size: 15px; line-height: 1.7; }
+.me .b p { margin: 0; }
+.msg { display: flex; gap: 14px; }
+.msg .mark { width: 8px; height: 8px; border-radius: 50%; background: var(--agent); margin-top: 11px; flex: none; }
+.msg .b { min-width: 0; flex: 1; font-size: 16px; line-height: 1.8; }
+.msg .b p { margin: 0 0 .7em; } .msg .b p:last-child { margin: 0; }
+.msg .b ul { margin: .3em 0 .8em; padding-left: 1.3em; }
+.msg .b code, .me .b code { font-family: var(--mono); font-size: .92em; background: var(--ink-2); padding: .05em .35em; border-radius: 4px; }
+.meta { display: flex; align-items: center; gap: 10px; margin-top: 6px; font-size: 12px; color: var(--fg-2); }
+.meta .acts { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
+.msg:hover .meta .acts, .me:hover .meta .acts, .msg:focus-within .meta .acts { opacity: 1; }
+.meta .acts button { padding: 2px 6px; border-radius: 4px; color: var(--fg-2); font-size: 12px; }
+.meta .acts button:hover { background: var(--ink-2); color: var(--fg-0); }
+.me .wrap { max-width: 76%; display: flex; flex-direction: column; align-items: flex-end; }
+.me .wrap .b { max-width: none; }
+.inner { margin: 4px 0 12px; }
+.inner summary { list-style: none; cursor: pointer; font-size: 13px; color: var(--fg-1); display: inline-flex; align-items: center; gap: 8px; padding: 4px 8px 4px 0; border-radius: var(--r-tool); }
+.inner summary::-webkit-details-marker { display: none; }
+.inner summary .lbl { color: var(--fg-2); font-size: 12px; }
+.inner summary:hover { color: var(--fg-0); }
+.inner summary .chev { display: inline-block; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); transition: transform .12s; margin-left: 2px; }
+.inner[open] summary .chev { transform: rotate(45deg); }
+.inner ol { margin: 6px 0 0; padding: 0 0 0 4px; list-style: none; font-size: 13px; color: var(--fg-1); border-left: 2px solid var(--ink-3); }
+.inner li { padding: 3px 0 3px 12px; display: flex; gap: 10px; }
+.inner li .num { color: var(--fg-2); font-size: 12px; min-width: 0; }
+.inner li code { font-family: var(--mono); font-size: 12.5px; color: var(--fg-1); }
+.code { background: var(--ink-1); border-radius: var(--r-face); margin: 10px 0; overflow: hidden; }
+.code .h { display: flex; align-items: center; padding: 6px 14px; font-size: 12.5px; color: var(--fg-2); background: var(--ink-2); }
+.code .h .lang { font-family: var(--mono); }
+.code .h .sp { flex: 1; } .code .h button { color: var(--fg-1); font-size: 12.5px; margin-left: 14px; } .code .h button:hover { color: var(--fg-0); }
+.code pre { margin: 0; padding: 12px 14px; font-family: var(--mono); font-size: 13px; line-height: 1.6; color: var(--fg-0); overflow-x: auto; }
+.code pre .c { color: var(--fg-2); }
+.ask { margin-top: 14px; background: var(--ink-1); border-left: 2px solid var(--agent); border-radius: 0 var(--r-face) var(--r-face) 0; padding: 12px 16px 12px 16px; }
+.ask .q { font-size: 15px; line-height: 1.7; }
+.ask .cmd { font-family: var(--mono); font-size: 13px; background: var(--ink-0); border-radius: var(--r-tool); padding: 8px 12px; margin: 10px 0; color: var(--fg-0); }
+.ask .why { font-size: 13px; color: var(--fg-1); }
+.ask .acts { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
+.ask .acts .ok { background: var(--agent); color: var(--agent-ink); font-weight: 500; padding: 7px 14px; border-radius: var(--r-tool); }
+.ask .acts .ok:hover { filter: brightness(1.08); }
+.ask .acts .alt { color: var(--fg-1); padding: 7px 10px; border-radius: var(--r-tool); }
+.ask .acts .alt:hover { background: var(--ink-2); color: var(--fg-0); }
+.ask .acts .risk { margin-left: auto; font-size: 12px; color: var(--fg-2); }
+.typing { display: inline-block; width: 8px; height: 17px; background: var(--agent); vertical-align: -3px; margin-left: 2px; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+.latest { position: absolute; left: 50%; transform: translateX(-50%); bottom: 120px; background: var(--ink-2); color: var(--fg-1); font-size: 12.5px; padding: 6px 12px; border-radius: 999px; }
+.latest:hover { color: var(--fg-0); background: var(--ink-3); }
+.room { position: relative; }
+.send.stop { background: var(--fg-0); color: var(--ink-0); }
+
+/* ---------- 工房: 人と機械の面。密度を上げ、アクセントは使わない ---------- */
+.ws { display: flex; flex-direction: column; min-height: 0; font-size: 13.5px; }
+.ws-head { display: flex; align-items: center; gap: 14px; padding: 16px 24px 10px; }
+.ws-head h1 { font-size: 17px; font-weight: 600; margin: 0; }
+.ws-head .count { color: var(--fg-2); font-size: 13px; }
+.ws-head .count .bad { color: hsl(6 70% 68%); }
+.ws-head .spacer { flex: 1; }
+.ws-head .find { display: flex; align-items: center; gap: 8px; background: var(--ink-1); border-radius: var(--r-tool); padding: 6px 10px; width: 260px; color: var(--fg-2); }
+.ws-head .find input { flex: 1; background: none; border: 0; outline: none; color: var(--fg-0); font-size: 13px; }
+.ws-head .find svg { width: 14px; height: 14px; }
+.btn { padding: 6px 12px; border-radius: var(--r-tool); font-size: 13px; color: var(--fg-1); }
+.btn:hover { background: var(--ink-2); color: var(--fg-0); }
+.btn.pri { background: var(--ink-3); color: var(--fg-0); font-weight: 500; }
+.btn.pri:hover { background: hsl(var(--h) 7% 27%); }
+.tabs { display: flex; gap: 2px; padding: 0 24px; border-bottom: 1px solid var(--ink-2); }
+.tabs button { padding: 7px 10px; color: var(--fg-2); font-size: 13px; border-bottom: 1px solid transparent; margin-bottom: -1px; }
+.tabs button:hover { color: var(--fg-0); }
+.tabs .on { color: var(--fg-0); border-bottom-color: var(--fg-1); }
+.tabs .n { color: var(--fg-2); margin-left: 4px; }
+.ws-body { flex: 1; min-height: 0; overflow: auto; }
+table { border-collapse: collapse; width: 100%; }
+th { text-align: left; font-weight: 500; font-size: 12px; color: var(--fg-2); padding: 8px 12px; border-bottom: 1px solid var(--ink-2); position: sticky; top: 0; background: var(--ink-0); white-space: nowrap; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--ink-1); vertical-align: middle; white-space: nowrap; }
+td.grow { white-space: normal; }
+tr:hover td { background: var(--ink-1); }
+tr.sel td { background: var(--ink-2); }
+td .id { color: var(--fg-2); font-family: var(--mono); font-size: 12px; }
+td .acts { opacity: 0; display: inline-flex; gap: 2px; }
+tr:hover td .acts, tr.sel td .acts { opacity: 1; }
+td .acts button { padding: 2px 7px; border-radius: 4px; color: var(--fg-2); font-size: 12px; }
+td .acts button:hover { background: var(--ink-3); color: var(--fg-0); }
+.st { display: inline-flex; align-items: center; gap: 6px; }
+.st::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--fg-2); }
+.st.ok::before { background: hsl(150 45% 55%); } .st.bad::before { background: hsl(6 70% 62%); } .st.warn::before { background: hsl(40 70% 60%); }
+.st.bad { color: hsl(6 70% 72%); }
+
+.groups { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 40px; padding: 14px 24px 48px; max-width: 1100px; }
+.g { margin-bottom: 14px; }
+.g h3 { font-size: 12.5px; font-weight: 500; color: var(--fg-2); margin: 0 0 4px; padding: 0 10px 6px; border-bottom: 1px solid var(--ink-2); display: flex; }
+.g h3 .cnt { margin-left: auto; }
+.g .row { display: grid; grid-template-columns: minmax(150px,1fr) auto 70px 28px; gap: 14px; align-items: center; padding: 6px 10px; border-radius: var(--r-tool); font-size: 13.5px; }
+.g .row:hover { background: var(--ink-1); }
+.g .row .nm { font-family: var(--mono); font-size: 13px; }
+.g .row .nm small { font-family: var(--sans); color: var(--fg-2); margin-left: 8px; font-size: 12px; }
+.g .row .dev { font-size: 12.5px; color: hsl(6 70% 72%); white-space: nowrap; }
+.g .row .dev.warn { color: hsl(40 70% 65%); }
+.g .row .dev.off { color: var(--fg-2); }
+.g .row .tools { color: var(--fg-1); min-width: 56px; text-align: right; }
+.g .row .more { opacity: 0; width: 28px; height: 24px; border-radius: 4px; color: var(--fg-2); display: grid; place-items: center; } .g .row:hover .more { opacity: 1; } .g .row .more:hover { background: var(--ink-3); color: var(--fg-0); }
+.g .row:hover .acts { opacity: 1; }
+.g .row .acts button { padding: 2px 7px; border-radius: 4px; color: var(--fg-2); font-size: 12px; }
+.g .row .acts button:hover { background: var(--ink-3); color: var(--fg-0); }
+.g.bad h3 { color: hsl(6 70% 72%); border-bottom-color: hsl(6 50% 30%); }
+
+.lst { width: min(820px, 100% - 48px); margin: 0 auto; padding: 8px 0 60px; }
+.band { position: relative; height: 44px; display: flex; align-items: center; margin-top: 6px; }
+.band::before { content: ""; position: absolute; left: 0; right: 0; top: 9px; height: 26px; background: var(--ink-1); border-radius: 6px; }
+.band .lbl { position: relative; font-size: 12.5px; font-weight: 500; padding-left: 14px; color: var(--fg-0); }
+.band .n { position: relative; margin-left: auto; padding-right: 14px; font-size: 12px; color: var(--fg-2); }
+.band.bad .lbl { color: hsl(6 70% 72%); }
+.srv { display: grid; grid-template-columns: 170px 1fr auto 28px; gap: 16px; align-items: center; padding: 8px 14px; border-radius: var(--r-tool); }
+.srv:hover { background: var(--ink-1); }
+.srv .nm { font-size: 14px; font-weight: 500; }
+.srv .nm small { display: block; font-family: var(--mono); font-size: 11.5px; font-weight: 400; color: var(--fg-2); }
+.srv .what { font-size: 13.5px; color: var(--fg-1); line-height: 1.5; }
+.srv .what .dev { color: hsl(6 70% 72%); }
+.srv .what .dev.warn { color: hsl(40 70% 65%); }
+.srv .cnt { font-size: 12.5px; color: var(--fg-2); white-space: nowrap; }
+.srv .more { opacity: 0; width: 28px; height: 24px; border-radius: 4px; color: var(--fg-2); display: grid; place-items: center; }
+.srv:hover .more { opacity: 1; } .srv .more:hover { background: var(--ink-3); color: var(--fg-0); }
+
+.detail { display: grid; grid-template-columns: 200px 1fr; min-height: 0; }
+.rail { padding: 6px 12px; border-right: 1px solid var(--ink-2); }
+.rail a { display: block; padding: 6px 10px; border-radius: var(--r-tool); color: var(--fg-1); text-decoration: none; margin-bottom: 1px; font-size: 13.5px; }
+.rail a.on { color: var(--fg-0); background: var(--ink-2); }
+.rail a:hover { background: var(--ink-1); color: var(--fg-0); }
+.pane { padding: 6px 32px 120px; max-width: 800px; overflow: auto; }
+.pane h2 { font-size: 13.5px; font-weight: 600; color: var(--fg-1); margin: 26px 0 2px; }
+.pane h2:first-child { margin-top: 12px; }
+.frow { display: flex; align-items: flex-start; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--ink-1); }
+.frow .k { width: 180px; flex: none; padding-top: 6px; }
+.frow .k small { display: block; font-size: 12px; color: var(--fg-2); margin-top: 1px; font-weight: 400; }
+.frow .v { flex: 1; min-width: 0; }
+.in { width: 100%; background: var(--ink-1); border: 0; border-radius: var(--r-tool); padding: 7px 10px; color: var(--fg-0); font-size: 13.5px; }
+.in:focus { outline: 2px solid var(--fg-2); outline-offset: 0; }
+.in.mono { font-family: var(--mono); font-size: 12.5px; }
+textarea.in { min-height: 88px; resize: vertical; line-height: 1.6; }
+.seg { display: inline-flex; background: var(--ink-1); border-radius: var(--r-tool); padding: 2px; }
+.seg button { padding: 4px 12px; border-radius: 4px; font-size: 13px; color: var(--fg-1); }
+.seg .on { background: var(--ink-3); color: var(--fg-0); }
+.sel { display: inline-flex; justify-content: space-between; align-items: center; gap: 12px; min-width: 200px; background: var(--ink-1); border-radius: var(--r-tool); padding: 7px 10px; font-size: 13.5px; }
+.sel .c { color: var(--fg-2); font-size: 11px; }
+.kv { display: grid; grid-template-columns: 1fr 1fr 28px; gap: 6px; align-items: center; margin-bottom: 6px; }
+.kv .in { padding: 6px 10px; }
+.tgl { width: 34px; height: 20px; border-radius: 999px; background: var(--ink-3); position: relative; flex: none; }
+.tgl::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--fg-2); }
+.tgl.on { background: var(--fg-1); } .tgl.on::after { left: 16px; background: var(--ink-0); }
+.hint { font-size: 12.5px; color: var(--fg-2); margin-top: 6px; line-height: 1.6; }
+.tool { display: grid; grid-template-columns: 200px 1fr auto; gap: 14px; padding: 7px 10px; border-radius: var(--r-tool); font-size: 13px; align-items: center; }
+.tool:hover { background: var(--ink-1); }
+.tool .nm { font-family: var(--mono); font-size: 12.5px; }
+.tool .d { color: var(--fg-1); }
+.grant { display: inline-flex; background: var(--ink-1); border-radius: 4px; padding: 1px; }
+.grant button { padding: 2px 9px; border-radius: 3px; font-size: 12px; color: var(--fg-2); }
+.grant .on { background: var(--ink-3); color: var(--fg-0); }
+.grant .allow.on { color: hsl(150 45% 65%); } .grant .deny.on { color: hsl(6 70% 72%); }
+.savebar { position: absolute; left: 200px; right: 0; bottom: 0; display: flex; align-items: center; gap: 8px; padding: 12px 32px; background: var(--ink-0); border-top: 1px solid var(--ink-2); font-size: 13px; color: var(--fg-2); }
+.savebar .spacer { flex: 1; }
+.log { font-family: var(--mono); font-size: 12px; line-height: 1.7; background: var(--ink-1); border-radius: var(--r-face); padding: 10px 14px; color: var(--fg-1); white-space: pre; overflow-x: auto; }
+.log .t { color: var(--fg-2); } .log .w { color: hsl(40 70% 65%); } .log .e { color: hsl(6 70% 72%); }
+.danger { color: hsl(6 70% 72%); }
+.face-lg { width: 64px; height: 64px; border-radius: 50%; background: var(--agent); color: var(--agent-ink); display: grid; place-items: center; }
+.harness { display: grid; grid-template-columns: 34px 1fr auto; gap: 14px; align-items: center; padding: 12px 14px; border-radius: var(--r-face); }
+.harness:hover { background: var(--ink-1); } .harness.on { background: var(--ink-2); }
+.harness .ic { width: 34px; height: 34px; border-radius: 8px; background: var(--ink-3); display: grid; place-items: center; font-family: var(--mono); font-size: 12px; color: var(--fg-1); }
+.harness .nm { font-weight: 500; font-size: 14px; } .harness .st { font-size: 12.5px; color: var(--fg-1); }
+.harness .st .ok { color: hsl(150 45% 65%); } .harness .st .warn { color: hsl(40 70% 65%); }
+.harness .r { font-size: 12.5px; color: var(--fg-2); text-align: right; }
+.tag { position: fixed; left: 278px; bottom: 10px; font-size: 11.5px; color: var(--fg-2); }
+</style><!-- Static UI sample. No backend, no interaction. Strings are the ja locale; see README.md in this folder. -->
+</head><body><div class="shell">
+
+<aside class="side">
+  <div class="side-head"><span class="app">ClotoCore</span>
+    <button title="検索 (⌘K)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></button>
+    <button title="通知"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10 21a2 2 0 0 0 4 0"/></svg></button>
+  </div>
+  <button class="newchat"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" style="width:14px;height:14px;color:var(--fg-2)"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>新しいチャット<span class="kbd">⌘N</span></button>
+  <div class="convs">
+    <div class="glabel">今日</div>
+    <button class="conv mine"><span class="t">CPersona 2.6 の recall 精度整理</span><span class="who">サフィー</span></button>
+    <button class="conv"><span class="t">Discord への朝の挨拶を自動化</span><span class="live" title="応答中"></span><span class="who">カリン</span></button>
+    <button class="conv"><span class="t">テストメッセージと接続確認</span><span class="who">Cloto</span></button>
+    <div class="glabel">プロジェクト</div>
+    <button class="conv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" style="width:14px;height:14px;color:var(--fg-2);align-self:center"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span class="t">小説の下書き</span><span class="who">3 件</span></button>
+    <div class="folder"><button class="conv"><span class="t">第 3 章の構成</span><span class="who">Cloto</span></button><button class="conv mine"><span class="t">登場人物のメモ</span><span class="who">サフィー</span></button></div>
+    <div class="glabel">昨日</div>
+    <button class="conv"><span class="t">MCP サーバの再起動が遅い件</span><span class="who">Cloto</span></button>
+    <button class="conv"><span class="t">ベンチマーク N=10 の集計</span><span class="who">Benchmark</span></button>
+    <div class="glabel">過去 7 日</div>
+    <button class="conv"><span class="t">LM Studio 経由での要約テスト</span><span class="who">LM Studio</span></button>
+    <button class="conv"><span class="t">cron の通知が二重に届く</span><span class="who">Cloto</span></button>
+    <button class="conv mine"><span class="t">雑談部屋のログ整理</span><span class="who">サフィー</span></button>
+    <button class="more">もっと表示する</button>
+  </div>
+  <nav class="nav">
+    <a href="#" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16v11H8l-4 4Z"/></svg>チャット</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.5"/><path d="M2 20a7 7 0 0 1 14 0M16 4a3.5 3.5 0 0 1 0 7M22 20a6 6 0 0 0-4-5.7"/></svg>エージェント</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/></svg>MCP</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3a3 3 0 0 0-3 3v1a3 3 0 0 0-2 5 3 3 0 0 0 2 5v1a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM15 3a3 3 0 0 1 3 3v1a3 3 0 0 1 2 5 3 3 0 0 1-2 5v1a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z"/></svg>メモリ</a>
+    <a href="#"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>設定</a>
+  </nav>
+  <div class="side-foot"><span class="ok">カーネル稼働中</span><span>5 体</span><span style="margin-left:auto" class="num">0.6.9-a.1</span></div>
+</aside>
+
+<main class="room ws" style="position:relative">
+  <div class="ws-head"><a href="#" class="btn" style="padding-left:4px;color:var(--fg-2)">‹ MCP サーバー</a><h1 style="margin-left:6px">CPersona</h1><span class="count" style="font-family:var(--mono)">cpersona</span><span class="count">MGP</span><span class="count"><span class="st ok" style="display:inline-flex;align-items:center;gap:6px"><span style="width:7px;height:7px;border-radius:50%;background:hsl(150 45% 55%);display:inline-block"></span>稼働中、27 ツール</span></span><span class="spacer"></span><button class="btn">再起動</button><button class="btn">停止</button><button class="btn danger">削除</button></div>
+  <div class="detail">
+    <nav class="rail"><a href="#" class="on">概要</a><a href="#">環境変数</a><a href="#">ツール</a><a href="#">アクセス</a><a href="#">ログ</a></nav>
+    <div class="pane">
+      <h2>概要</h2>
+      <div class="frow"><div class="k">説明<small>manifest から</small></div><div class="v"><div style="padding-top:6px">長期記憶と recall。エピソードの保存もここ。</div></div></div>
+      <div class="frow"><div class="k">出所</div><div class="v"><div style="padding-top:6px">設定ファイル (registry)、2026-08-30 にマーケットプレイスから導入、版 2.5.12</div></div></div>
+      <div class="frow"><div class="k">起動<small>transport は stdio</small></div><div class="v"><input class="in mono" value="python -m cpersona.server --db ~/.clotocore/cpersona.db"><div class="hint">コマンドと引数。変更は次の起動から。</div></div></div>
+      <div class="frow"><div class="k">作業ディレクトリ</div><div class="v"><input class="in mono" value="data/mcp-sandbox/cpersona"></div></div>
+      <div class="frow"><div class="k">既定ポリシー<small>誰がこのサーバーのツールを使えるか</small></div><div class="v"><span class="seg"><button class="on">許可が要る (opt-in)</button><button class="">誰でも (opt-out)</button></span><div class="hint">許可が要る: エージェントごとに「アクセス」で許可したツールだけ使える。誰でも: 明示的に拒否しない限り全エージェントが使える。</div></div></div>
+      <h2>環境変数</h2>
+      <div class="kv"><input class="in mono" value="CPERSONA_EMBED_MODEL"><input class="in mono" value="jina-embeddings-v5-nano"><button class="btn" style="padding:4px">×</button></div>
+      <div class="kv"><input class="in mono" value="CPERSONA_API_KEY"><input class="in mono" type="password" value="••••••••••••••••"><button class="btn" style="padding:4px">×</button></div>
+      <div class="kv"><input class="in mono" placeholder="KEY"><input class="in mono" placeholder="value"><button class="btn" style="padding:4px">＋</button></div>
+      <div class="hint">API キーなどの秘密はここに。値は保存後に伏せ字になり、ログには出ません。</div>
+      <h2>ツール <span class="num" style="color:var(--fg-2);font-weight:400">27</span></h2>
+      <div class="tool"><span class="nm">recall</span><span class="d">記憶を多段検索で引く (vector + FTS + keyword)</span><span class="num" style="color:var(--fg-2);font-size:12px">今週 341 回</span></div><div class="tool"><span class="nm">store</span><span class="d">メッセージを記憶に保存する</span><span class="num" style="color:var(--fg-2);font-size:12px">今週 88 回</span></div><div class="tool"><span class="nm">archive_episode</span><span class="d">セッションの要約をエピソードとして残す</span><span class="num" style="color:var(--fg-2);font-size:12px">今週 12 回</span></div><div class="tool"><span class="nm">recall_with_context</span><span class="d">会話履歴と重複しない形で recall する</span><span class="num" style="color:var(--fg-2);font-size:12px">今週 203 回</span></div><div class="tool"><span class="nm">list_memories</span><span class="d">記憶を一覧する</span><span class="num" style="color:var(--fg-2);font-size:12px">今週 9 回</span></div><div class="tool"><span class="nm">update_memory</span><span class="d">記憶を書き換える (削除+保存ではなく)</span><span class="num" style="color:var(--fg-2);font-size:12px">今週 4 回</span></div><div class="tool"><span class="nm">lock_memory</span><span class="d">記憶を誤削除から守る</span><span class="num" style="color:var(--fg-2);font-size:12px">今週 2 回</span></div><div class="tool"><span class="nm">check_health</span><span class="d">記憶ストアの健全性を検査する</span><span class="num" style="color:var(--fg-2);font-size:12px">今週 7 回</span></div>
+      <div class="hint" style="padding-left:10px">残り 19 ツールを表示</div>
+      <h2>アクセス</h2>
+      <div class="hint" style="margin:0 0 8px">エージェントごとに、このサーバー全体の許可と、ツール単位の上書き。既定 = サーバーの既定ポリシーに従う。</div>
+      <div class="tool" style="grid-template-columns:200px 1fr auto"><span style="display:flex;align-items:center;gap:8px"><span class="" style="width:8px;height:8px;border-radius:50%;background:var(--agent)"></span>サフィー</span><span class="d">27 ツールすべて</span><span class="grant"><button class="">既定</button><button class="allow on">許可</button><button class="deny ">拒否</button></span></div><div class="tool" style="grid-template-columns:200px 1fr auto"><span style="display:flex;align-items:center;gap:8px"><span class="" style="width:8px;height:8px;border-radius:50%;background:var(--fg-2)"></span>Cloto Assistant</span><span class="d">recall と store だけ (ツール単位で上書き 2 件)</span><span class="grant"><button class="on">既定</button><button class="allow ">許可</button><button class="deny ">拒否</button></span></div><div class="tool" style="grid-template-columns:200px 1fr auto"><span style="display:flex;align-items:center;gap:8px"><span class="" style="width:8px;height:8px;border-radius:50%;background:var(--fg-2)"></span>カリン / Karin</span><span class="d"></span><span class="grant"><button class="">既定</button><button class="allow ">許可</button><button class="deny on">拒否</button></span></div><div class="tool" style="grid-template-columns:200px 1fr auto"><span style="display:flex;align-items:center;gap:8px"><span class="" style="width:8px;height:8px;border-radius:50%;background:var(--fg-2)"></span>LM Studioくん</span><span class="d"></span><span class="grant"><button class="on">既定</button><button class="allow ">許可</button><button class="deny ">拒否</button></span></div><div class="tool" style="grid-template-columns:200px 1fr auto"><span style="display:flex;align-items:center;gap:8px"><span class="" style="width:8px;height:8px;border-radius:50%;background:var(--fg-2)"></span>CPersona Benchmark</span><span class="d">27 ツールすべて</span><span class="grant"><button class="">既定</button><button class="allow on">許可</button><button class="deny ">拒否</button></span></div>
+      <h2>ログ</h2>
+      <div class="log"><span class="t">14:03:11</span> recall ← agent.sapphy q="混入 2 件" k=5 → 5 件 (0.21s)
+<span class="t">14:03:10</span> store  ← agent.sapphy id=msg_8c1 embedded=true
+<span class="t">13:58:02</span> <span class="w">warn</span>  embedding queue depth 12 (soft limit 10)
+<span class="t">08:05:29</span> store  ← agent.karin id=msg_7f0 embedded=true
+<span class="t">02:00:00</span> check_health ok (15 checks)</div>
+      <div class="hint">直近 200 行。全文は「ログを開く」。</div>
+    </div>
+  </div>
+  <div class="savebar"><span>保存するまで反映されません。</span><span class="spacer"></span><button class="btn">変更を破棄</button><button class="btn pri">保存</button></div>
+</main></div></body></html>
