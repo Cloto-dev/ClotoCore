@@ -3037,7 +3037,9 @@ impl McpClientManager {
         let mut problems: Vec<String> = Vec::new();
         for rule in &rules {
             for (name, expected) in &rule.equals {
-                if let Some(actual) = args.get(name).filter(|v| !v.is_null()) {
+                // A null is a value that is not the expected one, as a missing grant is not
+                // an empty one: only an argument left out entirely is outside `equals`.
+                if let Some(actual) = args.get(name) {
                     if actual != expected {
                         problems.push(format!("{name} must be {expected} (got {actual})"));
                     }
@@ -4868,6 +4870,17 @@ while True:\n\
         );
         // Not required, so leaving it out is not a violation of `equals`.
         expect_past_the_rules(call(&manager, growth(), "recall", serde_json::json!({})).await);
+        // Sent as null is sent, and null is not the lane.
+        expect_rule_refusal(
+            call(
+                &manager,
+                growth(),
+                "recall",
+                serde_json::json!({"agent_id": null}),
+            )
+            .await,
+            r#"agent_id must be "agent.growth" (got null)"#,
+        );
     }
 
     /// A tool-specific rule applies to that tool only, `required` refuses a
