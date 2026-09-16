@@ -1156,10 +1156,6 @@ video {
   display: none;
 }
 
-.h-0\.5 {
-  height: 0.125rem;
-}
-
 .h-1 {
   height: 0.25rem;
 }
@@ -2100,10 +2096,6 @@ video {
 
 .bg-amber-500\/20 {
   background-color: rgb(245 158 11 / 0.2);
-}
-
-.bg-amber-500\/40 {
-  background-color: rgb(245 158 11 / 0.4);
 }
 
 .bg-amber-500\/5 {
@@ -3152,10 +3144,6 @@ video {
   transition-duration: 150ms;
 }
 
-.duration-1000 {
-  transition-duration: 1000ms;
-}
-
 .duration-200 {
   transition-duration: 200ms;
 }
@@ -3166,10 +3154,6 @@ video {
 
 .duration-500 {
   transition-duration: 500ms;
-}
-
-.ease-linear {
-  transition-timing-function: linear;
 }
 
 .no-scrollbar::-webkit-scrollbar {

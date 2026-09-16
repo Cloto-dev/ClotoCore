@@ -59,9 +59,10 @@ fn extract_denied_ids(untrusted_cmds: &[serde_json::Value]) -> HashSet<String> {
 /// Cron source: auto-approve all tool calls dispatched by the scheduler.
 ///
 /// Cron jobs run unattended — there is no human to press Approve in SecurityGuard
-/// or CommandApprovalCard, so the 60s timeout would deny every destructive call.
-/// Users accept this tradeoff when they create a cron job (the UI warns about it),
-/// and an audit log entry records every bypassed call so the trail is preserved.
+/// or CommandApprovalCard, so a destructive call reaching the gate would wait for
+/// an answer that is never coming. Users accept this tradeoff when they create a
+/// cron job (the UI warns about it), and an audit log entry records every bypassed
+/// call so the trail is preserved.
 async fn handle_cron_approval(
     calls: &[ToolCall],
     agent_id: &str,
@@ -336,21 +337,71 @@ async fn settle_approval(
     .await;
 }
 
+/// Leave a readable trace when a request ended without anyone answering it.
+///
+/// `settle_approval` closes the approval row, which takes it off the bell — the
+/// right thing for an item that was answered, and the wrong thing for the only
+/// evidence that a person was asked something and never saw it. This second row
+/// is what stays visible, so "denied while you were away" does not look the same
+/// as "nothing ever happened".
+///
+/// Awaited rather than spawned. The case worth catching is the kernel going down
+/// with a request still open, and a detached write is exactly what a shutdown
+/// loses.
+async fn record_unanswered_notice(
+    pool: &SqlitePool,
+    approval_id: &str,
+    agent_id: &str,
+    severity: cloto_shared::McpLogLevel,
+    untrusted_cmds: &[serde_json::Value],
+) {
+    let commands_summary = untrusted_cmds
+        .iter()
+        .filter_map(|cmd| cmd.get("command").and_then(|v| v.as_str()))
+        .collect::<Vec<_>>()
+        .join("\n");
+    // The approval's own id already names a row in the store, so this one is
+    // derived from it rather than minted fresh: the two rows are about the same
+    // event and a reader following one can find the other.
+    let item_id = format!("{approval_id}:unanswered");
+    if let Err(e) = crate::db::record_notification(
+        pool,
+        crate::db::NotificationItem::new(
+            item_id,
+            crate::db::NotificationKind::Notice,
+            severity,
+            format!(
+                "{} command(s) denied — the request closed before anyone answered",
+                untrusted_cmds.len()
+            ),
+        )
+        .agent(agent_id)
+        .body(commands_summary)
+        .metadata(serde_json::json!({
+            "approval_id": approval_id,
+            "commands": untrusted_cmds,
+        })),
+    )
+    .await
+    {
+        warn!(approval_id = %approval_id, "Failed to record unanswered-approval notice: {}", e);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn process_approval_decision(
-    decision: Result<
-        Result<CommandApprovalDecision, oneshot::error::RecvError>,
-        tokio::time::error::Elapsed,
-    >,
+    decision: Result<CommandApprovalDecision, oneshot::error::RecvError>,
     approval_id: &str,
     agent_id: &str,
     untrusted_cmds: &[serde_json::Value],
+    severity: cloto_shared::McpLogLevel,
     session_trusted: &SessionTrustedCommands,
     pool: &SqlitePool,
     trace_id: ClotoId,
     sender: &tokio::sync::mpsc::Sender<crate::EnvelopedEvent>,
 ) -> HashSet<String> {
     match decision {
-        Ok(Ok(CommandApprovalDecision::Approve)) => {
+        Ok(CommandApprovalDecision::Approve) => {
             for cmd in untrusted_cmds {
                 if let Some(c) = cmd.get("command").and_then(|v| v.as_str()) {
                     let _ = crate::db::add_trusted_command(pool, agent_id, c).await;
@@ -360,7 +411,7 @@ async fn process_approval_decision(
             settle_approval(pool, sender, trace_id, approval_id, "approved").await;
             HashSet::new()
         }
-        Ok(Ok(CommandApprovalDecision::Trust)) => {
+        Ok(CommandApprovalDecision::Trust) => {
             for cmd in untrusted_cmds {
                 if let Some(n) = cmd.get("command_name").and_then(|v| v.as_str()) {
                     session_trusted
@@ -373,17 +424,17 @@ async fn process_approval_decision(
             settle_approval(pool, sender, trace_id, approval_id, "trusted").await;
             HashSet::new()
         }
-        Ok(Ok(CommandApprovalDecision::Deny)) => {
+        Ok(CommandApprovalDecision::Deny) => {
             warn!(approval_id = %approval_id, "🚫 Commands denied by user");
             settle_approval(pool, sender, trace_id, approval_id, "denied by user").await;
             extract_denied_ids(untrusted_cmds)
         }
-        Ok(Err(_)) | Err(_) => {
-            let reason = if decision.is_err() {
-                "timeout (60s)"
-            } else {
-                "channel closed"
-            };
+        // The one way left to arrive here: the responder was dropped without an
+        // answer — a dashboard reload, or the kernel going down with the request
+        // still open. Denying is right, and it is also the only outcome nobody
+        // chose, which is why it leaves a notice behind.
+        Err(_) => {
+            let reason = "channel closed";
             warn!(approval_id = %approval_id, reason = reason, "🚫 Commands denied (no response)");
             info!(
                 approval_id = %approval_id,
@@ -393,6 +444,7 @@ async fn process_approval_decision(
                 "📋 Approval gate audit: commands blocked due to {}", reason
             );
             settle_approval(pool, sender, trace_id, approval_id, reason).await;
+            record_unanswered_notice(pool, approval_id, agent_id, severity, untrusted_cmds).await;
             extract_denied_ids(untrusted_cmds)
         }
     }
@@ -480,7 +532,12 @@ pub(crate) async fn run_approval_gate(
     )
     .await;
 
-    let decision = tokio::time::timeout(std::time::Duration::from_mins(1), arx).await;
+    // No deadline. A question that expires is a question the asker has to be
+    // present for, which is the pattern this gate exists to get out of: the
+    // agent waits until someone answers, and the bell is what carries the fact
+    // that it is waiting. The wait still terminates — dropping the responder
+    // (a reload, a restart) closes the channel and denies, fail-closed.
+    let decision = arx.await;
     pending_approvals.remove(&approval_id);
 
     process_approval_decision(
@@ -488,6 +545,7 @@ pub(crate) async fn run_approval_gate(
         &approval_id,
         agent_id,
         &untrusted_cmds,
+        severity,
         session_trusted,
         pool,
         trace_id,
@@ -880,7 +938,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_gate_denies_everything_it_asked_about_when_the_timeout_expires() {
+    async fn the_gate_is_still_waiting_long_after_the_deadline_it_used_to_have() {
         let mut h = harness().await;
         let gate = h.spawn_gate(
             AGENT,
@@ -889,20 +947,41 @@ mod tests {
 
         // Wait for the request on the real clock (the gate hits SQLite before
         // it starts waiting, and a paused clock trips sqlx's acquire timeout),
-        // then freeze time so the runtime fast-forwards to the 60s deadline
-        // instead of the test sleeping for a minute.
-        h.next_request().await;
+        // then freeze time and jump well past the old 60s deadline rather than
+        // sleeping for it.
+        let approval_id = h.next_request().await;
         tokio::time::pause();
+        tokio::time::advance(std::time::Duration::from_mins(60)).await;
+        tokio::time::resume();
 
-        let denied = gate.await.unwrap();
-
-        assert_eq!(denied, HashSet::from(["call-1".to_string()]));
-        assert_eq!(
-            decisions(&h.drain()),
-            vec!["timeout (60s)".to_string()],
-            "the emitted decision names the timeout"
+        // The clock jump is what a deadline would have tripped on; the real-time
+        // window afterwards is what lets the gate act on it. Asking
+        // `is_finished()` straight after `advance` measures neither — a task that
+        // has been made runnable and not yet polled looks exactly like a task
+        // that is still waiting, and a reinstated 60s deadline survives that
+        // assertion untouched (measured, 2026-09-16).
+        let mut gate = gate;
+        if let Ok(outcome) =
+            tokio::time::timeout(std::time::Duration::from_millis(500), &mut gate).await
+        {
+            panic!(
+                "an hour after the request the gate answered for nobody ({outcome:?}) — a \
+                 deadline here is a deadline on the person, not on the machine"
+            );
+        }
+        assert!(
+            h.pending.contains_key(&approval_id),
+            "the request is still answerable"
         );
-        assert!(h.pending.is_empty(), "the pending entry is not leaked");
+
+        let (_, sender) = h.pending.remove(&approval_id).unwrap();
+        sender.send(CommandApprovalDecision::Approve).unwrap();
+
+        assert!(
+            gate.await.unwrap().is_empty(),
+            "the late answer still counts"
+        );
+        assert_eq!(decisions(&h.drain()), vec!["approved".to_string()]);
     }
 
     #[tokio::test]
@@ -916,6 +995,42 @@ mod tests {
 
         assert_eq!(gate.await.unwrap(), HashSet::from(["call-1".to_string()]));
         assert_eq!(decisions(&h.drain()), vec!["channel closed".to_string()]);
+
+        // The approval row is settled, so the bell stops listing it. Without the
+        // notice below, the whole episode would be invisible to anyone who was
+        // not watching the screen at that second — which, now that requests have
+        // no deadline, is the common case rather than the rare one.
+        let settled = crate::db::get_notification(&h.pool, &approval_id)
+            .await
+            .unwrap()
+            .expect("the approval was recorded before the gate started waiting");
+        assert_eq!(settled.decision.as_deref(), Some("channel closed"));
+        assert!(settled.resolved_at.is_some() && !settled.blocking);
+
+        let notice = crate::db::get_notification(&h.pool, &format!("{approval_id}:unanswered"))
+            .await
+            .unwrap()
+            .expect("a request that closed without an answer leaves a notice");
+        assert_eq!(notice.kind, crate::db::NotificationKind::Notice);
+        assert_eq!(
+            notice.severity, settled.severity,
+            "the notice is as loud as what was denied — it is derived, not declared"
+        );
+        assert_eq!(notice.agent_id.as_deref(), Some(AGENT));
+        assert_eq!(
+            notice.body.as_deref(),
+            Some("cat /etc/passwd"),
+            "the notice names what was denied, not just that something was"
+        );
+        assert!(
+            notice.resolved_at.is_none(),
+            "the notice is what stays on the bell; settling it here would undo \
+             the only reason it exists"
+        );
+        assert!(
+            !notice.blocking,
+            "nothing is waiting on it — the agent has already been told no"
+        );
     }
 
     #[tokio::test]
