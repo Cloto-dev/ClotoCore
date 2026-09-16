@@ -1018,6 +1018,12 @@ pub async fn call_mcp_tool(
                 // reason the caller is meant to read, so it travels as the
                 // refusal text rather than being flattened into a 500.
                 cloto_shared::ToolFailure::Rejection(r) => AppError::Validation(r.reason),
+                // Kernel tools refuse a call the caller got wrong — a missing
+                // argument, the wrong kind of caller — with an MGP-typed error,
+                // whose message is written for the caller and goes out with its
+                // code. Anything untyped is a fault, and its text stays in the
+                // log: widening this to forward it would put the contents of
+                // genuine faults into response bodies.
                 cloto_shared::ToolFailure::Error(e) => {
                     match e.downcast::<crate::managers::mcp_mgp::MgpError>() {
                         Ok(mgp) => AppError::Mgp(Box::new(mgp)),
@@ -1583,5 +1589,234 @@ mod tests {
             err.contains("srv.elsewhere"),
             "an explicit server_id must not be overridden by the index; got: {err}"
         );
+    }
+
+    // ── what a refusal says when it reaches a harness ──
+    //
+    // The caller on this endpoint is often a model running as a subprocess. When
+    // it gets an argument wrong, the body is the only thing it reads before
+    // trying again. These assert on the rendered response, not on the
+    // `AppError` variant, because the withholding happens in `into_response`:
+    // an `Internal` carries the full reason right up to the moment it is
+    // replaced with a generic line.
+
+    async fn call_and_render(
+        state: &Arc<crate::AppState>,
+        headers: HeaderMap,
+        tool_name: &str,
+        arguments: serde_json::Value,
+    ) -> (axum::http::StatusCode, String) {
+        use axum::response::IntoResponse;
+
+        let response = match call_mcp_tool(
+            State(state.clone()),
+            headers,
+            Json(CallMcpToolRequest {
+                server_id: String::new(),
+                tool_name: tool_name.to_string(),
+                arguments,
+            }),
+        )
+        .await
+        {
+            Ok(_) => panic!("{tool_name} was expected to refuse this call"),
+            Err(e) => e.into_response(),
+        };
+        let status = response.status();
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let message = body["error"]["message"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the refusal carries a message field; got {body}"))
+            .to_string();
+        (status, message)
+    }
+
+    async fn agent_headers(state: &Arc<crate::AppState>) -> HeaderMap {
+        let token = state.agent_tokens.mint_default("agent.growth").await;
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            crate::managers::agent_token::AGENT_TOKEN_HEADER,
+            token.parse().unwrap(),
+        );
+        headers
+    }
+
+    #[tokio::test]
+    async fn a_missing_argument_is_named_to_the_harness_that_left_it_out() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+
+        // Both refusals seen on the deployed kernel, each from a different
+        // module, so one wired helper cannot stand in for the other.
+        for (tool, missing) in [
+            ("mgp.operator.ask", "title"),
+            ("mgp.tools.discover", "query"),
+        ] {
+            let (status, message) = call_and_render(
+                &state,
+                agent_headers(&state).await,
+                tool,
+                serde_json::json!({}),
+            )
+            .await;
+            assert_eq!(
+                status,
+                axum::http::StatusCode::BAD_REQUEST,
+                "{tool}: a call the caller got wrong is not a server fault; got: {message}"
+            );
+            assert!(
+                message.contains(&format!("Missing required parameter: {missing}")),
+                "{tool}: the caller must be told which argument to add; got: {message}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unusable_value_and_a_missing_grant_are_said_in_words_too() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+
+        // Present but unusable: a different helper from the missing-argument one.
+        let (status, message) = call_and_render(
+            &state,
+            agent_headers(&state).await,
+            "mgp.events.subscribe",
+            serde_json::json!({ "channels": [] }),
+        )
+        .await;
+        assert_eq!(
+            status,
+            axum::http::StatusCode::BAD_REQUEST,
+            "got: {message}"
+        );
+        assert!(
+            message.contains("channels must not be empty"),
+            "the caller must be told what is wrong with the value; got: {message}"
+        );
+
+        // Well-formed, but the agent holds no grant on the server it named. That
+        // is a refusal to stop asking, and a 500 reads as one to retry.
+        let (status, message) = call_and_render(
+            &state,
+            agent_headers(&state).await,
+            "mgp.events.subscribe",
+            serde_json::json!({
+                "server_id": "srv.memory",
+                "agent_id": "agent.growth",
+                "channels": ["notifications/progress"],
+            }),
+        )
+        .await;
+        assert_eq!(status, axum::http::StatusCode::FORBIDDEN, "got: {message}");
+        assert!(
+            message.contains("has no grant for server 'srv.memory'"),
+            "the caller must be told the refusal is about access; got: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_caller_of_the_wrong_kind_is_told_so_rather_than_told_nothing() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+
+        // The coordinator key runs as System, and a question needs an agent to
+        // belong to. The arguments are valid, so the refusal is about who asked.
+        for (tool, arguments, says) in [
+            (
+                "mgp.operator.ask",
+                serde_json::json!({ "title": "may I?" }),
+                "identifies the asker by agent",
+            ),
+            (
+                "mgp.operator.replies",
+                serde_json::json!({}),
+                "returns one agent's questions",
+            ),
+        ] {
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                crate::handlers::ADMIN_API_KEY_HEADER,
+                "admin-key".parse().unwrap(),
+            );
+            let (status, message) = call_and_render(&state, headers, tool, arguments).await;
+
+            assert_eq!(
+                status,
+                axum::http::StatusCode::FORBIDDEN,
+                "{tool}: got: {message}"
+            );
+            assert!(
+                message.contains(says),
+                "{tool}: the refusal must say what kind of caller the tool needs; got: {message}"
+            );
+        }
+    }
+
+    /// The call sites the tests above reach are a few of the dozens changed
+    /// together. A new kernel tool written in the old shape would compile, pass
+    /// every other test, and answer a harness with a 500 again — so the old shape
+    /// is refused here. Lexical by nature: it catches the idiom being copied, not
+    /// a new wording of the same mistake.
+    #[test]
+    fn no_kernel_tool_reports_a_missing_argument_as_an_untyped_error() {
+        let sources = [
+            (
+                "mcp_kernel_tool.rs",
+                include_str!("../managers/mcp_kernel_tool.rs"),
+            ),
+            (
+                "mcp_discovery.rs",
+                include_str!("../managers/mcp_discovery.rs"),
+            ),
+            (
+                "mcp_tool_discovery.rs",
+                include_str!("../managers/mcp_tool_discovery.rs"),
+            ),
+            ("mcp_events.rs", include_str!("../managers/mcp_events.rs")),
+        ];
+        let offenders: Vec<String> = sources
+            .iter()
+            .flat_map(|(file, src)| {
+                src.lines()
+                    .enumerate()
+                    .filter(|(_, line)| line.contains("anyhow!(\"Missing required parameter"))
+                    .map(move |(i, line)| format!("{file}:{}: {}", i + 1, line.trim()))
+            })
+            .collect();
+        assert!(
+            offenders.is_empty(),
+            "use mcp_mgp::missing_tool_arg, which /api/mcp/call forwards; an untyped \
+             error is withheld as an internal fault:\n{}",
+            offenders.join("\n")
+        );
+    }
+
+    /// The control for the tests above. Without it, answering every failure
+    /// with its own text would pass them too — and would hand a client the
+    /// contents of genuine internal faults, which `AppError::Internal` exists to
+    /// keep in the log.
+    #[tokio::test]
+    async fn a_genuine_internal_fault_still_keeps_its_contents_to_the_log() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        let headers = agent_headers(&state).await;
+
+        // A closed pool fails the capability lookup that runs before the tool:
+        // a real runtime fault, on the same endpoint, with a reason worth hiding.
+        state.pool.close().await;
+
+        let (status, message) = call_and_render(
+            &state,
+            headers,
+            "mgp.operator.ask",
+            serde_json::json!({ "title": "may I?" }),
+        )
+        .await;
+
+        assert_eq!(
+            status,
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            "got: {message}"
+        );
+        assert_eq!(message, "An internal error occurred");
     }
 }

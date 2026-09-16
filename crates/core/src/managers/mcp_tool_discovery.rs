@@ -706,7 +706,7 @@ pub(super) async fn execute_tools_discover(
     let query = args
         .get("query")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: query"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("query"))?;
     let strategy = args
         .get("strategy")
         .and_then(|v| v.as_str())
@@ -740,7 +740,10 @@ pub(super) async fn execute_tools_discover(
         "category" => {
             let cats = filter.categories.clone().unwrap_or_default();
             if cats.is_empty() {
-                return Err(anyhow::anyhow!("Category search requires filter.categories").into());
+                return Err(super::mcp_mgp::invalid_tool_arg(
+                    "Category search requires filter.categories",
+                )
+                .into());
             }
             let r = manager.rich_tool_index.search_category(&cats, max_results);
             (r, "category", None)
@@ -803,14 +806,14 @@ pub(super) async fn execute_tools_request(
     let _reason = args
         .get("reason")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: reason"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("reason"))?;
     let _context = args
         .get("context")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: context"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("context"))?;
     let requirements = args
         .get("requirements")
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: requirements"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("requirements"))?;
 
     let agent_id = args
         .get("agent_id")
@@ -964,7 +967,7 @@ pub(super) async fn execute_tools_session_evict(
                 .filter_map(|v| v.as_str().map(str::to_string))
                 .collect()
         })
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: tools"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("tools"))?;
 
     let agent_id = args
         .get("agent_id")

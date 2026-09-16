@@ -283,15 +283,15 @@ pub(super) async fn execute_discovery_register(
     let id = args
         .get("id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("id"))?;
     let command = args
         .get("command")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: command"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("command"))?;
     let transport = args
         .get("transport")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: transport"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("transport"))?;
 
     // Check for duplicate
     {
@@ -386,7 +386,7 @@ pub(super) async fn execute_discovery_deregister(
     let id = args
         .get("id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("id"))?;
 
     // Verify server exists before attempting deregistration
     {

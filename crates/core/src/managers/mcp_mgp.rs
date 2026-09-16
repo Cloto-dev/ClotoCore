@@ -319,6 +319,28 @@ impl MgpError {
     }
 }
 
+/// `4000 INVALID_TOOL_ARGS` for a required argument the caller left out.
+///
+/// Returned as `anyhow::Error` because that is what a kernel tool's
+/// `ok_or_else(..)?` converts from — but the type underneath is the point. On
+/// `POST /api/mcp/call` the handler downcasts to [`MgpError`] to decide whether
+/// the message may leave the process, and a bare `anyhow!` is withheld as an
+/// internal fault. The caller on that path is a model running in a harness, and
+/// "An internal error occurred" tells it nothing it could correct, so it sends
+/// the same call again.
+#[must_use]
+pub fn missing_tool_arg(name: &str) -> anyhow::Error {
+    invalid_tool_arg(format!("Missing required parameter: {name}"))
+}
+
+/// `4000 INVALID_TOOL_ARGS` for an argument that is present but unusable. See
+/// [`missing_tool_arg`] for why the type, not the wording, is what carries the
+/// reason out to the caller.
+#[must_use]
+pub fn invalid_tool_arg(msg: impl Into<String>) -> anyhow::Error {
+    anyhow::Error::new(MgpError::invalid_tool_args(msg))
+}
+
 // ============================================================
 // Code Safety Level (§7.2)
 // ============================================================

@@ -201,10 +201,15 @@ pub(super) async fn execute_operator_ask(
     args: Value,
 ) -> Result<Value> {
     let Caller::Agent(agent_id) = caller else {
-        return Err(anyhow::anyhow!(
-            "mgp.operator.ask identifies the asker by agent, and this call was not made by one"
-        )
-        .into());
+        // A refusal the caller can act on, so it has to reach the caller: typed
+        // as MGP rather than a bare `anyhow!`, which `/api/mcp/call` withholds as
+        // an internal fault.
+        return Err(
+            anyhow::Error::new(super::mcp_mgp::MgpError::permission_denied(
+                "mgp.operator.ask identifies the asker by agent, and this call was not made by one",
+            ))
+            .into(),
+        );
     };
 
     let title = args
@@ -212,7 +217,7 @@ pub(super) async fn execute_operator_ask(
         .and_then(|v| v.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: title"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("title"))?;
 
     let severity = args
         .get("severity")
@@ -254,9 +259,9 @@ pub(super) async fn execute_operator_replies(
     args: Value,
 ) -> Result<Value> {
     let Caller::Agent(agent_id) = caller else {
-        return Err(anyhow::anyhow!(
-            "mgp.operator.replies returns one agent's questions, and this call was not made by one"
-        )
+        return Err(anyhow::Error::new(super::mcp_mgp::MgpError::permission_denied(
+            "mgp.operator.replies returns one agent's questions, and this call was not made by one",
+        ))
         .into());
     };
 
@@ -330,7 +335,7 @@ pub(super) async fn execute_skill_load(caller: &Caller, args: Value) -> Result<V
     let skill_id = args
         .get("skill_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: skill_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("skill_id"))?;
 
     let Caller::Agent(agent_id) = caller else {
         return Ok(serde_json::json!({
@@ -575,7 +580,7 @@ pub(super) async fn execute_create_mcp_server(
     let name = args
         .get("name")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: name"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("name"))?;
     let description = args
         .get("description")
         .and_then(|v| v.as_str())
@@ -583,29 +588,28 @@ pub(super) async fn execute_create_mcp_server(
     let code = args
         .get("code")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: code"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("code"))?;
     let server_type = args
         .get("server_type")
         .and_then(|v| v.as_str())
         .unwrap_or("basic");
     if server_type != "basic" && server_type != "coordinator" {
-        return Err(anyhow::anyhow!(
-            "Invalid server_type '{}': must be 'basic' or 'coordinator'",
-            server_type
-        )
+        return Err(super::mcp_mgp::invalid_tool_arg(format!(
+            "Invalid server_type '{server_type}': must be 'basic' or 'coordinator'"
+        ))
         .into());
     }
 
     // Validate name (same rules as handlers.rs)
     if name.is_empty() || name.len() > 64 {
-        return Err(anyhow::anyhow!("Server name must be 1-64 characters").into());
+        return Err(super::mcp_mgp::invalid_tool_arg("Server name must be 1-64 characters").into());
     }
     let valid_name = name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     if !valid_name {
-        return Err(anyhow::anyhow!(
-            "Server name must contain only alphanumeric, underscore, or hyphen"
+        return Err(super::mcp_mgp::invalid_tool_arg(
+            "Server name must contain only alphanumeric, underscore, or hyphen",
         )
         .into());
     }
@@ -835,12 +839,12 @@ pub(super) async fn execute_access_query(manager: &McpClientManager, args: Value
     let agent_id = args
         .get("agent_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: agent_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("agent_id"))?;
 
     let server_id = args
         .get("server_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("server_id"))?;
     let tool_name = args.get("tool_name").and_then(|v| v.as_str());
 
     // If tool_name provided → resolve specific tool access
@@ -895,28 +899,30 @@ pub(super) async fn execute_access_grant(manager: &McpClientManager, args: Value
     let agent_id = args
         .get("agent_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: agent_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("agent_id"))?;
     let server_id = args
         .get("server_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("server_id"))?;
     let entry_type = args
         .get("entry_type")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: entry_type"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("entry_type"))?;
     let permission = args
         .get("permission")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: permission"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("permission"))?;
     let tool_name = args.get("tool_name").and_then(|v| v.as_str());
     let justification = args.get("justification").and_then(|v| v.as_str());
 
-    let parsed_entry_type: crate::db::mcp::EntryType =
-        serde_json::from_value(serde_json::Value::String(entry_type.to_string()))
-            .map_err(|_| anyhow::anyhow!("Invalid entry_type: '{}'", entry_type))?;
-    let parsed_permission: crate::db::mcp::PermissionLevel =
-        serde_json::from_value(serde_json::Value::String(permission.to_string()))
-            .map_err(|_| anyhow::anyhow!("Invalid permission: '{}'", permission))?;
+    let parsed_entry_type: crate::db::mcp::EntryType = serde_json::from_value(
+        serde_json::Value::String(entry_type.to_string()),
+    )
+    .map_err(|_| super::mcp_mgp::invalid_tool_arg(format!("Invalid entry_type: '{entry_type}'")))?;
+    let parsed_permission: crate::db::mcp::PermissionLevel = serde_json::from_value(
+        serde_json::Value::String(permission.to_string()),
+    )
+    .map_err(|_| super::mcp_mgp::invalid_tool_arg(format!("Invalid permission: '{permission}'")))?;
 
     // bug-438: a grant written by a YOLO-mode agent must NOT durably self-escalate
     // access past the YOLO trust window. Record the actual requesting agent in
@@ -987,15 +993,15 @@ pub(super) async fn execute_access_revoke(
     let agent_id = args
         .get("agent_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: agent_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("agent_id"))?;
     let server_id = args
         .get("server_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("server_id"))?;
     let entry_type = args
         .get("entry_type")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: entry_type"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("entry_type"))?;
     let tool_name = args.get("tool_name").and_then(|v| v.as_str());
 
     let deleted =
@@ -1175,7 +1181,7 @@ pub(super) async fn execute_health_ping(manager: &McpClientManager, args: Value)
     let server_id = args
         .get("server_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("server_id"))?;
 
     let state = manager.state.read().await;
     let Some(handle) = state.servers.get(server_id) else {
@@ -1215,7 +1221,7 @@ pub(super) async fn execute_health_status(
     let server_id = args
         .get("server_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("server_id"))?;
 
     let state = manager.state.read().await;
     let Some(handle) = state.servers.get(server_id) else {
@@ -1294,14 +1300,16 @@ async fn require_server_access(
     let agent_id = args
         .get("agent_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: agent_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("agent_id"))?;
     let authorized = granted_servers(manager, args).await?.contains(server_id);
     if !authorized {
-        return Err(anyhow::anyhow!(
-            "Access denied: agent '{agent_id}' has no grant for server \
+        return Err(
+            anyhow::Error::new(super::mcp_mgp::MgpError::access_denied(format!(
+                "Access denied: agent '{agent_id}' has no grant for server \
              '{server_id}' (bug-441 ownership check)"
-        )
-        .into());
+            )))
+            .into(),
+        );
     }
     Ok(())
 }
@@ -1313,13 +1321,13 @@ pub(super) async fn execute_lifecycle_shutdown(
     let server_id = args
         .get("server_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("server_id"))?
         .to_string();
     require_server_access(manager, &args, &server_id).await?;
     let reason = args
         .get("reason")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: reason"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("reason"))?;
     let timeout_ms = args
         .get("timeout_ms")
         .and_then(serde_json::Value::as_u64)
@@ -1406,11 +1414,11 @@ pub(super) async fn execute_stream_cancel(
     let server_id = args
         .get("server_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("server_id"))?;
     let request_id = args
         .get("request_id")
         .and_then(serde_json::Value::as_i64)
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: request_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("request_id"))?;
 
     let reason = args
         .get("reason")
@@ -1437,15 +1445,15 @@ pub(super) async fn execute_stream_pace(manager: &McpClientManager, args: Value)
     let server_id = args
         .get("server_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: server_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("server_id"))?;
     let request_id = args
         .get("request_id")
         .and_then(serde_json::Value::as_i64)
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: request_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("request_id"))?;
     let max_chunks = args
         .get("max_chunks_per_second")
         .and_then(serde_json::Value::as_u64)
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: max_chunks_per_second"))?
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("max_chunks_per_second"))?
         as u32;
     let reason = args.get("reason").and_then(|v| v.as_str());
 
@@ -1735,12 +1743,12 @@ pub(super) async fn execute_mgp_agent_ask(
     let target_agent_id = args
         .get("target_agent_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: target_agent_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("target_agent_id"))?;
 
     let prompt = args
         .get("prompt")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: prompt"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("prompt"))?;
 
     let context = args.get("context").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -2068,7 +2076,7 @@ pub(super) async fn execute_gui_read(_manager: &McpClientManager, args: Value) -
     let rel_path = args
         .get("path")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: path"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("path"))?;
 
     // Reject obviously malicious input
     if rel_path.contains("..") || rel_path.starts_with('/') || rel_path.starts_with('\\') {

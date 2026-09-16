@@ -327,7 +327,9 @@ pub(super) async fn subscribe(manager: &McpClientManager, args: Value) -> Result
     let filter = args.get("filter").cloned();
 
     if channels.is_empty() {
-        return Err(anyhow::anyhow!("channels must not be empty"));
+        return Err(super::mcp_mgp::invalid_tool_arg(
+            "channels must not be empty",
+        ));
     }
 
     let sub_id = format!(
@@ -362,7 +364,7 @@ pub(super) async fn unsubscribe(manager: &McpClientManager, args: Value) -> Resu
     let sub_id = args
         .get("subscription_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: subscription_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("subscription_id"))?;
 
     let removed = manager.events.remove_subscription(sub_id);
 
@@ -377,7 +379,7 @@ pub(super) async fn replay(manager: &McpClientManager, args: Value) -> Result<Va
     let sub_id = args
         .get("subscription_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: subscription_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("subscription_id"))?;
     let after_seq = args
         .get("after_seq")
         .and_then(serde_json::Value::as_u64)
@@ -565,11 +567,11 @@ pub(super) async fn respond_to_callback(manager: &McpClientManager, args: Value)
     let callback_id = args
         .get("callback_id")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: callback_id"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("callback_id"))?;
     let response = args
         .get("response")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing required parameter: response"))?;
+        .ok_or_else(|| super::mcp_mgp::missing_tool_arg("response"))?;
 
     let server_id = manager
         .events
