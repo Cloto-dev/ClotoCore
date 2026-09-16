@@ -900,6 +900,89 @@ pub async fn put_agent_mcp_access(
     ok_data(serde_json::json!({ "count": count }))
 }
 
+/// GET /api/agents/:id/argument-rules
+///
+/// The argument rules set for an agent: which argument values its calls to a
+/// server's tools must carry. See [`crate::db::ArgumentRule`].
+pub async fn get_agent_argument_rules(
+    State(state): State<Arc<AppState>>,
+    Path(agent_id): Path<String>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let rules = crate::db::list_argument_rules(&state.pool, &agent_id)
+        .await
+        .map_err(AppError::Internal)?;
+    ok_data(serde_json::json!({ "rules": rules }))
+}
+
+/// PUT /api/agents/:id/argument-rules
+///
+/// Replaces every argument rule for the agent. The body is the whole set: a
+/// caller that sends only the rules it means to change removes the others, so
+/// read the current set first.
+pub async fn put_agent_argument_rules(
+    State(state): State<Arc<AppState>>,
+    Path(agent_id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let rules_val = body
+        .get("rules")
+        .ok_or_else(|| AppError::Validation("Missing required field: rules".into()))?;
+    let rules: Vec<crate::db::ArgumentRule> = serde_json::from_value(rules_val.clone())
+        .map_err(|e| AppError::Validation(format!("Invalid rules format: {e}")))?;
+
+    let mut seen = std::collections::HashSet::new();
+    for rule in &rules {
+        if rule.server_id.trim().is_empty() {
+            return Err(AppError::Validation("A rule needs a server_id".into()));
+        }
+        if rule.tool_name.as_deref() == Some("") {
+            return Err(AppError::Validation(
+                "tool_name must not be empty; omit it to cover every tool on the server".into(),
+            ));
+        }
+        if rule
+            .equals
+            .keys()
+            .chain(rule.required.iter())
+            .any(|name| name.trim().is_empty())
+        {
+            return Err(AppError::Validation(
+                "An argument name must not be empty".into(),
+            ));
+        }
+        if !seen.insert((rule.server_id.clone(), rule.tool_name.clone())) {
+            return Err(AppError::Validation(format!(
+                "More than one rule for server '{}' and tool {}",
+                rule.server_id,
+                rule.tool_name
+                    .as_deref()
+                    .map_or_else(|| "(every tool)".to_string(), |t| format!("'{t}'"))
+            )));
+        }
+    }
+
+    crate::db::put_argument_rules(&state.pool, &agent_id, &rules)
+        .await
+        .map_err(AppError::Internal)?;
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "AGENT_ARGUMENT_RULES_UPDATED",
+        agent_id.clone(),
+        format!("Agent argument rules replaced with {} rule(s)", rules.len()),
+        None,
+        Some(serde_json::json!({ "rules": rules })),
+        None,
+    );
+
+    ok_data(serde_json::json!({ "count": rules.len() }))
+}
+
 async fn server_lifecycle(
     state: &Arc<AppState>,
     name: &str,
@@ -2068,6 +2151,148 @@ mod tests {
         assert!(
             message.contains("Server 'srv.memory' is already registered"),
             "the caller must be told which id is taken; got: {message}"
+        );
+    }
+
+    async fn put_rules(
+        state: &Arc<crate::AppState>,
+        agent_id: &str,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, (axum::http::StatusCode, serde_json::Value)> {
+        use axum::response::IntoResponse;
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", "admin-key".parse().unwrap());
+        match put_agent_argument_rules(
+            State(state.clone()),
+            Path(agent_id.to_string()),
+            headers,
+            Json(body),
+        )
+        .await
+        {
+            Ok(Json(v)) => Ok(v),
+            Err(e) => {
+                let response = e.into_response();
+                let status = response.status();
+                let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                Err((status, serde_json::from_slice(&bytes).unwrap()))
+            }
+        }
+    }
+
+    async fn get_rules(state: &Arc<crate::AppState>, agent_id: &str) -> serde_json::Value {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", "admin-key".parse().unwrap());
+        let Json(v) =
+            get_agent_argument_rules(State(state.clone()), Path(agent_id.to_string()), headers)
+                .await
+                .unwrap_or_else(|_| panic!("reading the rules must succeed"));
+        v["data"]["rules"].clone()
+    }
+
+    /// PUT replaces the whole set, and GET returns what was stored — including
+    /// a server-wide rule, which has no tool_name.
+    #[tokio::test]
+    async fn argument_rules_are_replaced_as_a_set() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        let first = serde_json::json!({ "rules": [
+            { "server_id": "cpersona", "equals": { "agent_id": "agent.growth", "project_id": "cil" } },
+            { "server_id": "cpersona", "tool_name": "archive_episode", "required": ["agent_id", "project_id"] },
+        ]});
+        put_rules(&state, "agent.growth", first.clone())
+            .await
+            .unwrap();
+        assert_eq!(
+            get_rules(&state, "agent.growth").await,
+            serde_json::json!([
+                { "server_id": "cpersona", "equals": { "agent_id": "agent.growth", "project_id": "cil" }, "required": [] },
+                { "server_id": "cpersona", "tool_name": "archive_episode", "equals": {}, "required": ["agent_id", "project_id"] },
+            ])
+        );
+
+        put_rules(
+            &state,
+            "agent.growth",
+            serde_json::json!({ "rules": [ { "server_id": "cscheduler", "equals": { "actor": "ai" } } ] }),
+        )
+        .await
+        .unwrap();
+        let rules = get_rules(&state, "agent.growth").await;
+        assert_eq!(
+            rules.as_array().map(Vec::len),
+            Some(1),
+            "the second set replaces the first: {rules}"
+        );
+        assert_eq!(rules[0]["server_id"], "cscheduler");
+        assert_eq!(
+            get_rules(&state, "agent.other").await,
+            serde_json::json!([]),
+            "rules belong to one agent"
+        );
+    }
+
+    /// A set that cannot mean what it says is refused whole, and the stored set
+    /// is left as it was.
+    #[tokio::test]
+    async fn an_ambiguous_rule_set_is_refused_and_changes_nothing() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        put_rules(
+            &state,
+            "agent.growth",
+            serde_json::json!({ "rules": [ { "server_id": "cpersona", "equals": { "project_id": "cil" } } ] }),
+        )
+        .await
+        .unwrap();
+        let before = get_rules(&state, "agent.growth").await;
+
+        for (body, says) in [
+            (
+                serde_json::json!({ "rules": [
+                    { "server_id": "cpersona", "tool_name": "recall" },
+                    { "server_id": "cpersona", "tool_name": "recall" },
+                ]}),
+                "More than one rule",
+            ),
+            (
+                serde_json::json!({ "rules": [ { "server_id": " " } ] }),
+                "needs a server_id",
+            ),
+            (
+                serde_json::json!({ "rules": [ { "server_id": "cpersona", "tool_name": "" } ] }),
+                "omit it to cover every tool",
+            ),
+            (
+                serde_json::json!({ "rules": [ { "server_id": "cpersona", "required": [""] } ] }),
+                "must not be empty",
+            ),
+            (serde_json::json!({}), "Missing required field: rules"),
+        ] {
+            let (status, err) = put_rules(&state, "agent.growth", body).await.unwrap_err();
+            assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "{says}: {err}");
+            let message = err["error"]["message"].as_str().unwrap_or_default();
+            assert!(message.contains(says), "expected '{says}', got: {message}");
+            assert_eq!(
+                get_rules(&state, "agent.growth").await,
+                before,
+                "{says}: a refused PUT changed the set"
+            );
+        }
+    }
+
+    #[test]
+    fn the_argument_rules_routes_are_registered() {
+        let wiring = include_str!("../lib.rs");
+        assert!(
+            wiring.contains("\"/agents/{id}/argument-rules\""),
+            "route not registered"
+        );
+        assert!(
+            wiring.contains(
+                "get(handlers::get_agent_argument_rules).put(handlers::put_agent_argument_rules)"
+            ),
+            "the route does not reach both handlers"
         );
     }
 

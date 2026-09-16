@@ -2811,7 +2811,7 @@ impl McpClientManager {
         // Reached only for non-kernel MCP tools (kernel-native tools early-return
         // in the match above). `server_id` is now resolved, so gate before the
         // validator / dispatch. System bypasses.
-        self.enforce_caller_grant(caller, &server_id, tool_name)
+        self.enforce_caller_grant(caller, &server_id, tool_name, &args)
             .await
             .map_err(ToolFailure::from)?;
 
@@ -2958,13 +2958,17 @@ impl McpClientManager {
         caller: &Caller,
         server_id: &str,
         tool_name: &str,
+        args: &Value,
     ) -> Result<()> {
         let agent_id = match caller {
             Caller::System => return Ok(()),
             Caller::Agent(id) => id,
         };
         match crate::db::resolve_tool_access(&self.pool, agent_id, server_id, tool_name).await {
-            Ok(crate::db::mcp::PermissionLevel::Allow) => Ok(()),
+            Ok(crate::db::mcp::PermissionLevel::Allow) => {
+                self.enforce_argument_rules(agent_id, server_id, tool_name, args)
+                    .await
+            }
             Ok(crate::db::mcp::PermissionLevel::Deny) => {
                 warn!(
                     agent_id = %agent_id,
@@ -2993,6 +2997,82 @@ impl McpClientManager {
                 .into())
             }
         }
+    }
+
+    /// Argument rules ([`crate::db::ArgumentRule`]): a granted call must still
+    /// carry the argument values its rules name. Refused as an access rejection
+    /// — the call is well formed, and the answer is that this agent may not make
+    /// it with these arguments. A mismatch is refused, never rewritten: a
+    /// rewritten argument would erase the attempt from every record of the call.
+    /// Applies to server tools only; kernel tools have their own RBAC.
+    async fn enforce_argument_rules(
+        &self,
+        agent_id: &str,
+        server_id: &str,
+        tool_name: &str,
+        args: &Value,
+    ) -> Result<()> {
+        let rules =
+            match crate::db::argument_rules_for_call(&self.pool, agent_id, server_id, tool_name)
+                .await
+            {
+                Ok(rules) => rules,
+                Err(e) => {
+                    warn!(
+                        agent_id = %agent_id,
+                        server = %server_id,
+                        tool = %tool_name,
+                        error = %e,
+                        "🔒 capability gate: argument rules could not be read"
+                    );
+                    // A fault, not a policy answer: refuse (fail closed), and keep
+                    // the error in the log line above.
+                    return Err(mcp_mgp::MgpError::access_denied(format!(
+                        "Access check failed for agent '{agent_id}' on '{server_id}.{tool_name}'"
+                    ))
+                    .into());
+                }
+            };
+
+        let mut problems: Vec<String> = Vec::new();
+        for rule in &rules {
+            for (name, expected) in &rule.equals {
+                if let Some(actual) = args.get(name).filter(|v| !v.is_null()) {
+                    if actual != expected {
+                        problems.push(format!("{name} must be {expected} (got {actual})"));
+                    }
+                }
+            }
+            for name in &rule.required {
+                if matches!(args.get(name), None | Some(Value::Null)) {
+                    problems.push(format!("{name} is required"));
+                }
+            }
+        }
+        if problems.is_empty() {
+            return Ok(());
+        }
+        problems.sort();
+        problems.dedup();
+        warn!(
+            agent_id = %agent_id,
+            server = %server_id,
+            tool = %tool_name,
+            problems = %problems.join("; "),
+            "🔒 capability gate: arguments outside the agent's rules"
+        );
+        Err(anyhow::Error::new(ToolFailure::Rejection(ToolRejection {
+            code: RejectionCode::AccessDenied,
+            reason: format!(
+                "Access denied: agent '{agent_id}' may not call '{tool_name}' on server '{server_id}' with these arguments: {}",
+                problems.join("; ")
+            ),
+            remediation_hint: Some(
+                "Call the tool again with the argument values the rule requires.".to_string(),
+            ),
+            retryable: true,
+            details: None,
+        })))
     }
 
     /// Whether `tool_name` is a kernel-native tool (dispatched by the
@@ -3050,7 +3130,7 @@ impl McpClientManager {
         // here covers both call_server_tool and call_server_tool_streaming.
         // Runs BEFORE the §5.6 delegation intersection, which is a distinct,
         // orthogonal stage keyed on `original_actor` (not the immediate caller).
-        self.enforce_caller_grant(caller, server_id, tool_name)
+        self.enforce_caller_grant(caller, server_id, tool_name, args)
             .await?;
 
         // ──── §5.6 Delegation Check ────
@@ -4402,6 +4482,7 @@ mod tests {
                 &Caller::Agent("agent.growth".to_string()),
                 "srv.memory",
                 "recall",
+                &serde_json::json!({}),
             )
             .await
             .expect_err("an access check that could not run must refuse");
@@ -4587,6 +4668,7 @@ while True:\n\
                 &Caller::Agent("agent.growth".to_string()),
                 "srv.memory",
                 "recall",
+                &serde_json::json!({}),
             )
             .await
             .expect_err("no grant must refuse");
@@ -4678,6 +4760,225 @@ while True:\n\
                 ),
             }
         }
+    }
+
+    // --- argument rules ------------------------------------------------------
+
+    /// `agent.growth` granted `srv.memory`, with `rules` set. The server is not
+    /// loaded, so a call the gate lets through fails afterwards with "not found"
+    /// — which is how a test tells "the rules allowed it" from "refused".
+    async fn manager_with_rules(rules: Vec<crate::db::ArgumentRule>) -> McpClientManager {
+        let manager = manager_with_ungranted_agent().await;
+        sqlx::query(
+            "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_at) \
+             VALUES ('server_grant', 'agent.growth', 'srv.memory', NULL, 'allow', 't0')",
+        )
+        .execute(manager.pool())
+        .await
+        .unwrap();
+        crate::db::put_argument_rules(manager.pool(), "agent.growth", &rules)
+            .await
+            .unwrap();
+        manager
+    }
+
+    fn rule(tool: Option<&str>, equals: Value, required: &[&str]) -> crate::db::ArgumentRule {
+        crate::db::ArgumentRule {
+            server_id: "srv.memory".to_string(),
+            tool_name: tool.map(str::to_string),
+            equals: equals.as_object().cloned().unwrap_or_default(),
+            required: required.iter().map(|s| (*s).to_string()).collect(),
+        }
+    }
+
+    async fn call(
+        manager: &McpClientManager,
+        caller: Caller,
+        tool: &str,
+        args: Value,
+    ) -> ToolFailure {
+        let err = manager
+            .call_server_tool(&caller, "srv.memory", tool, args)
+            .await
+            .expect_err("the server is not loaded, so every call fails somewhere");
+        ToolFailure::from(err)
+    }
+
+    fn growth() -> Caller {
+        Caller::Agent("agent.growth".to_string())
+    }
+
+    /// Refused by the rules, as an access rejection naming what was wrong.
+    fn expect_rule_refusal(failure: ToolFailure, says: &str) {
+        match failure {
+            ToolFailure::Rejection(r) => {
+                assert_eq!(r.code, RejectionCode::AccessDenied, "reason: {}", r.reason);
+                assert!(
+                    r.reason.contains("with these arguments"),
+                    "reason: {}",
+                    r.reason
+                );
+                assert!(r.reason.contains(says), "reason: {}", r.reason);
+            }
+            ToolFailure::Error(e) => panic!("expected the rules to refuse, got an error: {e}"),
+        }
+    }
+
+    /// Let through by the rules: the call reached the server lookup.
+    fn expect_past_the_rules(failure: ToolFailure) {
+        match failure {
+            ToolFailure::Error(e) => assert!(
+                e.to_string().contains("MCP server 'srv.memory' not found"),
+                "expected the call to reach the server lookup, got: {e}"
+            ),
+            ToolFailure::Rejection(r) => panic!("expected no refusal, got: {}", r.reason),
+        }
+    }
+
+    /// The lane: a granted agent that names another agent's lane is refused,
+    /// and naming its own passes. Nothing is rewritten — the refusal quotes the
+    /// value the caller sent.
+    #[tokio::test]
+    async fn a_call_outside_the_agents_lane_is_refused() {
+        let manager = manager_with_rules(vec![rule(
+            None,
+            serde_json::json!({"agent_id": "agent.growth"}),
+            &[],
+        )])
+        .await;
+        expect_rule_refusal(
+            call(
+                &manager,
+                growth(),
+                "recall",
+                serde_json::json!({"agent_id": "agent.security-manager"}),
+            )
+            .await,
+            r#"agent_id must be "agent.growth" (got "agent.security-manager")"#,
+        );
+        expect_past_the_rules(
+            call(
+                &manager,
+                growth(),
+                "recall",
+                serde_json::json!({"agent_id": "agent.growth"}),
+            )
+            .await,
+        );
+        // Not required, so leaving it out is not a violation of `equals`.
+        expect_past_the_rules(call(&manager, growth(), "recall", serde_json::json!({})).await);
+    }
+
+    /// A tool-specific rule applies to that tool only, `required` refuses a
+    /// missing or null argument, and the server-wide rule still applies too.
+    #[tokio::test]
+    async fn a_required_argument_applies_to_its_tool_only() {
+        let manager = manager_with_rules(vec![
+            rule(None, serde_json::json!({"project_id": "cil"}), &[]),
+            rule(
+                Some("archive_episode"),
+                serde_json::json!({}),
+                &["project_id"],
+            ),
+        ])
+        .await;
+        expect_rule_refusal(
+            call(&manager, growth(), "archive_episode", serde_json::json!({})).await,
+            "project_id is required",
+        );
+        expect_rule_refusal(
+            call(
+                &manager,
+                growth(),
+                "archive_episode",
+                serde_json::json!({"project_id": null}),
+            )
+            .await,
+            "project_id is required",
+        );
+        expect_rule_refusal(
+            call(
+                &manager,
+                growth(),
+                "archive_episode",
+                serde_json::json!({"project_id": "other"}),
+            )
+            .await,
+            r#"project_id must be "cil""#,
+        );
+        expect_past_the_rules(
+            call(
+                &manager,
+                growth(),
+                "archive_episode",
+                serde_json::json!({"project_id": "cil"}),
+            )
+            .await,
+        );
+        // The required rule is archive_episode's; recall only carries the
+        // server-wide one.
+        expect_past_the_rules(call(&manager, growth(), "recall", serde_json::json!({})).await);
+    }
+
+    /// Rules that cannot be read refuse the call: an agent whose restrictions
+    /// are unknown is not let through as if it had none. Only the rules table is
+    /// broken, so the grant lookup before it still succeeds.
+    #[tokio::test]
+    async fn unreadable_argument_rules_refuse_the_call() {
+        let manager = manager_with_rules(vec![rule(
+            None,
+            serde_json::json!({"agent_id": "agent.growth"}),
+            &[],
+        )])
+        .await;
+        sqlx::query("DROP TABLE mcp_argument_rules")
+            .execute(manager.pool())
+            .await
+            .unwrap();
+        match call(
+            &manager,
+            growth(),
+            "recall",
+            serde_json::json!({"agent_id": "agent.growth"}),
+        )
+        .await
+        {
+            ToolFailure::Error(e) => {
+                let mgp = e
+                    .downcast::<mcp_mgp::MgpError>()
+                    .expect("a failed check is MGP-typed");
+                assert_eq!(mgp.code, mcp_mgp::MGP_ERR_ACCESS_DENIED);
+                assert_eq!(
+                    mgp.message,
+                    "Access check failed for agent 'agent.growth' on 'srv.memory.recall'"
+                );
+            }
+            ToolFailure::Rejection(r) => {
+                panic!("a fault is not a policy answer, got: {}", r.reason)
+            }
+        }
+    }
+
+    /// Kernel-internal calls (System) are not an agent's, and no rule of an
+    /// agent's applies to them.
+    #[tokio::test]
+    async fn argument_rules_do_not_bind_the_kernel_itself() {
+        let manager = manager_with_rules(vec![rule(
+            None,
+            serde_json::json!({"agent_id": "agent.growth"}),
+            &["agent_id"],
+        )])
+        .await;
+        expect_past_the_rules(
+            call(
+                &manager,
+                Caller::System,
+                "recall",
+                serde_json::json!({"agent_id": "agent.security-manager"}),
+            )
+            .await,
+        );
     }
 
     #[test]
