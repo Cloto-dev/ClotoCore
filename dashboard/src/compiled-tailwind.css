@@ -823,6 +823,10 @@ video {
   bottom: 1.5rem;
 }
 
+.bottom-8 {
+  bottom: 2rem;
+}
+
 .left-0 {
   left: 0px;
 }

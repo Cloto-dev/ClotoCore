@@ -7,6 +7,7 @@ import { useAgentContext } from '../contexts/AgentContext';
 import { useLocalStorage } from '../hooks/useStorage';
 import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
+import { CommandApprovalDeck } from './CommandApprovalDeck';
 import { FadingGrid } from './FadingGrid';
 import { HelpContent } from './HelpContent';
 import { Modal } from './Modal';
@@ -162,6 +163,10 @@ export function AppLayout() {
           </Modal>
         )}
 
+        {/* Both live outside the routed content on purpose: a question an agent
+            is blocked on is not about the screen you happen to be on, and the
+            immersive view does not get to hide one either. */}
+        <CommandApprovalDeck />
         <SecurityGuard />
       </div>
     </ActionsProvider>

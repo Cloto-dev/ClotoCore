@@ -25,6 +25,7 @@ import { useTranslation } from 'react-i18next';
 import { useApi } from '../hooks/useApi';
 import { type DisplayLevel, displayLevel, interrupts, loadThreshold, saveThreshold } from '../lib/notificationSeverity';
 import type { NotificationItem, NotificationSummary } from '../services/api';
+import { RAISE_APPROVAL_EVENT } from './CommandApprovalDeck';
 
 /** How often the badge re-asks. Cheap query, two integers. */
 const POLL_MS = 15_000;
@@ -126,6 +127,20 @@ export function NotificationBell() {
   const chooseThreshold = (level: DisplayLevel) => {
     setThreshold(level);
     saveThreshold(level);
+  };
+
+  /**
+   * Put the card for this item back on screen.
+   *
+   * This is what makes the deck's peek window a courtesy rather than a second
+   * deadline. The card stops showing after half a minute and the item stays
+   * here, which is only true in any useful sense if here leads back to it. The
+   * answering controls are not duplicated into this list on purpose: two places
+   * to approve a destructive command is one place too many to keep honest.
+   */
+  const raise = (itemId: string) => {
+    window.dispatchEvent(new CustomEvent(RAISE_APPROVAL_EVENT, { detail: { approvalId: itemId } }));
+    setOpen(false);
   };
 
   const markRead = async (itemId: string) => {
@@ -257,6 +272,16 @@ export function NotificationBell() {
                               <span className="text-red-500">
                                 {t('notifications.blocking', { defaultValue: 'holding an agent' })}
                               </span>
+                            )}
+                            {item.kind === 'approval' && item.blocking && (
+                              <button
+                                type="button"
+                                data-testid="raise-approval"
+                                onClick={() => raise(item.item_id)}
+                                className="text-content-primary hover:text-brand transition-colors"
+                              >
+                                {t('notifications.answer', { defaultValue: 'Answer' })}
+                              </button>
                             )}
                             {interrupts(item.severity, threshold) && (
                               <span data-testid="will-interrupt">

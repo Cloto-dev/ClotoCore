@@ -41,7 +41,6 @@ import { useGazeBroadcast } from '../vrm/useGazeBroadcast';
 import { ActionsPanel } from './ActionsPanel';
 import { BranchNavigator } from './BranchNavigator';
 import { ChatInputBar } from './ChatInputBar';
-import { CommandApprovalCard } from './CommandApprovalCard';
 import { MessageContent } from './ContentBlockView';
 import { ContextUsageBadge } from './ContextUsageBadge';
 import { SkeletonThinking } from './SkeletonThinking';
@@ -1062,15 +1061,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                 </div>
               </div>
             )}
-            {/* Command Approval Cards */}
-            {pendingApprovals.map((approval) => (
-              <CommandApprovalCard
-                key={approval.approval_id}
-                approvalId={approval.approval_id}
-                commands={approval.commands}
-                onResolved={(id) => setPendingApprovals((prev) => prev.filter((a) => a.approval_id !== id))}
-              />
-            ))}
+            {/* The approval card is drawn by CommandApprovalDeck at the window
+                level now, not here. `pendingApprovals` is still tracked because
+                this conversation needs to know whether its own agent is stopped
+                behind a question — that is what suppresses the thinking skeleton
+                below, and "waiting for an answer" must not be drawn as
+                "thinking". */}
             {/* Tool Rejection Cards (kernel-issued, dismissable) */}
             {pendingRejections.map((rejection) => (
               <ToolRejectionCard

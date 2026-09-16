@@ -90,7 +90,8 @@
       "level_medium": "中",
       "level_low": "小",
       "will_interrupt": "割り込みます",
-      "mark_read": "既読にする"
+      "mark_read": "既読にする",
+      "answer": "答える"
     }
   },
   "agents": {

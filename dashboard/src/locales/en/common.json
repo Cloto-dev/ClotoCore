@@ -85,6 +85,7 @@
     "level_medium": "Medium",
     "level_low": "Low",
     "will_interrupt": "will interrupt",
-    "mark_read": "Mark read"
+    "mark_read": "Mark read",
+    "answer": "Answer"
   }
 }

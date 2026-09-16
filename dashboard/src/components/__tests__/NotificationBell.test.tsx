@@ -176,4 +176,39 @@ describe('NotificationBell', () => {
     // different and much worse claim than "I could not check".
     await waitFor(() => expect(screen.getByTestId('notification-badge').textContent).toBe('2'));
   });
+
+  it('offers a way back to the card for a request that is holding an agent', async () => {
+    // The deck stops showing a card after half a minute. That is only a
+    // courtesy rather than a second deadline because this list leads back to it
+    // — without this button, an unanswered request would be visible here and
+    // answerable nowhere.
+    getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 1 });
+    getNotifications.mockResolvedValue([item({ blocking: true, kind: 'approval' })]);
+    const raised: string[] = [];
+    const onRaise = (e: Event) => raised.push((e as CustomEvent).detail?.approvalId);
+    window.addEventListener('cloto-raise-approval', onRaise);
+
+    try {
+      render(<NotificationBell />);
+      fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
+      fireEvent.click(await screen.findByTestId('raise-approval'));
+
+      expect(raised).toEqual(['a1']);
+      // The panel gets out of the way of the card it just raised.
+      await waitFor(() => expect(screen.queryByTestId('notification-item')).not.toBeInTheDocument());
+    } finally {
+      window.removeEventListener('cloto-raise-approval', onRaise);
+    }
+  });
+
+  it('offers no such button for an item nothing is waiting on', async () => {
+    getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 0 });
+    getNotifications.mockResolvedValue([item({ blocking: false, kind: 'notice' })]);
+
+    render(<NotificationBell />);
+    fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
+    await screen.findByTestId('notification-item');
+
+    expect(screen.queryByTestId('raise-approval')).not.toBeInTheDocument();
+  });
 });

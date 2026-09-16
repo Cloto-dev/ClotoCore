@@ -35,6 +35,42 @@ const SEVERITY_RANK: Record<NotificationSeverity, number> = {
   debug: 7,
 };
 
+/**
+ * What the kernel answers with when nothing classified a request, and therefore
+ * what this file answers with when it cannot read one.
+ *
+ * Mirrors `command_severity(None)` in the approval gate. The direction is the
+ * whole point: a batch that went quiet because a field was missing would stop
+ * interrupting without anyone having decided it should, and nothing would say so.
+ */
+const UNCLASSIFIED: NotificationSeverity = 'error';
+
+const SEVERITY_IDENTIFIERS = Object.keys(SEVERITY_RANK) as readonly NotificationSeverity[];
+
+/** A severity if the value is one, `null` otherwise. For untyped event payloads. */
+export function asSeverity(value: unknown): NotificationSeverity | null {
+  return typeof value === 'string' && (SEVERITY_IDENTIFIERS as readonly string[]).includes(value)
+    ? (value as NotificationSeverity)
+    : null;
+}
+
+/**
+ * The loudest severity in a batch — what one card standing for several commands
+ * is worth.
+ *
+ * An entry that is absent or unreadable counts as {@link UNCLASSIFIED}, not as
+ * nothing: dropping it would let one malformed command quieten the batch it
+ * belongs to. An empty batch is the same case with nothing to read at all.
+ */
+export function mostSevere(values: readonly unknown[]): NotificationSeverity {
+  let loudest: NotificationSeverity | null = null;
+  for (const value of values) {
+    const severity = asSeverity(value) ?? UNCLASSIFIED;
+    if (loudest === null || SEVERITY_RANK[severity] < SEVERITY_RANK[loudest]) loudest = severity;
+  }
+  return loudest ?? UNCLASSIFIED;
+}
+
 /** What a reader picks between. */
 export type DisplayLevel = 'high' | 'medium' | 'low';
 
