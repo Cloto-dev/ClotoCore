@@ -208,16 +208,24 @@ jobs:
           cache: false
 
       - name: Run tests
-        run: cargo test --workspace --exclude app
+        shell: bash
+        # The output is kept for the ratchet below, which counts this run rather
+        # than running the whole suite a second time. pipefail keeps a failing
+        # `cargo test` failing the step through the tee. Colour off for the same
+        # reason the ratchet turns it off: escape codes break the count.
+        run: |
+          set -o pipefail
+          cargo test --workspace --exclude app 2>&1 | tee "$RUNNER_TEMP/cargo-test.log"
         env:
           RUST_LOG: warn
+          CARGO_TERM_COLOR: never
 
       - name: Test count ratchet
         if: matrix.os == 'ubuntu-latest'
         # `rust` explicitly: this job has no Node, and a ratchet that skips the
         # suite it cannot measure is how a floor stops holding anything. The
         # dashboard floor is checked in the Dashboard job, which has Node.
-        run: bash scripts/check-test-count.sh rust
+        run: bash scripts/check-test-count.sh rust --rust-output "$RUNNER_TEMP/cargo-test.log"
 
   smoke:
     name: Smoke (${{ matrix.os }})

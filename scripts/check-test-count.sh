@@ -14,6 +14,13 @@
 # Usage:
 #   check-test-count.sh [rust|dashboard|all]   # default: all
 #   check-test-count.sh --update [target]      # raise the floor to what is measured
+#   check-test-count.sh rust --rust-output FILE # count a run CI already made
+#
+# `--rust-output` reads the output of a `cargo test --workspace --exclude app`
+# run instead of running the suite again. CI's test job runs the suite in the
+# step before this one; running it a second time only to count it cost a
+# minute per push. The file is refused if it records a failure, for the same
+# reason a failing live run is refused below.
 #
 # A target that cannot be measured is an error, never a silent skip: the Rust
 # job has no Node and the Dashboard job has no cargo, so each names the target
@@ -33,16 +40,26 @@ fi
 
 UPDATE=false
 TARGET="all"
-for arg in "$@"; do
-    case "$arg" in
+RUST_OUTPUT_FILE=""
+while [ "$#" -gt 0 ]; do
+    case "$1" in
         --update) UPDATE=true ;;
-        rust | dashboard | all) TARGET="$arg" ;;
+        --rust-output)
+            if [ "$#" -lt 2 ]; then
+                echo "--rust-output needs a file" >&2
+                exit 2
+            fi
+            RUST_OUTPUT_FILE="$2"
+            shift
+            ;;
+        rust | dashboard | all) TARGET="$1" ;;
         *)
-            echo "Unknown argument: $arg" >&2
-            echo "Usage: $0 [--update] [rust|dashboard|all]" >&2
+            echo "Unknown argument: $1" >&2
+            echo "Usage: $0 [--update] [--rust-output FILE] [rust|dashboard|all]" >&2
             exit 2
             ;;
     esac
+    shift
 done
 
 # Sum every "<n> passed" in a test run's output.
@@ -116,20 +133,34 @@ check_suite() {
 FAILED=false
 
 if [ "$TARGET" = "rust" ] || [ "$TARGET" = "all" ]; then
-    if ! command -v cargo >/dev/null 2>&1; then
-        echo "❌ Rust tests requested but cargo is not on PATH" >&2
-        exit 2
-    fi
-    # `if ! VAR=$(...)` keeps the output instead of letting `set -e` abort with
-    # it swallowed. A failing run must not be counted either: "50 passed" out of
-    # a run that also failed two tests would otherwise clear the floor.
-    # Colour off: the pattern reads digits out of human output, and an escape
-    # sequence landing between the number and the word would silently zero the
-    # count (the dashboard side hit exactly that under CI's forced colour).
-    if ! RUST_OUTPUT=$(CARGO_TERM_COLOR=never cargo test --workspace --exclude app 2>&1); then
-        printf '%s\n' "$RUST_OUTPUT"
-        echo "❌ Rust tests failed — no count is certified from a failing run" >&2
-        exit 1
+    if [ -n "$RUST_OUTPUT_FILE" ]; then
+        if [ ! -s "$RUST_OUTPUT_FILE" ]; then
+            echo "❌ --rust-output file is missing or empty: $RUST_OUTPUT_FILE" >&2
+            exit 2
+        fi
+        RUST_OUTPUT=$(cat "$RUST_OUTPUT_FILE")
+        # The writer's exit status is not in the file, so read the failure from
+        # the output itself: every failing crate prints this summary line.
+        if printf '%s\n' "$RUST_OUTPUT" | grep -q 'test result: FAILED'; then
+            echo "❌ the recorded Rust run failed — no count is certified from a failing run" >&2
+            exit 1
+        fi
+    else
+        if ! command -v cargo >/dev/null 2>&1; then
+            echo "❌ Rust tests requested but cargo is not on PATH" >&2
+            exit 2
+        fi
+        # `if ! VAR=$(...)` keeps the output instead of letting `set -e` abort with
+        # it swallowed. A failing run must not be counted either: "50 passed" out of
+        # a run that also failed two tests would otherwise clear the floor.
+        # Colour off: the pattern reads digits out of human output, and an escape
+        # sequence landing between the number and the word would silently zero the
+        # count (the dashboard side hit exactly that under CI's forced colour).
+        if ! RUST_OUTPUT=$(CARGO_TERM_COLOR=never cargo test --workspace --exclude app 2>&1); then
+            printf '%s\n' "$RUST_OUTPUT"
+            echo "❌ Rust tests failed — no count is certified from a failing run" >&2
+            exit 1
+        fi
     fi
     check_suite "Rust tests" rust_test_count "$(sum_passed "$RUST_OUTPUT")" || FAILED=true
 fi
