@@ -507,19 +507,45 @@ impl McpClient {
             Some(stderr_tx),
         )
         .await?;
-        let sender = stdio.sender();
-        // Captured lock-free so the forced drain sweep (bug-426) can signal the
-        // process group without contending on the transport Mutex (the response
-        // loop holds it across recv()).
-        let child_pid = stdio.child_id();
-        // Same reason: the probe reads this while the response loop owns the
-        // transport across its recv().
+        // Captured before the transport moves behind its Mutex: the probe reads
+        // it while the response loop owns the transport across its recv().
         let child_voice = Some(stdio.voice());
-        let transport = McpTransport::Stdio(Box::new(stdio));
-        let cancels_by_notification = transport.cancels_by_notification();
-        let mut client = Self {
+        let mut client = Self::assemble(
+            McpTransport::Stdio(Box::new(stdio)),
+            EraHandle::new(),
+            notification_tx,
+            request_timeout_secs,
+            stream_idle_timeout_secs,
+            child_voice,
+        );
+
+        client.start_response_loop(server_id);
+        let negotiated = client
+            .negotiate(default_log_level, EraPreference::from_config(protocol_era))
+            .await?;
+
+        Ok((client, negotiated))
+    }
+
+    /// The client around a started transport, before its response loop runs.
+    /// Everything that depends on the kind of transport is read from it here,
+    /// once, so the stdio and HTTP connects cannot disagree about it.
+    fn assemble(
+        transport: McpTransport,
+        era: EraHandle,
+        notification_tx: mpsc::Sender<McpNotification>,
+        request_timeout_secs: u64,
+        stream_idle_timeout_secs: u64,
+        child_voice: Option<ChildVoice>,
+    ) -> Self {
+        Self {
+            sender: transport.sender(),
+            // Captured lock-free so the forced drain sweep (bug-426) can signal
+            // the process group without contending on the transport Mutex (the
+            // response loop holds it across recv()).
+            child_pid: transport.child_id(),
+            cancels_by_notification: transport.cancels_by_notification(),
             transport: Arc::new(Mutex::new(transport)),
-            sender,
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicI64::new(1)),
             alive: Arc::new(AtomicBool::new(true)),
@@ -528,20 +554,11 @@ impl McpClient {
             request_timeout_secs,
             stream_idle_timeout_secs,
             stream_collectors: Arc::new(Mutex::new(HashMap::new())),
-            child_pid,
-            era: EraHandle::new(),
+            era,
             modern_meta: Arc::new(OnceLock::new()),
             mgp_grants: Arc::new(RwLock::new(None)),
             child_voice,
-            cancels_by_notification,
-        };
-
-        client.start_response_loop(server_id);
-        let negotiated = client
-            .negotiate(default_log_level, EraPreference::from_config(protocol_era))
-            .await?;
-
-        Ok((client, negotiated))
+        }
     }
 
     /// Connect to a remote MCP server via Streamable HTTP transport.
@@ -561,29 +578,16 @@ impl McpClient {
         // Mcp-Session-Id suppression).
         let era = EraHandle::new();
         let http = HttpTransport::start(url, auth_token, era.clone()).await?;
-        let sender = http.sender();
-        let transport = McpTransport::Http(Box::new(http));
-        let cancels_by_notification = transport.cancels_by_notification();
-        let mut client = Self {
-            transport: Arc::new(Mutex::new(transport)),
-            sender,
-            pending_requests: Arc::new(Mutex::new(HashMap::new())),
-            next_id: Arc::new(AtomicI64::new(1)),
-            alive: Arc::new(AtomicBool::new(true)),
-            response_task: None,
+        let mut client = Self::assemble(
+            McpTransport::Http(Box::new(http)),
+            era,
             notification_tx,
             request_timeout_secs,
             stream_idle_timeout_secs,
-            stream_collectors: Arc::new(Mutex::new(HashMap::new())),
-            child_pid: None,
-            era,
-            modern_meta: Arc::new(OnceLock::new()),
-            mgp_grants: Arc::new(RwLock::new(None)),
             // No child, no startup of ours to wait through: a remote peer was
             // already running when we first addressed it.
-            child_voice: None,
-            cancels_by_notification,
-        };
+            None,
+        );
 
         client.start_response_loop(server_id);
         let negotiated = client
@@ -2540,12 +2544,23 @@ while True:\n\
     }
 
     /// stdio has only the notification; HTTP cancels by closing the stream, which
-    /// this kernel's serial transport cannot do per request.
+    /// this kernel's serial transport cannot do per request. Asked of a client
+    /// assembled the way `connect_http` assembles one, so the answer is the one
+    /// its withdrawals act on, not only the transport's.
     #[tokio::test]
-    async fn only_stdio_cancels_by_notification() {
+    async fn an_http_client_does_not_cancel_by_notification() {
         let http = HttpTransport::start("http://127.0.0.1:9/mcp", None, EraHandle::new())
             .await
             .expect("an HTTP transport starts without connecting");
-        assert!(!McpTransport::Http(Box::new(http)).cancels_by_notification());
+        let (notification_tx, _notifications) = mpsc::channel(1);
+        let client = McpClient::assemble(
+            McpTransport::Http(Box::new(http)),
+            EraHandle::new(),
+            notification_tx,
+            1,
+            1,
+            None,
+        );
+        assert!(!client.withdrawal().notify_server);
     }
 }
