@@ -20,11 +20,18 @@ from typing import Iterable, List, Set, Tuple
 
 Route = Tuple[str, str]  # (METHOD, canonical_path)
 
+# A route's method routers run until the next builder call. The region handed
+# in stops *before* `.fallback(`, so the end of the text has to end a route too,
+# or the last one in the region is dropped.
 _ROUTE_RE = re.compile(
-    r'\.route\(\s*"([^"]+)"\s*,(.*?)(?=\.route\(|\.merge\(|\.layer\(|\.fallback\(|;)',
+    r'\.route\(\s*"([^"]+)"\s*,(.*?)(?=\.route\(|\.merge\(|\.layer\(|\.fallback\(|;|\Z)',
     re.S,
 )
-_METHOD_RE = re.compile(r"\b(get|post|put|delete|any)\s*\(")
+# Every axum method router the kernel uses. A verb missing here drops its routes
+# from the inventory without a sound: the route is neither counted nor reported
+# uncovered, and a catalog operation that covers it shows up as "unknown".
+# `coverage_selftest` checks the real lib.rs for any verb this list lacks.
+_METHOD_RE = re.compile(r"\b(get|post|put|patch|delete|any)\s*\(")
 _PARAM_RE = re.compile(r"\{[^}]*\}")
 
 # Routes that are intentionally NOT operation-catalog targets: static/asset
