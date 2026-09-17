@@ -402,3 +402,88 @@ class ChatStop(Operation):
         assert 400 <= result["malformed_status"] < 500, (
             f"a stop naming no message was accepted: HTTP {result['malformed_status']}"
         )
+
+
+@register
+class ChatSearch(Operation):
+    """``GET /api/chat/search`` finds what was said, counts every match, and
+    refuses a blank query and a missing key.
+
+    Two messages carrying a fresh token are written for the probe user, one of
+    them in Japanese with the token inside a phrase — the case the trigram
+    index exists for. The search must return both, newest first, with a
+    ``total`` of 2; asked for one, it must return one and say it was cut. The
+    messages are removed afterwards and the same search must then find nothing,
+    which proves the index follows a delete.
+    """
+
+    domain = "chat"
+    name = "search"
+    covers = ["GET /api/chat/search"]
+    phase0 = True
+
+    def drive(self, ctx: RunContext):
+        c = ctx.client
+        token = "opv" + secrets.token_hex(6)
+        ctx.scratch["search_users"] = [_USER]
+        first = "opv-search-" + secrets.token_hex(8)
+        second = "opv-search-" + secrets.token_hex(8)
+        for msg_id, text in (
+            (first, f"a note that mentions {token} once"),
+            (second, f"今日の{token}について話しましょう"),
+        ):
+            c.post(
+                f"/api/chat/{_AGENT}/messages",
+                body={
+                    "id": msg_id,
+                    "source": "user",
+                    "content": [{"type": "text", "text": text}],
+                    "user_id": _USER,
+                },
+            )
+            # Distinct created_at, so "newest first" has an answer.
+            time.sleep(0.01)
+
+        both = c.get("/api/chat/search", params={"q": token, "user_id": _USER})
+        cut = c.get("/api/chat/search", params={"q": token, "user_id": _USER, "limit": 1})
+        blank_status, _ = c.request_raw("GET", "/api/chat/search", params={"q": "  "})
+        no_key_status, _ = c.request_raw("GET", "/api/chat/search", params={"q": token}, auth=False)
+
+        c.delete(f"/api/chat/{_AGENT}/messages", params={"user_id": _USER})
+        after_delete = c.get("/api/chat/search", params={"q": token, "user_id": _USER})
+
+        return {
+            "first": first,
+            "second": second,
+            "both": both,
+            "cut": cut,
+            "blank_status": blank_status,
+            "no_key_status": no_key_status,
+            "after_delete": after_delete,
+        }
+
+    def assert_success(self, ctx: RunContext, result):
+        both = result["both"] or {}
+        ids = [r.get("message_id") for r in both.get("results", [])]
+        assert ids == [result["second"], result["first"]], (
+            f"search returned {ids!r}, wanted both probe messages newest first"
+        )
+        assert both.get("total") == 2 and both.get("truncated") is False, (
+            f"an uncut search reported total={both.get('total')!r} truncated={both.get('truncated')!r}"
+        )
+        cut = result["cut"] or {}
+        assert len(cut.get("results", [])) == 1, f"limit=1 returned {cut.get('results')!r}"
+        assert cut.get("total") == 2 and cut.get("truncated") is True, (
+            f"a cut search did not say so: total={cut.get('total')!r} truncated={cut.get('truncated')!r}"
+        )
+        assert result["blank_status"] == 400, f"a blank query answered HTTP {result['blank_status']}"
+        assert result["no_key_status"] in (401, 403), f"search without a key: HTTP {result['no_key_status']}"
+        after = result["after_delete"] or {}
+        assert after.get("total") == 0, f"deleted messages are still found: {after!r}"
+
+    def teardown(self, ctx: RunContext):
+        for user in ctx.scratch.pop("search_users", []) or []:
+            try:
+                ctx.client.delete(f"/api/chat/{_AGENT}/messages", params={"user_id": user})
+            except Exception:  # noqa: BLE001
+                pass
