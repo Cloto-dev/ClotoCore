@@ -1,26 +1,21 @@
-import {
-  Activity,
-  ArrowLeft,
-  Box,
-  Lock,
-  Pencil,
-  RotateCcw as RetryIcon,
-  RotateCcw,
-  User as UserIcon,
-  Volume2,
-  Zap,
-} from 'lucide-react';
+import { Activity } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useActionsContext } from '../contexts/ActionsContext';
+import { useAgentContext } from '../contexts/AgentContext';
+import { useConversations } from '../contexts/ConversationContext';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
-import { useLongPress } from '../hooks/useLongPress';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { useStickToBottom } from '../hooks/useStickToBottom';
-import { AgentIcon, agentColor } from '../lib/agentIdentity';
+import { AgentIcon } from '../lib/agentIdentity';
+import { buildOutgoingChat } from '../lib/chatSend';
+import { type DayLabel, dayBreaks, dayLabel, relativeTime, timeOfDay } from '../lib/chatTime';
+import { displayTitle } from '../lib/conversations';
 import { findBranchPoints, flattenConversation } from '../lib/conversationTree';
+import { markInline, unmarkInline } from '../lib/inlineApprovals';
+import { mostSevere } from '../lib/notificationSeverity';
 import { sendNativeNotification } from '../lib/notifications';
 import { isEngineServer } from '../lib/serverCategory';
 import { openVrmWindow } from '../lib/tauri';
@@ -41,40 +36,19 @@ import { useGazeBroadcast } from '../vrm/useGazeBroadcast';
 import { ActionsPanel } from './ActionsPanel';
 import { BranchNavigator } from './BranchNavigator';
 import { ChatInputBar } from './ChatInputBar';
+import './ChatRoom.css';
+import { CommandApprovalCard } from './CommandApprovalCard';
 import { MessageContent } from './ContentBlockView';
 import { ContextUsageBadge } from './ContextUsageBadge';
-import { SkeletonThinking } from './SkeletonThinking';
 import { SystemAlertCard } from './SystemAlertCard';
 import { ToolRejectionCard } from './ToolRejectionCard';
 import { TypewriterMessage } from './TypewriterMessage';
-import { StatusDot } from './ui/StatusDot';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
-const LONG_PRESS_MS = 1500;
 const ERROR_DISPLAY_MS = 5000;
-
-function LongPressResetButton({ onReset }: { onReset: () => void }) {
-  const { t } = useTranslation('agents');
-  const { progress, handlers } = useLongPress(LONG_PRESS_MS, onReset);
-
-  return (
-    <button
-      {...handlers}
-      aria-label={progress > 0 ? t('console.hold') : t('console.reset')}
-      className="relative card-solid px-4 py-2 rounded-full border border-edge text-[13px] font-bold text-content-tertiary hover:text-amber-500 hover:border-amber-400/30 flex items-center gap-1.5 overflow-hidden"
-    >
-      {progress > 0 && (
-        <span
-          className="absolute inset-0 bg-amber-400/20 origin-left transition-none"
-          style={{ transform: `scaleX(${progress})` }}
-        />
-      )}
-      <RotateCcw size={12} className={progress > 0 ? 'animate-spin' : ''} />
-      <span className="relative">{progress > 0 ? t('console.hold') : t('console.reset')}</span>
-    </button>
-  );
-}
+/** How many earlier threads the empty room offers to continue from. */
+const CONTINUE_FROM_COUNT = 3;
 
 /** Migrate legacy localStorage session data to server */
 async function migrateLegacyData(
@@ -108,10 +82,39 @@ async function migrateLegacyData(
   }
 }
 
-export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: () => void }) {
-  const { t } = useTranslation('agents');
+function textOf(content: ContentBlock[] | unknown): string {
+  return Array.isArray(content)
+    ? content
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text || '')
+        .join('\n')
+    : '';
+}
+
+type ThinkingStep = {
+  id: number;
+  status: 'ok' | 'fail' | 'done' | 'thought' | 'running';
+  text: string;
+  detail?: string;
+  ts: number;
+};
+
+export function AgentConsole({
+  agent,
+  conversationId,
+  onBack,
+  onConfigure,
+}: {
+  agent: AgentMetadata;
+  conversationId: string;
+  onBack: () => void;
+  onConfigure?: () => void;
+}) {
+  const { t, i18n } = useTranslation('agents');
   const api = useApi();
   const { identity } = useUserIdentity();
+  const { agents, setSelectedAgentId } = useAgentContext();
+  const { conversations, open: openConversation, refresh: refreshConversations } = useConversations();
   const { servers: mcpServers } = useMcpServers();
   const [agentEngines, setAgentEngines] = useState<McpServerInfo[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -129,15 +132,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
      * arrives (text has already been shown to the user chunk-by-chunk). */
     streaming?: boolean;
   } | null>(null);
-  const [thinkingSteps, setThinkingStepsRaw] = useState<
-    Array<{
-      id: number;
-      status: 'ok' | 'fail' | 'done' | 'thought' | 'running';
-      text: string;
-      detail?: string;
-      ts: number;
-    }>
-  >(() => {
+  const [thinkingSteps, setThinkingStepsRaw] = useState<ThinkingStep[]>(() => {
     try {
       const saved = sessionStorage.getItem(`cloto-thinking-${agent.id}`);
       return saved ? JSON.parse(saved) : [];
@@ -170,17 +165,35 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
   const sendTimestampRef = useRef<number>(0);
   // Holds the correct parent_id during retry (null = not retrying)
   const retryParentIdRef = useRef<string | null>(null);
+  // The user message whose reply is being produced, and the ones the user
+  // stopped waiting for. The kernel has no way to be told to stop, so a stop
+  // is the room ceasing to listen: the reply that still arrives for a stopped
+  // message is not drawn (it is in the store, and shows on the next load).
+  const inflightSourceIdRef = useRef<string | null>(null);
+  const stoppedSourceIdsRef = useRef<Set<string>>(new Set());
   const actions = useActionsContext();
   const [activeBranches, setActiveBranches] = useState<Record<string, number>>({});
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement>(null);
   const hasVrm = agent.metadata?.has_vrm === 'true';
   useGazeBroadcast(hasVrm);
   // Follow the newest turn as it arrives (bug-498), unless the user scrolled up.
-  const { onScroll: handleScroll } = useStickToBottom(scrollRef);
+  const { onScroll: handleScroll, pinned, scrollToBottom } = useStickToBottom(scrollRef);
 
   // Flatten branching conversation to linear display
   const displayMessages = useMemo(() => flattenConversation(messages, activeBranches), [messages, activeBranches]);
   const branchPoints = useMemo(() => findBranchPoints(messages, activeBranches), [messages, activeBranches]);
+  const breaks = useMemo(() => dayBreaks(displayMessages.map((m) => m.created_at)), [displayMessages]);
+
+  const conversation = conversations.find((c) => c.id === conversationId);
+  const earlierThreads = useMemo(
+    () =>
+      conversations
+        .filter((c) => c.agent_id === agent.id && c.id !== conversationId && c.message_count > 0)
+        .slice(0, CONTINUE_FROM_COUNT),
+    [conversations, agent.id, conversationId],
+  );
 
   // Resolve the agent's granted engine servers for the engine selector.
   useEffect(() => {
@@ -212,7 +225,13 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         // First, check for legacy localStorage data and migrate
         await migrateLegacyData(agent.id, api.postChatMessage);
 
-        const { messages: loaded, has_more } = await api.getChatMessages(agent.id, undefined, 50, identity.id);
+        const { messages: loaded, has_more } = await api.getChatMessages(
+          agent.id,
+          undefined,
+          50,
+          identity.id,
+          conversationId,
+        );
         // API returns newest-first; reverse for display (oldest at top)
         const reversed = loaded.reverse();
         setMessages(reversed);
@@ -229,7 +248,71 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       }
     };
     loadMessages();
-  }, [agent.id, api, identity.id]);
+  }, [agent.id, api, identity.id, conversationId]);
+
+  // The list's order and titles change when a reply lands: refresh it.
+  useEffect(() => {
+    if (!isTyping) refreshConversations();
+  }, [isTyping, refreshConversations]);
+
+  // The questions this agent was already blocked on when the room opened. The
+  // stream only carries arrivals; without this a reload would show the agent
+  // waiting with nothing to answer.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getNotifications(true)
+      .then((items) => {
+        if (cancelled) return;
+        const mine = items.filter((i) => i.kind === 'approval' && i.blocking && i.agent_id === agent.id);
+        if (mine.length === 0) return;
+        setPendingApprovals((prev) => {
+          const known = new Set(prev.map((a) => a.approval_id));
+          const added = mine
+            .filter((i) => !known.has(i.item_id))
+            .map((i) => ({
+              approval_id: i.item_id,
+              agent_id: agent.id,
+              commands: (Array.isArray(i.metadata?.commands)
+                ? i.metadata.commands
+                : []) as CommandApprovalRequest['commands'],
+              severity: i.severity,
+            }));
+          return added.length > 0 ? [...prev, ...added] : prev;
+        });
+      })
+      .catch(() => {
+        /* the stream still delivers what arrives from now on */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, agent.id]);
+
+  // This room is asking these; the deck must not ask them again over it.
+  useEffect(() => {
+    const ids = pendingApprovals.map((a) => a.approval_id);
+    for (const id of ids) markInline(id);
+    return () => {
+      for (const id of ids) unmarkInline(id);
+    };
+  }, [pendingApprovals]);
+
+  useEffect(() => {
+    if (!moreOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!moreRef.current?.contains(e.target as Node)) setMoreOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMoreOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [moreOpen]);
 
   // Recovery: if isTyping is true but we missed the SSE response,
   // re-check the server for messages. Triggers on:
@@ -238,7 +321,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
   const recoverTypingState = useCallback(async () => {
     if (!isTyping || retryParentIdRef.current) return;
     try {
-      const { messages: latest } = await api.getChatMessages(agent.id, undefined, 5, identity.id);
+      const { messages: latest } = await api.getChatMessages(agent.id, undefined, 5, identity.id, conversationId);
       if (latest.length > 0 && latest[0].source === 'agent') {
         const reversed = latest.reverse();
         setMessages((prev) => {
@@ -252,7 +335,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     } catch {
       // Silently ignore — next event or timeout will retry
     }
-  }, [isTyping, agent.id, api, identity.id]);
+  }, [isTyping, agent.id, api, identity.id, conversationId]);
 
   useEffect(() => {
     if (!isTyping) return;
@@ -273,7 +356,13 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
 
     try {
       const oldestTs = messages[0]?.created_at;
-      const { messages: older, has_more } = await api.getChatMessages(agent.id, oldestTs, 50, identity.id);
+      const { messages: older, has_more } = await api.getChatMessages(
+        agent.id,
+        oldestTs,
+        50,
+        identity.id,
+        conversationId,
+      );
 
       if (older.length > 0) {
         // Preserve scroll position
@@ -297,7 +386,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     } finally {
       setIsLoadingMore(false);
     }
-  }, [agent.id, api, messages, isLoadingMore, hasMore, identity.id]);
+  }, [agent.id, api, messages, isLoadingMore, hasMore, identity.id, conversationId]);
 
   // Lazy load older messages on scroll to top
   useEffect(() => {
@@ -416,9 +505,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         // of its own tools. Shown as a thinking step rather than appended to
         // the reply, because it is not part of what the agent says — the
         // pending response must still end up equal to the authoritative text.
-        // The dot renders amber-pulsing (the fallback for a status with no
-        // outcome), which is the honest reading: the kernel did not broker
-        // this call and will never learn how it ended.
+        // The kernel did not broker this call and will never learn how it
+        // ended, so the step carries no outcome.
         if (event.type === 'AgentToolUseStream' && event.data?.agent_id === agent.id) {
           const use = event.data as unknown as AgentToolUseStreamData;
           setThinkingSteps((prev) => [
@@ -437,6 +525,8 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         // ThoughtResponse below and overwrites what we've shown so far.
         if (event.type === 'AgentTokenStream' && event.data?.agent_id === agent.id) {
           const stream = event.data as unknown as AgentTokenStreamData;
+          // The user stopped waiting for this reply: do not draw its chunks.
+          if (stoppedSourceIdsRef.current.has(stream.source_message_id)) return;
           setPendingResponse((prev) => {
             // bug-469: only append when the chunk belongs to the response we are
             // currently showing. A concurrent loop for the same agent (cron,
@@ -477,7 +567,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         const approvalData = event.data as {
           approval_id: string;
           agent_id: string;
-          commands?: Array<{ command: string; command_name: string }>;
+          commands?: Array<{ command: string; command_name: string; severity?: unknown }>;
         };
         setPendingApprovals((prev) => {
           if (prev.some((a) => a.approval_id === approvalData.approval_id)) return prev;
@@ -487,6 +577,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
               approval_id: approvalData.approval_id,
               agent_id: approvalData.agent_id,
               commands: approvalData.commands || [],
+              severity: mostSevere((approvalData.commands ?? []).map((c) => c.severity)),
             },
           ];
         });
@@ -500,8 +591,13 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       }
 
       if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
+        const sourceId = event.data.source_message_id as string;
+        // The reply to a message the user stopped waiting for: it is in the
+        // store, but this room said it would stop listening.
+        if (stoppedSourceIdsRef.current.delete(sourceId)) return;
         setIsTyping(false);
         setThinkingSteps([]);
+        inflightSourceIdRef.current = null;
         const msgId = event.data.source_message_id + '-resp';
         const now = Date.now();
         const elapsedSecs = sendTimestampRef.current > 0 ? Math.round((now - sendTimestampRef.current) / 100) / 10 : 0;
@@ -509,7 +605,6 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         sendTimestampRef.current = now;
 
         // Use correct parent_id: retryParentIdRef during retry, otherwise SSE source
-        const sourceId = event.data.source_message_id;
         const parentId = retryParentIdRef.current ?? sourceId;
         // Clear retry guard so recoverTypingState can resume
         retryParentIdRef.current = null;
@@ -612,49 +707,31 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     setIsTyping(true);
     setThinkingSteps([]);
     sendTimestampRef.current = Date.now();
-
-    // Extract text content for event bus (which expects a plain string)
-    const textContent = contentBlocks
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text || '')
-      .join(' ');
+    inflightSourceIdRef.current = msgId;
 
     try {
+      const hasMedia = contentBlocks.some((b) => b.type === 'image' || b.type === 'audio');
+      const outgoing = buildOutgoingChat({
+        messageId: msgId,
+        agentId: agent.id,
+        conversationId,
+        identity,
+        contentBlocks,
+        engineOverride,
+        hasMedia,
+      });
       // If content blocks include media (image/audio), persist them via
       // postChatMessage first so the kernel can find attachments in DB
       // when running maybe_analyze_images / maybe_transcribe_audio.
-      const hasMedia = contentBlocks.some((b) => b.type === 'image' || b.type === 'audio');
       if (hasMedia) {
-        await api.postChatMessage(agent.id, {
-          id: msgId,
-          source: 'user',
-          content: contentBlocks,
-          metadata: {
-            user_id: identity.id,
-            user_name: identity.name,
-            ...(engineOverride ? { engine_override: engineOverride } : {}),
-          },
-        });
+        await api.postChatMessage(agent.id, outgoing.stored);
       }
-
-      const clotoMsg: ClotoMessage = {
-        id: msgId,
-        source: { type: 'User', id: identity.id, name: identity.name },
-        target_agent: agent.id,
-        content: textContent || '[attachment]',
-        timestamp: new Date().toISOString(),
-        metadata: {
-          target_agent_id: agent.id,
-          ...(engineOverride ? { engine_override: engineOverride } : {}),
-          // Tell system.rs not to re-persist the user message (already saved above)
-          ...(hasMedia ? { skip_user_persist: 'true' } : {}),
-        },
-      };
-
-      await api.postChat(clotoMsg);
+      await api.postChat(outgoing.dispatched);
+      refreshConversations();
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== msgId));
       setIsTyping(false);
+      inflightSourceIdRef.current = null;
       const errMsg = err instanceof Error ? err.message : 'Failed to send message';
       if (import.meta.env.DEV) console.error('Failed to send message:', errMsg);
       const errId = `err-${msgId}`;
@@ -669,6 +746,42 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       setMessages((prev) => [...prev, errBubble]);
       setTimeout(() => setMessages((prev) => prev.filter((m) => m.id !== errId)), ERROR_DISPLAY_MS);
     }
+  };
+
+  /** Stop waiting for the reply: keep what was shown, say so, and ignore the rest. */
+  const handleStop = () => {
+    if (!isTyping && !pendingResponse) return;
+    const sourceId = inflightSourceIdRef.current;
+    if (sourceId) stoppedSourceIdsRef.current.add(sourceId);
+    inflightSourceIdRef.current = null;
+    retryParentIdRef.current = null;
+    setIsTyping(false);
+    setThinkingSteps([]);
+    const now = Date.now();
+    const shown = pendingResponse;
+    setPendingResponse(null);
+    if (shown?.text) {
+      const partial: ChatMessage = {
+        id: shown.id,
+        agent_id: agent.id,
+        user_id: identity.id,
+        source: 'agent',
+        content: [{ type: 'text', text: shown.text }],
+        metadata: { elapsed_secs: shown.elapsedSecs },
+        created_at: now,
+        parent_id: shown.parentId,
+      };
+      setMessages((msgs) => [...msgs, partial]);
+    }
+    const note: ChatMessage = {
+      id: `stopped-${now}`,
+      agent_id: agent.id,
+      user_id: identity.id,
+      source: 'system',
+      content: [{ type: 'text', text: t('console.stopped') }],
+      created_at: now,
+    };
+    setMessages((prev) => [...prev, note]);
   };
 
   const speakText = async (content: ContentBlock[]) => {
@@ -690,6 +803,11 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     } catch (err) {
       if (import.meta.env.DEV) console.error('TTS request failed:', err);
     }
+  };
+
+  const copyText = (content: ContentBlock[]) => {
+    const text = textOf(content);
+    if (text) navigator.clipboard?.writeText(text).catch(() => {});
   };
 
   // Edit handler: resend edited user message as a new branch
@@ -723,6 +841,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     setIsTyping(true);
     setThinkingSteps([]);
     sendTimestampRef.current = now;
+    inflightSourceIdRef.current = editId;
     actions.clearArtifacts();
 
     // Update active branch to show the new edit
@@ -752,6 +871,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== editId));
       setIsTyping(false);
+      inflightSourceIdRef.current = null;
       if (import.meta.env.DEV) console.error('Failed to send edited message:', err);
     }
   };
@@ -776,6 +896,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
 
     // Store correct parent_id for the new response (also acts as retry-in-progress guard)
     retryParentIdRef.current = userMsgId;
+    inflightSourceIdRef.current = userMsgId;
     setMessages((prev) => prev.filter((m) => m.id !== agentResponseMsg.id));
     setIsTyping(true);
     setThinkingSteps([]);
@@ -787,108 +908,173 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     } catch (err) {
       setMessages((prev) => [...prev, agentResponseMsg]);
       retryParentIdRef.current = null;
+      inflightSourceIdRef.current = null;
       setIsTyping(false);
       if (import.meta.env.DEV) console.error('Failed to retry response:', err);
     }
   };
 
-  const handleReset = async () => {
-    setMessages([]);
-    setIsTyping(false);
-    setPendingResponse(null);
-    setHasMore(false);
-    setActiveBranches({});
-    setEditingMessage(null);
-    initialLoadDone.current = false;
-    actions.clearAll();
-    try {
-      await api.deleteChatMessages(agent.id, identity.id);
-    } catch (err) {
-      if (import.meta.env.DEV) console.error('Failed to delete chat messages:', err);
-    }
+  const switchAgent = (agentId: string) => {
+    setSelectedAgentId(agentId);
   };
 
-  return (
-    <div className="flex flex-col h-full animate-in fade-in duration-500">
-      {/* Header */}
-      <div className="p-4 border-b border-edge-subtle flex items-center justify-between bg-surface-panel">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onBack}
-            aria-label={t('console.back')}
-            className="card-solid p-2.5 rounded-full border border-edge hover:border-agent hover:text-agent"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <div
-            className="w-10 h-10 text-white rounded-md shadow-sm overflow-hidden flex items-center justify-center"
-            style={{ backgroundColor: agentColor(agent) }}
-          >
-            <AgentIcon agent={agent} size={40} />
-          </div>
-          <div>
-            <h2 className="text-xl font-black text-content-primary">{agent.name}</h2>
-            <div className="flex items-center gap-2">
-              <StatusDot status={agent.enabled ? 'online' : 'offline'} size="sm" />
-              <span className="text-xs font-mono text-content-tertiary">
-                {agent.enabled ? t('console.connected') : t('console.offline')}
-              </span>
-              <span className="text-xs text-content-tertiary">·</span>
-              <span className="flex items-center gap-1 text-xs font-mono text-content-tertiary">
-                {agent.metadata?.has_power_password === 'true' && <Lock size={9} />}
-                {agent.id}
-              </span>
-            </div>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <ContextUsageBadge agentId={agent.id} refreshKey={messages.length} />
-          {hasVrm && (
-            <button
-              onClick={() => openVrmWindow(agent.id, api.apiKey)}
-              className="card-solid px-4 py-2 rounded-full border border-edge text-[13px] font-bold flex items-center gap-1.5 text-content-tertiary hover:text-agent hover:border-agent/30"
-              title="Open 3D Avatar Window"
-              aria-label="Open 3D Avatar Window"
-            >
-              <Box size={12} />
-              <span>VRM</span>
-            </button>
-          )}
-          <LongPressResetButton onReset={handleReset} />
-        </div>
-      </div>
+  const generating = isTyping || !!pendingResponse;
+  const toolsUsed = thinkingSteps.filter((s) => s.status === 'ok' || s.status === 'fail' || s.status === 'running');
+  const lastTurnAt = displayMessages.length > 0 ? displayMessages[displayMessages.length - 1].created_at : null;
+  // A question the agent is asking, or a refusal it met, is drawn in the
+  // conversation — so a room with one is not empty even before anyone spoke.
+  const empty =
+    !isLoading &&
+    displayMessages.length === 0 &&
+    !generating &&
+    pendingApprovals.length === 0 &&
+    pendingRejections.length === 0;
 
-      {/* Content area: chat + optional artifact panel */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Chat column */}
-        <div className="flex flex-col flex-1 min-w-0">
-          {/* Message Stream */}
-          <div
-            ref={scrollRef}
-            onScroll={handleScroll}
-            onClick={() => editingMessage && setEditingMessage(null)}
-            className="flex-1 overflow-y-auto p-6 space-y-4 no-scrollbar"
-          >
-            {/* Sentinel for lazy loading older messages */}
-            {hasMore && <div ref={sentinelRef} className="h-1" />}
-            {isLoadingMore && (
-              <div className="text-center text-xs font-mono text-content-tertiary py-2 animate-pulse">
-                {t('console.loading_older')}
-              </div>
+  const dayText = (label: DayLabel) =>
+    label.kind === 'today'
+      ? t('console.day_today')
+      : label.kind === 'yesterday'
+        ? t('console.day_yesterday')
+        : t('console.date_md', { month: label.month, day: label.day });
+
+  const threadDate = (ts: number) => {
+    const label = dayLabel(ts);
+    return label.kind === 'today' ? `${dayText(label)} ${timeOfDay(ts, i18n.language)}` : dayText(label);
+  };
+
+  const state = !agent.enabled ? (
+    <b>{t('console.offline')}</b>
+  ) : generating ? (
+    <>
+      <b>{t('console.state_thinking')}</b>
+      {toolsUsed.length > 0 && `${t('console.sentence_end')}${t('console.tools_used', { count: toolsUsed.length })}`}
+    </>
+  ) : (
+    <>
+      <b>{t('console.state_idle')}</b>
+      {lastTurnAt !== null &&
+        `${t('console.sentence_end')}${t('console.talked', { when: relativeTime(lastTurnAt, Date.now(), i18n.language) })}`}
+    </>
+  );
+
+  const tools = (
+    <>
+      <span className="spacer" />
+      <button
+        type="button"
+        className="tool"
+        onClick={onConfigure}
+        title={t('console.agent_settings')}
+        aria-label={t('console.agent_settings')}
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" />
+        </svg>
+      </button>
+      <div className="menu-anchor" ref={moreRef}>
+        <button
+          type="button"
+          className="tool"
+          onClick={() => setMoreOpen((v) => !v)}
+          title={t('console.more')}
+          aria-label={t('console.more')}
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <circle cx="5" cy="12" r="1.4" />
+            <circle cx="12" cy="12" r="1.4" />
+            <circle cx="19" cy="12" r="1.4" />
+          </svg>
+        </button>
+        {moreOpen && (
+          <div className="menu" role="menu">
+            {hasVrm && (
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMoreOpen(false);
+                  openVrmWindow(agent.id, api.apiKey);
+                }}
+              >
+                {t('console.open_vrm')}
+              </button>
             )}
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMoreOpen(false);
+                onBack();
+              }}
+            >
+              {t('console.back')}
+            </button>
+          </div>
+        )}
+      </div>
+    </>
+  );
 
-            {isLoading ? (
-              <div className="h-full flex flex-col items-center justify-center text-content-tertiary space-y-4">
-                <Activity size={24} className="animate-pulse" />
-                <p className="text-xs font-mono">{t('console.loading_session')}</p>
+  return (
+    <div className="flex h-full">
+      <div className="room flex-1 min-w-0">
+        {empty ? (
+          <header className="face slim">{tools}</header>
+        ) : (
+          <header className="face talk">
+            <div className="pic">
+              <AgentIcon agent={agent} size={40} />
+            </div>
+            <div className="who">
+              <div className="name">{agent.name}</div>
+              <div className="state">{state}</div>
+            </div>
+            {conversation && (
+              <span className="topic" title={displayTitle(conversation, t('console.untitled'))}>
+                {displayTitle(conversation, t('console.untitled'))}
+              </span>
+            )}
+            {tools}
+          </header>
+        )}
+
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          onClick={() => editingMessage && setEditingMessage(null)}
+          className={`stream${empty ? ' empty' : ''}`}
+        >
+          {empty ? (
+            <div className="col presence">
+              <div className="pic">
+                <AgentIcon agent={agent} size={84} />
               </div>
-            ) : displayMessages.length === 0 && !pendingResponse && !isTyping ? (
-              <div className="h-full flex flex-col items-center justify-center text-content-tertiary space-y-4">
-                <Zap size={32} strokeWidth={1} className="opacity-20" />
-                <p className="text-xs font-mono">{t('console.ready')}</p>
-              </div>
-            ) : (
-              displayMessages.map((msg) => {
+              <div className="name">{agent.name}</div>
+              <div className="state">{state}</div>
+              <p className="remark">{t('console.remark')}</p>
+              {earlierThreads.length > 0 && (
+                <div className="threads">
+                  <div className="h">{t('console.continue_from')}</div>
+                  {earlierThreads.map((c) => (
+                    <button type="button" key={c.id} onClick={() => openConversation(agent.id, c.id)}>
+                      <span className="t">{displayTitle(c, t('console.untitled'))}</span>
+                      <span className="d">{threadDate(c.updated_at)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="col flow">
+              {/* Sentinel for lazy loading older messages */}
+              {hasMore && <div ref={sentinelRef} className="h-1" />}
+              {isLoadingMore && <div className="day">{t('console.loading_older')}</div>}
+              {isLoading && <div className="day">{t('console.loading_session')}</div>}
+
+              {displayMessages.map((msg, i) => {
                 const isUser = msg.source === 'user';
                 const firstText = Array.isArray(msg.content)
                   ? msg.content.find((b) => b.type === 'text')?.text || ''
@@ -897,235 +1083,238 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                 // Check if this message's parent has branch siblings
                 const branchKey = msg.parent_id ? msg.parent_id + ':' + msg.source : null;
                 const branch = branchKey ? branchPoints.get(branchKey) : undefined;
-                return (
-                  <div key={msg.id}>
-                    {isError ? (
-                      <SystemAlertCard icon={<Activity size={14} />} title={t('console.engine_error')}>
-                        <div className="text-xs text-content-secondary whitespace-pre-line">
-                          {firstText.replace(/^\[Error\]\s*/, '')}
-                        </div>
-                      </SystemAlertCard>
-                    ) : (
-                      <div className={`group flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
-                        <div
-                          className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm overflow-hidden ${
-                            isUser ? 'bg-surface-primary border border-edge-subtle text-content-tertiary' : 'text-white'
-                          }`}
-                          style={!isUser ? { backgroundColor: agentColor(agent) } : undefined}
-                        >
-                          {isUser ? <UserIcon size={14} /> : <AgentIcon agent={agent} size={32} />}
-                        </div>
-                        <div
-                          className={`max-w-[80%] text-base leading-7 select-text ${
-                            isUser
-                              ? 'p-4 rounded-2xl rounded-tr-none shadow-sm bg-surface-primary text-content-primary'
-                              : 'pt-1 text-content-primary'
-                          }`}
-                        >
+                const navigator = branch && (
+                  <BranchNavigator
+                    count={branch.count}
+                    activeIndex={branch.activeIndex}
+                    indices={branch.indices}
+                    onNavigate={(idx) => {
+                      if (branchKey) {
+                        setActiveBranches((prev) => ({ ...prev, [branchKey]: idx }));
+                      }
+                    }}
+                  />
+                );
+                const when = <span>{timeOfDay(msg.created_at, i18n.language)}</span>;
+                let turn: React.ReactNode;
+                if (isError) {
+                  turn = (
+                    <SystemAlertCard icon={<Activity size={14} />} title={t('console.engine_error')}>
+                      <div className="text-xs text-content-secondary whitespace-pre-line">
+                        {firstText.replace(/^\[Error\]\s*/, '')}
+                      </div>
+                    </SystemAlertCard>
+                  );
+                } else if (msg.source === 'system') {
+                  turn = <div className="day">{firstText}</div>;
+                } else if (isUser) {
+                  turn = (
+                    <div className={`me${editingMessage?.id === msg.id ? ' editing' : ''}`}>
+                      <div className="wrap">
+                        <div className="b select-text">
                           <MessageContent content={msg.content} />
-                          {!isUser && (
-                            <div className="mt-2 flex items-center gap-2">
-                              {msg.metadata?.elapsed_secs != null && (
-                                <span className="text-xs font-mono text-content-tertiary">
-                                  {String(msg.metadata.elapsed_secs)}s
-                                </span>
-                              )}
-                              <button
-                                onClick={() => speakText(msg.content as ContentBlock[])}
-                                className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-agent transition-colors"
-                                title={t('console.read_aloud')}
-                                aria-label={t('console.read_aloud')}
-                              >
-                                <Volume2 size={12} />
-                              </button>
-                              {!isTyping && !pendingResponse && (
-                                <button
-                                  onClick={() => handleRetry(msg)}
-                                  className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-agent transition-colors"
-                                  title={t('console.retry')}
-                                  aria-label={t('console.retry')}
-                                >
-                                  <RetryIcon size={12} />
-                                </button>
-                              )}
-                            </div>
-                          )}
                         </div>
-                        {/* Edit button — outside bubble, to the left of user messages */}
-                        {isUser && !isTyping && !pendingResponse && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setEditingMessage(msg);
-                            }}
-                            className="self-start mt-1 p-1.5 rounded-full hover:bg-surface-panel text-content-primary/40 hover:text-agent transition-all shrink-0"
-                            title={t('console.edit_message')}
-                            aria-label={t('console.edit_message')}
-                          >
-                            <Pencil size={13} />
-                          </button>
-                        )}
+                        <div className="meta">
+                          <span className="acts">
+                            <button
+                              type="button"
+                              disabled={generating}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingMessage(msg);
+                              }}
+                            >
+                              {t('console.edit_message')}
+                            </button>
+                            <button type="button" onClick={() => copyText(msg.content as ContentBlock[])}>
+                              {t('console.copy')}
+                            </button>
+                          </span>
+                          {navigator}
+                          {when}
+                        </div>
                       </div>
-                    )}
-                    {/* Branch navigator */}
-                    {branch && (
-                      <div className={`flex ${isUser ? 'justify-end mr-11' : 'ml-11'}`}>
-                        <BranchNavigator
-                          count={branch.count}
-                          activeIndex={branch.activeIndex}
-                          indices={branch.indices}
-                          onNavigate={(idx) => {
-                            if (branchKey) {
-                              setActiveBranches((prev) => ({ ...prev, [branchKey]: idx }));
-                            }
-                          }}
-                        />
+                    </div>
+                  );
+                } else {
+                  turn = (
+                    <div className="msg">
+                      <span className="mark" />
+                      <div className="b select-text">
+                        <MessageContent content={msg.content} />
+                        <div className="meta">
+                          {when}
+                          {navigator}
+                          <span className="acts">
+                            <button type="button" onClick={() => copyText(msg.content as ContentBlock[])}>
+                              {t('console.copy')}
+                            </button>
+                            <button type="button" disabled={generating} onClick={() => handleRetry(msg)}>
+                              {t('console.retry')}
+                            </button>
+                            <button type="button" onClick={() => speakText(msg.content as ContentBlock[])}>
+                              {t('console.read_aloud')}
+                            </button>
+                          </span>
+                        </div>
                       </div>
-                    )}
+                    </div>
+                  );
+                }
+                return (
+                  <div key={msg.id} className="contents">
+                    {breaks[i] && <div className="day">{dayText(dayLabel(msg.created_at))}</div>}
+                    {turn}
                   </div>
                 );
-              })
-            )}
-            {/* Typewriter animation for current response (or live streaming
-                when MGP §12 chunks are flowing — in that case we render raw
-                text and skip the typewriter since the user already sees the
-                tokens arrive in real time). */}
-            {pendingResponse && (
-              <div className="flex items-start gap-3 message-enter">
-                <div
-                  className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm overflow-hidden"
-                  style={{ backgroundColor: agentColor(agent) }}
-                >
-                  <AgentIcon agent={agent} size={32} />
-                </div>
-                <div className="max-w-[80%] pt-1 text-base leading-7 select-text text-content-primary">
-                  {pendingResponse.streaming ? (
-                    <div className="whitespace-pre-wrap">{pendingResponse.text}</div>
-                  ) : (
-                    <TypewriterMessage
-                      text={pendingResponse.text}
-                      onComplete={handleTypewriterComplete}
-                      onCodeBlock={handleCodeBlockExtracted}
-                    />
-                  )}
-                  {pendingResponse.elapsedSecs > 0 && (
-                    <div className="mt-1 text-xs font-mono text-content-tertiary">{pendingResponse.elapsedSecs}s</div>
-                  )}
-                </div>
-              </div>
-            )}
-            {/* Thinking process steps (real-time tool invocations) */}
-            {isTyping && thinkingSteps.length > 0 && (
-              <div className="flex items-start gap-3">
-                <div
-                  className="w-8 h-8 rounded-lg text-white flex items-center justify-center shrink-0 shadow-sm overflow-hidden opacity-40"
-                  style={{ backgroundColor: agentColor(agent) }}
-                >
-                  <AgentIcon agent={agent} size={32} />
-                </div>
-                <div className="flex-1 space-y-0.5 py-1">
-                  {thinkingSteps.map((step) => (
-                    <div
-                      key={step.id}
-                      className={`flex items-center gap-2 text-xs font-mono animate-in fade-in duration-200 ${step.status === 'thought' ? 'italic' : ''}`}
-                    >
-                      <span
-                        className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                          step.status === 'ok'
-                            ? 'bg-agent'
-                            : step.status === 'fail'
-                              ? 'bg-red-500'
-                              : step.status === 'done'
-                                ? 'bg-emerald-500'
-                                : step.status === 'thought'
-                                  ? 'bg-blue-400 animate-pulse'
-                                  : 'bg-amber-500 animate-pulse'
-                        }`}
+              })}
+
+              {/* Typewriter animation for current response (or live streaming
+                  when MGP §12 chunks are flowing — in that case we render raw
+                  text and skip the typewriter since the user already sees the
+                  tokens arrive in real time). */}
+              {pendingResponse && (
+                <div className="msg">
+                  <span className="mark" />
+                  <div className="b select-text">
+                    {pendingResponse.streaming ? (
+                      <p className="whitespace-pre-wrap">
+                        {pendingResponse.text}
+                        <span className="typing" />
+                      </p>
+                    ) : (
+                      <TypewriterMessage
+                        text={pendingResponse.text}
+                        onComplete={handleTypewriterComplete}
+                        onCodeBlock={handleCodeBlockExtracted}
                       />
-                      <span
-                        className={`${step.status === 'fail' ? 'text-red-400' : step.status === 'thought' ? 'text-content-secondary' : 'text-content-tertiary'}`}
-                      >
-                        {step.text}
-                      </span>
-                      {step.detail && (
-                        <span
-                          className={`ml-auto ${step.status === 'fail' ? 'text-red-400/60' : 'text-content-tertiary'}`}
-                        >
-                          {step.detail}
-                        </span>
-                      )}
-                    </div>
-                  ))}
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-            {/* The approval card is drawn by CommandApprovalDeck at the window
-                level now, not here. `pendingApprovals` is still tracked because
-                this conversation needs to know whether its own agent is stopped
-                behind a question — that is what suppresses the thinking skeleton
-                below, and "waiting for an answer" must not be drawn as
-                "thinking". */}
-            {/* Tool Rejection Cards (kernel-issued, dismissable) */}
-            {pendingRejections.map((rejection) => (
-              <ToolRejectionCard
-                key={rejection.local_id}
-                rejection={rejection}
-                onDismiss={(localId) => setPendingRejections((prev) => prev.filter((r) => r.local_id !== localId))}
-              />
-            ))}
-            {/* Skeleton (waiting for SSE response) */}
-            {isTyping && pendingApprovals.length === 0 && (
-              <SkeletonThinking agentColor={agentColor(agent)} agentIcon={<AgentIcon agent={agent} size={32} />} />
-            )}
-          </div>
+              )}
 
-          {/* Input Area */}
-          <ChatInputBar
-            onSend={handleChatSend}
-            disabled={isTyping || !!pendingResponse}
-            servers={agentEngines}
-            editMode={
-              editingMessage
-                ? {
-                    messageId: editingMessage.id,
-                    initialContent: Array.isArray(editingMessage.content)
-                      ? editingMessage.content
-                          .filter((b) => b.type === 'text')
-                          .map((b) => b.text || '')
-                          .join(' ')
-                      : '',
-                    onCancel: () => setEditingMessage(null),
-                  }
-                : null
-            }
-            agentId={agent.id}
-          />
+              {/* What the agent is doing before it speaks: its tool calls and
+                  thoughts, or — with nothing to show yet — a cursor. The
+                  approval card is drawn by CommandApprovalDeck at the window
+                  level; while the agent is stopped behind a question, "waiting
+                  for an answer" must not be drawn as "thinking". */}
+              {isTyping && !pendingResponse && pendingApprovals.length === 0 && (
+                <div className="msg">
+                  <span className="mark" />
+                  <div className="b">
+                    {thinkingSteps.length > 0 ? (
+                      <details className="inner" open>
+                        <summary>
+                          <span className="lbl">{t('console.inner')}</span>
+                          {t('console.tools_used', { count: toolsUsed.length })}
+                          <span className="chev" />
+                        </summary>
+                        <ol>
+                          {thinkingSteps.map((step, i) => (
+                            <li key={step.id} className={step.status === 'fail' ? 'fail' : ''}>
+                              <span className="num">{i + 1}</span>
+                              <span>{step.status === 'thought' ? step.text : <code>{step.text}</code>}</span>
+                              {step.detail && <span className="dur num">{step.detail}</span>}
+                            </li>
+                          ))}
+                        </ol>
+                      </details>
+                    ) : (
+                      <span className="typing" />
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* The agent's questions and the refusals it met, in its own
+                  words, at the end of the conversation. The deck leaves these
+                  to this room while it is open. */}
+              {(pendingApprovals.length > 0 || pendingRejections.length > 0) && (
+                <div className="msg">
+                  <span className="mark" />
+                  <div className="b">
+                    {pendingApprovals.map((a, i) => (
+                      <CommandApprovalCard
+                        key={a.approval_id}
+                        approvalId={a.approval_id}
+                        commands={a.commands}
+                        severity={a.severity}
+                        first={i === 0}
+                        onResolved={(id) => setPendingApprovals((prev) => prev.filter((x) => x.approval_id !== id))}
+                      />
+                    ))}
+                    {pendingRejections.map((rejection, i) => (
+                      <ToolRejectionCard
+                        key={rejection.local_id}
+                        rejection={rejection}
+                        first={pendingApprovals.length === 0 && i === 0}
+                        onDismiss={(localId) =>
+                          setPendingRejections((prev) => prev.filter((r) => r.local_id !== localId))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
-        {/* end chat column */}
 
-        {/* Actions Panel */}
-        <ActionsPanel
-          isOpen={actions.isOpen}
-          onClose={actions.closePanel}
-          onOpen={actions.openPanel}
-          activeCategory={actions.activeCategory}
-          onCategoryChange={actions.setActiveCategory}
-          hasDialogues={actions.hasDialogues}
-          hasExternalActions={actions.hasExternalActions}
-          hasConsensus={actions.hasConsensus}
-          artifacts={actions.artifacts}
-          activeArtifactIndex={actions.activeArtifactIndex}
-          onArtifactTabChange={actions.setActiveArtifactIndex}
-          dialogues={actions.dialogues}
-          externalActions={actions.externalActions}
-          consensusRounds={actions.consensusRounds}
-          unreadDialogueCount={actions.unreadDialogueCount}
-          unreadExternalCount={actions.unreadExternalCount}
-          unreadConsensusCount={actions.unreadConsensusCount}
-          totalCount={actions.totalCount}
+        {!pinned && !empty && (
+          <button type="button" className="latest" onClick={scrollToBottom}>
+            {t('console.latest')}
+          </button>
+        )}
+
+        <ChatInputBar
+          onSend={handleChatSend}
+          onStop={handleStop}
+          generating={generating}
+          disabled={!agent.enabled}
+          servers={agentEngines}
+          editMode={
+            editingMessage
+              ? {
+                  messageId: editingMessage.id,
+                  initialContent: Array.isArray(editingMessage.content)
+                    ? editingMessage.content
+                        .filter((b) => b.type === 'text')
+                        .map((b) => b.text || '')
+                        .join(' ')
+                    : '',
+                  onCancel: () => setEditingMessage(null),
+                }
+              : null
+          }
+          agentId={agent.id}
+          agentName={agent.name}
+          agents={agents}
+          onSwitchAgent={switchAgent}
+          meter={<ContextUsageBadge agentId={agent.id} refreshKey={messages.length} />}
         />
       </div>
-      {/* end content area */}
+
+      {/* Actions Panel */}
+      <ActionsPanel
+        isOpen={actions.isOpen}
+        onClose={actions.closePanel}
+        onOpen={actions.openPanel}
+        activeCategory={actions.activeCategory}
+        onCategoryChange={actions.setActiveCategory}
+        hasDialogues={actions.hasDialogues}
+        hasExternalActions={actions.hasExternalActions}
+        hasConsensus={actions.hasConsensus}
+        artifacts={actions.artifacts}
+        activeArtifactIndex={actions.activeArtifactIndex}
+        onArtifactTabChange={actions.setActiveArtifactIndex}
+        dialogues={actions.dialogues}
+        externalActions={actions.externalActions}
+        consensusRounds={actions.consensusRounds}
+        unreadDialogueCount={actions.unreadDialogueCount}
+        unreadExternalCount={actions.unreadExternalCount}
+        unreadConsensusCount={actions.unreadConsensusCount}
+        totalCount={actions.totalCount}
+      />
     </div>
   );
 }

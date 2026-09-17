@@ -1,0 +1,295 @@
+/* The sidebar, ported rule for rule from docs/gui/samples/01-chat-empty.html
+ * (the approved mock). The mock's ink/fg/agent variables map onto the tokens
+ * in index.css; nothing else is changed, so the drawing stays the mock's. */
+
+.side {
+  width: 264px;
+  flex: none;
+  background: hsl(var(--surface-secondary));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  padding: 14px 10px 10px;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.7;
+  color: hsl(var(--text-primary));
+}
+/* The mock's element resets. Wrapped in :where() so they carry no
+ * specificity, as the mock's bare `button` / `svg` selectors carry none —
+ * otherwise `.conv`'s padding and size would lose to them. */
+:where(.side button) {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+:where(.side svg) {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.side .num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.side-head {
+  display: flex;
+  align-items: center;
+  padding: 2px 8px 10px;
+}
+.side-head .app {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0;
+  flex: 1;
+  color: hsl(var(--text-secondary));
+}
+.side-head button {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-tool);
+  display: grid;
+  place-items: center;
+  color: hsl(var(--text-tertiary));
+}
+.side-head button:hover {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+
+.newchat {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-tool);
+  font-weight: 500;
+  text-align: left;
+  width: 100%;
+  color: hsl(var(--text-primary));
+}
+.newchat:hover {
+  background: hsl(var(--surface-primary));
+}
+.newchat svg {
+  width: 14px;
+  height: 14px;
+  color: hsl(var(--text-tertiary));
+}
+.newchat .kbd {
+  margin-left: auto;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+
+.convs {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  margin-top: 10px;
+}
+.glabel {
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  padding: 14px 10px 4px;
+}
+.glabel:first-child {
+  padding-top: 4px;
+}
+.conv-row {
+  position: relative;
+}
+.conv {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: var(--radius-tool);
+  color: hsl(var(--text-secondary));
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.conv:hover,
+.conv-row:hover .conv {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+.conv .t {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.conv .who {
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  flex: none;
+}
+.conv.mine .who {
+  color: hsl(var(--agent)); /* the agent you are talking with: their colour on their name */
+}
+.conv .live {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--agent));
+  flex: none;
+  align-self: center;
+}
+.conv.on {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+.more {
+  color: hsl(var(--text-tertiary));
+  font-size: 13px;
+  padding: 6px 10px;
+}
+.more:hover {
+  color: hsl(var(--text-primary));
+}
+
+/* The row's menu is not drawn in the mock; it appears on hover only, so the
+ * resting drawing is the mock's. */
+.conv-menu-btn {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-tool);
+  display: grid;
+  place-items: center;
+  color: hsl(var(--text-tertiary));
+  opacity: 0;
+}
+.conv-row:hover .conv-menu-btn,
+.conv-menu-btn:focus-visible,
+.conv-menu-btn[aria-expanded='true'] {
+  opacity: 1;
+}
+.conv-menu-btn:hover {
+  color: hsl(var(--text-primary));
+}
+.conv-menu-btn svg {
+  width: 14px;
+  height: 14px;
+}
+.conv-menu {
+  position: absolute;
+  right: 6px;
+  top: 100%;
+  z-index: 20;
+  margin-top: 2px;
+  min-width: 140px;
+  border-radius: var(--radius-surface);
+  background: hsl(var(--surface-primary));
+  padding: 4px;
+  font-size: 13px;
+}
+.conv-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-tool);
+  text-align: left;
+  color: hsl(var(--text-secondary));
+}
+.conv-menu button:hover {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-primary));
+}
+.conv-menu button.danger {
+  color: hsl(0 70% 62%);
+}
+.conv-menu svg {
+  width: 13px;
+  height: 13px;
+}
+.conv-rename {
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-tool);
+  font-size: 13.5px;
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+  border: 1px solid hsl(var(--border-default));
+  font: inherit;
+}
+
+.nav {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid hsl(var(--surface-primary));
+}
+.nav a,
+.nav button.navlink {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: var(--radius-tool);
+  color: hsl(var(--text-secondary));
+  text-decoration: none;
+  font-size: 13.5px;
+  text-align: left;
+}
+.nav a svg,
+.nav button.navlink svg {
+  width: 14px;
+  height: 14px;
+  color: hsl(var(--text-tertiary));
+}
+.nav a:hover,
+.nav button.navlink:hover {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+.nav a.on,
+.nav button.navlink.on {
+  color: hsl(var(--text-primary));
+  background: hsl(var(--surface-primary));
+}
+
+.side-foot {
+  padding: 10px 10px 2px;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.side-foot .ok {
+  color: hsl(var(--text-secondary));
+}
+.side-foot .num {
+  margin-left: auto;
+}
+.side-foot .power {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-tool);
+  display: grid;
+  place-items: center;
+  color: hsl(var(--text-tertiary));
+}
+.side-foot .power:hover {
+  color: hsl(0 70% 62%);
+  background: hsl(var(--surface-primary));
+}
+.side-foot .power svg {
+  width: 13px;
+  height: 13px;
+}

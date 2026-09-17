@@ -2244,10 +2244,11 @@
       "discovered": "2026-03-20T00:00:00Z",
       "version": "0.6.3-alpha.10",
       "commit": "08fc0e1",
-      "file": "dashboard/src/components/mcp/McpAccessControlTab.tsx",
+      "file": "dashboard/src/components/mcp/McpServerDetail.tsx",
       "pattern": "useCallback",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "notes": "2026-09-17: McpAccessControlTab.tsx was folded into McpServerDetail.tsx (the server's page, docs/gui/samples/07); the access data is loaded by the same useCallback-wrapped loader there."
     },
     {
       "id": "bug-332",
@@ -4195,11 +4196,11 @@
       "severity": "LOW",
       "discovered": "2026-07-12T00:00:00Z",
       "version": "0.6.8-beta.2",
-      "file": "dashboard/src/components/mcp/McpServerLogsTab.tsx",
+      "file": "dashboard/src/components/mcp/McpLogsSection.tsx",
       "pattern": "const fresh = seeded\\.filter",
       "expected": "present",
       "status": "fixed",
-      "notes": "Discovered by ClotoCore comprehensive code-quality audit 2026-07-12 (Sonnet-5 Workflow wf_3a2b40c2-649 resume: 26 finders -> dedup 63 -> severity-tiered adversarial verify (all 160 agents, 0 error); final verdict CONFIRMED; finder(s): dash-mcp-marketplace). Failure scenario: User opens the Logs tab for a server that is actively emitting log lines. `useEventStream` starts appending live entries to `logs` immediately on mount (line 100-106), while the separate `getHistory()` fetch (lines 115-134) resolves asynchronously afterward. Any log event that both (a) is included in the kernel's event-history ring buffer snapshot returned by `getHistory()` and (b) has already arrived live via SSE before that fetch resolves ends up counted twice: once in `prev` (from the live listener) and once in `seeded` (from history), because the merge at line 126 unconditionally prepends `seeded` to `prev` with no de-duplication key. Fix direction: De-duplicate on merge, e.g. key entries by a stable id (timestamp+label+message, or an event sequence number from the backend) and filter `seeded` down to entries not already present in `prev` before concatenating. — FIXED 2026-07-16 (branch fix/audit-a1-frontend): Tier A1 audit remediation; verify-issues confirms.",
+      "notes": "Discovered by ClotoCore comprehensive code-quality audit 2026-07-12 (Sonnet-5 Workflow wf_3a2b40c2-649 resume: 26 finders -> dedup 63 -> severity-tiered adversarial verify (all 160 agents, 0 error); final verdict CONFIRMED; finder(s): dash-mcp-marketplace). Failure scenario: User opens the Logs tab for a server that is actively emitting log lines. `useEventStream` starts appending live entries to `logs` immediately on mount (line 100-106), while the separate `getHistory()` fetch (lines 115-134) resolves asynchronously afterward. Any log event that both (a) is included in the kernel's event-history ring buffer snapshot returned by `getHistory()` and (b) has already arrived live via SSE before that fetch resolves ends up counted twice: once in `prev` (from the live listener) and once in `seeded` (from history), because the merge at line 126 unconditionally prepends `seeded` to `prev` with no de-duplication key. Fix direction: De-duplicate on merge, e.g. key entries by a stable id (timestamp+label+message, or an event sequence number from the backend) and filter `seeded` down to entries not already present in `prev` before concatenating. — FIXED 2026-07-16 (branch fix/audit-a1-frontend): Tier A1 audit remediation; verify-issues confirms. 2026-09-17: McpServerLogsTab.tsx became McpLogsSection.tsx (the logs section of the server's page); the de-duplicating merge moved with it unchanged.",
       "github_issue": 325
     },
     {

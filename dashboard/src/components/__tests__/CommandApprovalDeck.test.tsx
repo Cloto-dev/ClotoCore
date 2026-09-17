@@ -19,6 +19,13 @@ vi.mock('../../hooks/useEventStream', () => ({
   },
 }));
 
+vi.mock('../../contexts/AgentContext', () => ({ useAgentContext: () => ({ agents: [] }) }));
+// Echo i18n keys so the assertions do not depend on copy.
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (k: string) => k }),
+}));
+
+import { markInline, resetInline, unmarkInline } from '../../lib/inlineApprovals';
 import { CommandApprovalDeck, deckReducer, PEEK_MS, RAISE_APPROVAL_EVENT, REARM_MS } from '../CommandApprovalDeck';
 
 function requested(id: string, command: string, severity = 'error') {
@@ -41,6 +48,7 @@ function deliver(event: unknown) {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  resetInline();
   streamHandler.current = null;
   getNotifications.mockResolvedValue([]);
   approveCommand.mockResolvedValue(undefined);
@@ -132,7 +140,7 @@ describe('CommandApprovalDeck', () => {
     deliver(requested('a1', 'echo one'));
     deliver(requested('a2', 'echo two'));
 
-    fireEvent.click(screen.getByLabelText('Approve command'));
+    fireEvent.click(screen.getByRole('button', { name: 'ask.just_once' }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -140,15 +148,35 @@ describe('CommandApprovalDeck', () => {
     expect(approveCommand).toHaveBeenCalledWith('a1');
     // The next request has taken the same coordinates on screen.
     expect(screen.getByText('echo two')).toBeInTheDocument();
-    expect(screen.getByLabelText('Approve command')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'ask.just_once' })).toBeDisabled();
 
-    fireEvent.click(screen.getByLabelText('Approve command'));
+    fireEvent.click(screen.getByRole('button', { name: 'ask.just_once' }));
     expect(approveCommand).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(REARM_MS + 50);
     });
-    expect(screen.getByLabelText('Approve command')).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'ask.just_once' })).toBeEnabled();
+  });
+
+  it('leaves a question alone while a conversation is asking it, and asks it again once that stops', () => {
+    render(<CommandApprovalDeck />);
+    deliver(requested('a1', 'echo one'));
+    expect(screen.getByText('echo one')).toBeInTheDocument();
+
+    // The room that shows agent.a1 draws the question itself.
+    act(() => markInline('a1'));
+    expect(screen.queryByTestId('approval-deck')).not.toBeInTheDocument();
+
+    // Another agent's question is still the deck's to ask, and the count is of
+    // what the deck shows, not of everything pending.
+    deliver(requested('a2', 'echo two'));
+    expect(screen.getByText('echo two')).toBeInTheDocument();
+    expect(screen.queryByTestId('approval-pager')).not.toBeInTheDocument();
+
+    // Leaving that room hands the question back to the deck: nothing was answered.
+    act(() => unmarkInline('a1'));
+    expect(screen.getByTestId('approval-pager')).toHaveTextContent('/ 2');
   });
 
   it('a request settled anywhere else leaves the deck', () => {

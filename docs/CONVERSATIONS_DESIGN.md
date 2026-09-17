@@ -1,6 +1,6 @@
 # Conversations — Design
 
-**Status:** Proposed
+**Status:** Approved 2026-09-17; implemented (kernel and dashboard) in the same change.
 **Author:** kernel team · 2026-09-17
 **Related:** `DESIGN_PHILOSOPHY.md` §4.6 and §7 ("conversations need to
 exist"), `RECALL_SESSION_SCOPE_V2_DESIGN.md` (long-term recall scope, which
@@ -99,12 +99,20 @@ conversation, exactly as an edited-and-regenerated turn is today.
 - Every message the dashboard sends carries `metadata.conversation_id`. The
   kernel persists the user message and the reply under it and bumps
   `updated_at`.
-- A message without a `conversation_id` from a client that has the header is
-  refused (400) — silently starting a fresh conversation per message is the
-  defect this design removes.
+- A message without a `conversation_id` — a bridge, a cron firing, an
+  operator's own HTTP client — lands in the agent's **default conversation
+  for that user**, created on demand and given the same id the migration gives
+  pre-existing history (`default:{agent}:{user}`). Nothing is refused and
+  nothing becomes invisible; the dashboard itself always sends an id.
+  (Refusing such messages was considered and dropped: it would have broken
+  every caller that never learned about conversations, for no gain — the
+  defect this design removes is the *per-message* session, and a default
+  conversation is the opposite of that.)
 - The dashboard remembers the open conversation per agent in `localStorage`,
   so a reload lands where the person was; if that conversation is gone, the
-  list is shown.
+  newest one is opened, and if there is none, one is created. **New chat**
+  reuses an empty conversation of that agent rather than minting a second
+  one, so pressing it twice leaves one, not two.
 
 Why the kernel and not the client: the id is a database key that other
 clients (a browser session, a future bridge) must be able to look up; a
@@ -158,12 +166,12 @@ stands. `PATCH /api/chat/{agent_id}/conversations/{id}` renames by hand.
 
 Archive is the state ChatGPT gives it, and nothing more:
 
-- **Hidden from the list.** `PATCH … { "archived_at": <ms> }` sets it; the
+- **Hidden from the list.** `PATCH … { "archived": true }` sets `archived_at`; the
   sidebar and `GET …/conversations` omit archived conversations unless
   `include_archived=true`.
 - **Kept whole.** Messages, attachments and the conversation row are
   untouched. Nothing about retention changes; there is no timer.
-- **Reversible.** `PATCH … { "archived_at": null }` returns it to the list in
+- **Reversible.** `PATCH … { "archived": false }` returns it to the list in
   its old position (`updated_at` is not bumped by archiving).
 - **Still found.** Search, when it exists, covers archived conversations; the
   memory server is unaffected, since memories were never tied to the list.
@@ -208,7 +216,7 @@ the person actually saw.
 |---|---|
 | `GET /api/chat/{agent_id}/conversations?user_id=&include_archived=` | list, newest `updated_at` first: `{ id, title, created_at, updated_at, archived_at, message_count }` |
 | `POST /api/chat/{agent_id}/conversations` | create; returns the id |
-| `PATCH /api/chat/{agent_id}/conversations/{id}` | `title`, `archived_at` (a timestamp archives, `null` unarchives) |
+| `PATCH /api/chat/{agent_id}/conversations/{id}` | `title`, `archived` (`true` archives, `false` unarchives) |
 | `DELETE /api/chat/{agent_id}/conversations/{id}` | delete with messages |
 | `POST /api/chat/{agent_id}/conversations/archive-all` · `…/delete-all` | the bulk actions behind settings |
 | `GET /api/chat/{agent_id}/messages?conversation_id=` | the existing list, now filtered; `conversation_id` becomes required once the dashboard sends it |
@@ -243,7 +251,7 @@ turn its test red.
 | The model sees the conversation's turns after a restart | kernel: write turns, rebuild `AppState` on the same DB, dispatch → context holds them | read the context from `SessionManager` instead of the DB |
 | The budget holds | kernel: 50 turns, budget 40 → the 40 newest, in order | drop the limit; take the oldest |
 | Old history is kept whole | migration test: N rows before → N rows after, all with one `conversation_id` per `(agent, user)` | skip the backfill; assign per row |
-| A dashboard message without an id is refused | kernel: `POST /api/chat` with the dashboard header and no id → 400 | fall back to a fresh conversation |
+| A message without an id lands in the default conversation, and the same one each time | kernel: two id-less messages for one agent and user → both rows carry `default:{agent}:{user}`, one conversation row exists | mint a fresh conversation per message; skip the write-back so the reply is filed elsewhere |
 | The dashboard sends the open conversation's id | component: open A, send → body carries A; New chat → the next body carries the new id | send the agent id; mint per send |
 | Delete removes the messages too | kernel: delete → `get_messages` empty, attachments gone | delete the row only |
 | Archive hides without losing | kernel: archive → absent from the list, present with `include_archived`, messages intact; unarchive → back in the list at the old `updated_at` | delete on archive; bump `updated_at`; list ignores the flag |

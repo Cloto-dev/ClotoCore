@@ -1,259 +1,367 @@
-import {
-  Brain,
-  Clock,
-  Cpu,
-  FlaskConical,
-  LayoutDashboard,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Power,
-  Server,
-  Settings,
-  Users,
-} from 'lucide-react';
 import type React from 'react';
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAgentContext } from '../contexts/AgentContext';
+import { useConversations } from '../contexts/ConversationContext';
 import { useApi } from '../hooks/useApi';
 import { useModules } from '../hooks/useModules';
-import { AgentIcon, statusDotColor } from '../lib/agentIdentity';
-import { isExperimentalBuild } from '../lib/tauri';
+import { displayTitle, groupConversations } from '../lib/conversations';
+import type { Conversation } from '../types';
+import { NotificationBell } from './NotificationBell';
 import { requestShutdown } from './ShutdownOverlay';
 import { ConfirmDialog } from './ui/ConfirmDialog';
+import './AppSidebar.css';
 
-const NAV_LINKS: readonly { path: string; icon: typeof Server; labelKey: string; action?: 'settings' | 'agents' }[] = [
-  { path: '/', icon: Users, labelKey: 'agent', action: 'agents' },
-  { path: '/mcp-servers', icon: Server, labelKey: 'mcp' },
-  { path: '/cron', icon: Clock, labelKey: 'cron' },
-  { path: '/dashboard', icon: Brain, labelKey: 'memory' },
-  { path: '#settings', icon: Settings, labelKey: 'settings', action: 'settings' },
-] as const;
+/**
+ * The sidebar of docs/gui/samples/01-chat-empty.html: the app name with search
+ * and notifications, New chat, the conversations by day with the agent's name
+ * on each row, the five destinations, and the kernel's state. Markup and CSS
+ * follow the mock; only the data behind them is live.
+ *
+ * Kept beyond the mock, because the product still has them: the cron page and
+ * any runtime modules (under the same nav style) and the shutdown control (in
+ * the footer). The experimental-build mark sits at the window's bottom right.
+ */
+
+const ICONS = {
+  search: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <circle cx="11" cy="11" r="7" />
+      <path d="m20 20-3.5-3.5" />
+    </svg>
+  ),
+  newChat: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+    </svg>
+  ),
+  chat: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M4 5h16v11H8l-4 4Z" />
+    </svg>
+  ),
+  agents: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2 20a7 7 0 0 1 14 0M16 4a3.5 3.5 0 0 1 0 7M22 20a6 6 0 0 0-4-5.7" />
+    </svg>
+  ),
+  mcp: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="3" y="4" width="18" height="7" rx="1.5" />
+      <rect x="3" y="13" width="18" height="7" rx="1.5" />
+    </svg>
+  ),
+  memory: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <path d="M9 3a3 3 0 0 0-3 3v1a3 3 0 0 0-2 5 3 3 0 0 0 2 5v1a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM15 3a3 3 0 0 1 3 3v1a3 3 0 0 1 2 5 3 3 0 0 1-2 5v1a3 3 0 0 1-6 0V6a3 3 0 0 1 3-3Z" />
+    </svg>
+  ),
+  settings: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1" />
+    </svg>
+  ),
+  cron: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
+  ),
+  module: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="3" y="3" width="8" height="8" rx="1.5" />
+      <rect x="13" y="3" width="8" height="8" rx="1.5" />
+      <rect x="3" y="13" width="8" height="8" rx="1.5" />
+      <rect x="13" y="13" width="8" height="8" rx="1.5" />
+    </svg>
+  ),
+  power: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <path d="M12 3v9" />
+      <path d="M6.3 6.3a8 8 0 1 0 11.4 0" />
+    </svg>
+  ),
+  more: (
+    <svg viewBox="0 0 24 24" fill="currentColor">
+      <circle cx="5" cy="12" r="1.6" />
+      <circle cx="12" cy="12" r="1.6" />
+      <circle cx="19" cy="12" r="1.6" />
+    </svg>
+  ),
+};
+
+/** Groups the mock draws; everything older sits behind "show more". */
+const VISIBLE_GROUPS = new Set(['today', 'yesterday', 'previous_7_days']);
 
 interface AppSidebarProps {
   onSettingsClick: () => void;
-  collapsed: boolean;
-  onToggleCollapse: () => void;
 }
 
-export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collapsed, onToggleCollapse }) => {
+export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation('nav');
   const { t: tSettings } = useTranslation('settings');
   const { t: tCommon } = useTranslation('common');
   const api = useApi();
-  const [shutdownConfirm, setShutdownConfirm] = useState(false);
   const { agents, selectedAgentId, setSelectedAgentId, systemActive, setSystemActive, processingAgentIds } =
     useAgentContext();
+  const { conversations, openFor, open, newChat, rename, archive, remove } = useConversations();
+  const { modules } = useModules();
+  const [shutdownConfirm, setShutdownConfirm] = useState(false);
+  const [showOlder, setShowOlder] = useState(false);
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
+  const [deleting, setDeleting] = useState<Conversation | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
-  const handleSelectSystem = () => {
-    if (systemActive && isAgentPageActive) {
+  // The day boundaries move: re-group once a minute so "today" stays true.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const groups = useMemo(() => groupConversations(conversations, now), [conversations, now]);
+  const hiddenCount = groups.filter((g) => !VISIBLE_GROUPS.has(g.group)).reduce((n, g) => n + g.items.length, 0);
+  const shownGroups = showOlder ? groups : groups.filter((g) => VISIBLE_GROUPS.has(g.group));
+  const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
+  const isAgentPage = location.pathname === '/';
+  const isChatOpen = isAgentPage && !systemActive && selectedAgentId !== null;
+  const isNavActive = (path: string) => location.pathname === path;
+
+  const handleNewChat = async () => {
+    // A chat needs someone to talk to: with an agent open, start theirs;
+    // otherwise go to the agents page to pick one.
+    const agentId = selectedAgentId ?? (agents.length === 1 ? agents[0].id : null);
+    if (!agentId) {
+      setSelectedAgentId(null);
+      setSystemActive(false);
       navigate('/');
-    } else {
-      navigate('/?system=true');
+      return;
+    }
+    const created = await newChat(agentId);
+    open(agentId, created.id);
+  };
+
+  // ⌘N / Ctrl+N: the shortcut the mock prints beside New chat.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        void handleNewChat();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
+  const goChat = () => {
+    // The living room: the conversation last open, else the newest, else the agents.
+    const agentId = selectedAgentId ?? conversations[0]?.agent_id ?? null;
+    if (!agentId) {
+      navigate('/');
+      return;
+    }
+    const conversationId = openFor(agentId) ?? conversations.find((c) => c.agent_id === agentId)?.id ?? null;
+    if (conversationId) open(agentId, conversationId);
+    else {
+      setSystemActive(false);
+      setSelectedAgentId(agentId);
+      navigate(`/?agent=${encodeURIComponent(agentId)}`);
     }
   };
-
-  const handleSelectAgent = (id: string) => {
-    navigate('/?agent=' + encodeURIComponent(id));
-  };
-
-  const handleAddAgent = () => {
+  const goAgents = () => {
     setSelectedAgentId(null);
     setSystemActive(false);
     navigate('/');
   };
-
-  const handleNavClick = (path: string) => {
+  const goTo = (path: string) => {
     setSelectedAgentId(null);
     setSystemActive(false);
     navigate(path);
   };
 
-  const { modules } = useModules();
   const usableModules = modules.filter((m) => !m.error);
 
-  const isNavActive = (path: string) => location.pathname === path;
-  const isAgentPageActive = location.pathname === '/';
-
   return (
-    <div
-      className={`${collapsed ? 'w-14' : 'w-48'} h-full flex flex-col py-3 bg-surface-panel border-r border-edge transition-[width] duration-200`}
-    >
-      {/* System / Kernel */}
-      <button
-        onClick={handleSelectSystem}
-        title={collapsed ? t('system') : undefined}
-        aria-label={t('system')}
-        className={`relative mx-2 flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 ${
-          systemActive && isAgentPageActive
-            ? 'bg-surface-primary text-agent'
-            : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-field'
-        }`}
-      >
-        {!collapsed && systemActive && isAgentPageActive && (
-          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-agent rounded-r-full" />
-        )}
-        <Cpu size={24} className="shrink-0" />
-        {!collapsed && <span className="text-xs font-bold">{t('system')}</span>}
+    <aside className="side" aria-label={t('sidebar')}>
+      <div className="side-head">
+        <span className="app">ClotoCore</span>
+        <button type="button" title={t('search')} aria-label={t('search')} aria-disabled="true">
+          {ICONS.search}
+        </button>
+        <NotificationBell />
+      </div>
+
+      <button type="button" className="newchat" onClick={handleNewChat} aria-label={t('new_chat')}>
+        {ICONS.newChat}
+        {t('new_chat')}
+        <span className="kbd">⌘N</span>
       </button>
 
-      <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
-
-      {/* Agents List */}
-      <div className="flex-1 flex flex-col gap-1 overflow-y-auto no-scrollbar px-2">
-        {agents.map((agent) => {
-          const isActive = selectedAgentId === agent.id && !systemActive && isAgentPageActive;
-          return (
-            <button
-              key={agent.id}
-              onClick={() => handleSelectAgent(agent.id)}
-              title={collapsed ? agent.name : undefined}
-              aria-label={agent.name}
-              className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-left w-full ${
-                isActive
-                  ? 'bg-surface-primary text-agent'
-                  : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-field'
-              }`}
-            >
-              {!collapsed && isActive && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-agent rounded-r-full" />
-              )}
-              <div
-                className={`relative flex-shrink-0 w-7 h-7 overflow-hidden rounded-md flex items-center justify-center ${processingAgentIds.has(agent.id) ? 'agent-processing-glow' : ''}`}
-              >
-                <AgentIcon agent={agent} size={28} />
-                <div
-                  role="img"
-                  className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-surface-secondary ${statusDotColor(agent.status)}`}
-                  aria-label={
-                    agent.status === 'online' ? 'Online' : agent.status === 'offline' ? 'Offline' : agent.status
-                  }
-                />
-              </div>
-              {!collapsed && (
-                <div className="min-w-0 flex-1">
-                  <div className="text-xs font-bold truncate">{agent.name}</div>
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
-
-      {/* Nav Links */}
-      <div className="px-2 flex flex-col gap-0.5">
-        {NAV_LINKS.map(({ path, icon: Icon, labelKey, action }) => {
-          const label = t(labelKey);
-          const isActive =
-            action === 'agents' ? isAgentPageActive && !selectedAgentId && !systemActive : !action && isNavActive(path);
-          return (
-            <button
-              key={path}
-              onClick={() => {
-                if (action === 'settings') onSettingsClick();
-                else if (action === 'agents') handleAddAgent();
-                else handleNavClick(path);
-              }}
-              title={collapsed ? label : undefined}
-              aria-label={label}
-              className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-xs font-bold ${
-                isActive
-                  ? 'bg-surface-primary text-agent'
-                  : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-field'
-              }`}
-            >
-              {!collapsed && isActive && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-agent rounded-r-full" />
-              )}
-              <Icon size={24} className="shrink-0" />
-              {!collapsed && label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Runtime modules — found under the data directory, so this list is
-          whatever the kernel reports rather than anything compiled in.
-          Directories the kernel rejected carry no name and are left out here;
-          they are surfaced where they can be acted on, not in the nav. */}
-      {usableModules.length > 0 && (
-        <>
-          <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
-          <div className="px-2 flex flex-col gap-0.5">
-            {usableModules.map((module) => {
-              const label = module.name || module.id;
-              const path = `/modules/${module.id}`;
-              const isActive = isNavActive(path);
+      <div className="convs" data-testid="conversation-list">
+        {shownGroups.map(({ group, items }) => (
+          <div key={group}>
+            <div className="glabel">{t(`group_${group}`)}</div>
+            {items.map((c) => {
+              const isOpen = isChatOpen && selectedAgentId === c.agent_id && openFor(c.agent_id) === c.id;
+              const mine = selectedAgentId === c.agent_id;
+              const live = processingAgentIds.has(c.agent_id);
+              const title = displayTitle(c, t('untitled_conversation'));
+              if (renaming?.id === c.id) {
+                return (
+                  <RenameField
+                    key={c.id}
+                    value={renaming.title}
+                    label={t('rename')}
+                    onChange={(title) => setRenaming({ id: c.id, title })}
+                    onCommit={async () => {
+                      const next = renaming.title.trim();
+                      setRenaming(null);
+                      if (next && next !== c.title) await rename(c.agent_id, c.id, next);
+                    }}
+                    onCancel={() => setRenaming(null)}
+                  />
+                );
+              }
               return (
-                <button
-                  key={module.id}
-                  onClick={() => handleNavClick(path)}
-                  title={collapsed ? label : undefined}
-                  aria-label={label}
-                  className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-xs font-bold ${
-                    isActive
-                      ? 'bg-surface-primary text-agent'
-                      : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-field'
-                  }`}
-                >
-                  {!collapsed && isActive && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-agent rounded-r-full" />
+                <div key={c.id} className="conv-row">
+                  <button
+                    type="button"
+                    className={`conv${mine ? ' mine' : ''}${isOpen ? ' on' : ''}`}
+                    title={title}
+                    aria-current={isOpen ? 'true' : undefined}
+                    onClick={() => open(c.agent_id, c.id)}
+                  >
+                    <span className="t">{title}</span>
+                    {live && <span className="live" title={t('responding')} />}
+                    <span className="who">{agentName(c.agent_id)}</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="conv-menu-btn"
+                    aria-label={t('conversation_menu')}
+                    aria-expanded={menuFor === c.id}
+                    onClick={() => setMenuFor(menuFor === c.id ? null : c.id)}
+                  >
+                    {ICONS.more}
+                  </button>
+                  {menuFor === c.id && (
+                    <div role="menu" className="conv-menu">
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuFor(null);
+                          setRenaming({ id: c.id, title: c.title });
+                        }}
+                      >
+                        {t('rename')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        onClick={async () => {
+                          setMenuFor(null);
+                          await archive(c.agent_id, c.id, true);
+                        }}
+                      >
+                        {t('archive')}
+                      </button>
+                      <button
+                        type="button"
+                        role="menuitem"
+                        className="danger"
+                        onClick={() => {
+                          setMenuFor(null);
+                          setDeleting(c);
+                        }}
+                      >
+                        {t('delete')}
+                      </button>
+                    </div>
                   )}
-                  <LayoutDashboard size={24} className="shrink-0" />
-                  {!collapsed && label}
-                </button>
+                </div>
               );
             })}
           </div>
-        </>
-      )}
+        ))}
+        {hiddenCount > 0 && (
+          <button type="button" className="more" onClick={() => setShowOlder((v) => !v)}>
+            {showOlder ? t('show_less') : t('show_more')}
+          </button>
+        )}
+      </div>
 
-      <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
-
-      {/* Experimental-build badge (docs/RELEASE_PIPELINE_DESIGN.md §6) — always
-          visible while running a pre-release; locally derived, no network. */}
-      {isExperimentalBuild && (
-        <div className="px-2 mb-1">
-          <div
-            title={t('experimental_tooltip')}
-            className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-1.5 px-3'} py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500`}
-          >
-            <FlaskConical size={collapsed ? 16 : 12} className="shrink-0" />
-            {!collapsed && <span className="text-xs font-bold">{t('experimental')}</span>}
-          </div>
-        </div>
-      )}
-
-      {/* Collapse toggle */}
-      <div className="px-2">
-        <button
-          onClick={onToggleCollapse}
-          title={collapsed ? t('expand_sidebar') : t('collapse_sidebar')}
-          aria-label={collapsed ? t('expand_sidebar') : t('collapse_sidebar')}
-          className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-content-tertiary hover:text-content-secondary hover:bg-surface-field w-full`}
-        >
-          {collapsed ? (
-            <PanelLeftOpen size={24} className="shrink-0" />
-          ) : (
-            <PanelLeftClose size={24} className="shrink-0" />
-          )}
-          {!collapsed && <span className="text-xs font-bold">{t('collapse')}</span>}
+      <nav className="nav">
+        <button type="button" className={`navlink${isChatOpen ? ' on' : ''}`} onClick={goChat}>
+          {ICONS.chat}
+          {t('chat')}
         </button>
-
-        {/* Safe shutdown — same sequence as the tray Quit */}
         <button
-          onClick={() => setShutdownConfirm(true)}
-          title={collapsed ? t('shutdown') : undefined}
-          aria-label={t('shutdown')}
-          className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-content-tertiary hover:text-red-400 hover:bg-red-500/10 w-full`}
+          type="button"
+          className={`navlink${isAgentPage && !isChatOpen && !systemActive ? ' on' : ''}`}
+          onClick={goAgents}
         >
-          <Power size={24} className="shrink-0" />
-          {!collapsed && <span className="text-xs font-bold">{t('shutdown')}</span>}
+          {ICONS.agents}
+          {t('agent')}
+        </button>
+        <button
+          type="button"
+          className={`navlink${isNavActive('/mcp-servers') ? ' on' : ''}`}
+          onClick={() => goTo('/mcp-servers')}
+        >
+          {ICONS.mcp}
+          {t('mcp')}
+        </button>
+        <button
+          type="button"
+          className={`navlink${isNavActive('/dashboard') ? ' on' : ''}`}
+          onClick={() => goTo('/dashboard')}
+        >
+          {ICONS.memory}
+          {t('memory')}
+        </button>
+        <button type="button" className="navlink" onClick={onSettingsClick}>
+          {ICONS.settings}
+          {t('settings')}
+        </button>
+        <button type="button" className={`navlink${isNavActive('/cron') ? ' on' : ''}`} onClick={() => goTo('/cron')}>
+          {ICONS.cron}
+          {t('cron')}
+        </button>
+        {usableModules.map((module) => {
+          const path = `/modules/${module.id}`;
+          return (
+            <button
+              type="button"
+              key={module.id}
+              className={`navlink${isNavActive(path) ? ' on' : ''}`}
+              onClick={() => goTo(path)}
+            >
+              {ICONS.module}
+              {module.name || module.id}
+            </button>
+          );
+        })}
+      </nav>
+
+      <div className="side-foot">
+        <span className="ok">{t('kernel_running')}</span>
+        <span>{t('agents_count', { count: agents.length })}</span>
+        <span className="num">{__APP_VERSION__}</span>
+        <button
+          type="button"
+          className="power"
+          onClick={() => setShutdownConfirm(true)}
+          title={t('shutdown')}
+          aria-label={t('shutdown')}
+        >
+          {ICONS.power}
         </button>
       </div>
 
@@ -270,6 +378,55 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
         }}
         onCancel={() => setShutdownConfirm(false)}
       />
-    </div>
+      <ConfirmDialog
+        open={deleting !== null}
+        title={t('delete_conversation_title')}
+        message={t('delete_conversation_message', {
+          title: deleting ? displayTitle(deleting, t('untitled_conversation')) : '',
+        })}
+        confirmLabel={t('delete')}
+        cancelLabel={t('cancel')}
+        variant="danger"
+        onConfirm={async () => {
+          const target = deleting;
+          setDeleting(null);
+          if (target) await remove(target.agent_id, target.id);
+        }}
+        onCancel={() => setDeleting(null)}
+      />
+    </aside>
   );
 };
+
+function RenameField({
+  value,
+  label,
+  onChange,
+  onCommit,
+  onCancel,
+}: {
+  value: string;
+  label: string;
+  onChange: (v: string) => void;
+  onCommit: () => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+  }, []);
+  return (
+    <input
+      ref={ref}
+      className="conv-rename"
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={onCommit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') onCommit();
+        if (e.key === 'Escape') onCancel();
+      }}
+    />
+  );
+}

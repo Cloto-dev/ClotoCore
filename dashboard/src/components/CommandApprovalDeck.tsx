@@ -28,9 +28,12 @@
  * never decides what is in the queue, and it is not consulted by the badge.
  */
 
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore } from 'react';
+import { useAgentContext } from '../contexts/AgentContext';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
+import { agentAccentTriplet } from '../lib/agentIdentity';
+import { inlineSnapshot, subscribeInline } from '../lib/inlineApprovals';
 import { asSeverity, interrupts, loadThreshold, mostSevere } from '../lib/notificationSeverity';
 import { EVENTS_URL, type NotificationItem, type NotificationSeverity } from '../services/api';
 import { CommandApprovalCard } from './CommandApprovalCard';
@@ -169,8 +172,13 @@ function fromStore(item: NotificationItem): PendingApproval | null {
 
 export function CommandApprovalDeck() {
   const api = useApi();
+  const { agents } = useAgentContext();
   const [state, dispatch] = useReducer(deckReducer, EMPTY);
   const [armed, setArmed] = useState(true);
+  // A question already being asked inside its conversation is not asked a
+  // second time over the window. It stays in the queue — and on the bell —
+  // so it is still there when that conversation is left.
+  const inline = useSyncExternalStore(subscribeInline, inlineSnapshot);
 
   const apiRef = useRef(api);
   apiRef.current = api;
@@ -245,15 +253,20 @@ export function CommandApprovalDeck() {
 
   if (!state.open || state.queue.length === 0) return null;
 
-  const current = state.queue[Math.min(state.index, state.queue.length - 1)];
-  const total = state.queue.length;
+  const visible = state.queue.filter((a) => !inline.has(a.approvalId));
+  if (visible.length === 0) return null;
+  const current = visible[Math.min(state.index, visible.length - 1)];
+  const total = visible.length;
+  const asker = agents.find((a) => a.id === current.agentId);
 
   return (
     // Where SecurityGuard sits, for the same reason: over the page, out of the
-    // way of the content, and reachable from any route.
+    // way of the content, and reachable from any route. The asking agent's
+    // colour is set here because the card reads it from its surroundings.
     <div
       data-testid="approval-deck"
       className="fixed bottom-8 right-8 z-[1000] max-w-md w-full animate-in slide-in-from-bottom-4 duration-300"
+      style={{ '--agent': agentAccentTriplet({ id: current.agentId }) } as React.CSSProperties}
     >
       <CommandApprovalCard
         // Keyed so a new request gets a fresh card. Without this the component
@@ -262,32 +275,25 @@ export function CommandApprovalDeck() {
         key={current.approvalId}
         approvalId={current.approvalId}
         agentId={current.agentId}
+        agentName={asker?.name}
         commands={current.commands}
+        severity={current.severity}
         onResolved={onResolved}
         actionsDisabled={!armed}
+        first
         pager={
           total > 1 ? (
-            <span className="flex items-center gap-1 text-xs font-mono text-content-tertiary">
-              <button
-                type="button"
-                onClick={() => dispatch({ type: 'page', delta: -1 })}
-                aria-label="Previous request"
-                className="px-1 rounded hover:bg-surface-panel hover:text-content-primary transition-colors"
-              >
+            <>
+              <button type="button" onClick={() => dispatch({ type: 'page', delta: -1 })} aria-label="Previous request">
                 ‹
               </button>
-              <span data-testid="approval-pager">
-                {state.index + 1} / {total}
+              <span data-testid="approval-pager" className="num">
+                {Math.min(state.index, visible.length - 1) + 1} / {total}
               </span>
-              <button
-                type="button"
-                onClick={() => dispatch({ type: 'page', delta: 1 })}
-                aria-label="Next request"
-                className="px-1 rounded hover:bg-surface-panel hover:text-content-primary transition-colors"
-              >
+              <button type="button" onClick={() => dispatch({ type: 'page', delta: 1 })} aria-label="Next request">
                 ›
               </button>
-            </span>
+            </>
           ) : null
         }
       />

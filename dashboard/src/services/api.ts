@@ -7,11 +7,13 @@ import type {
   ChatMessage,
   ClotoMessage,
   ContentBlock,
+  Conversation,
   Episode,
   MarketplaceCatalogEntry,
   MarketplaceCollection,
   McpServerInfo,
   McpServerSettings,
+  McpToolInfo,
   Memory,
   MemoryCapabilities,
   Metrics,
@@ -456,7 +458,13 @@ export const api = {
     mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),
   postChatMessage: (
     agentId: string,
-    msg: { id: string; source: string; content: ContentBlock[]; metadata?: Record<string, unknown> },
+    msg: {
+      id: string;
+      source: string;
+      content: ContentBlock[];
+      metadata?: Record<string, unknown>;
+      conversation_id?: string;
+    },
     apiKey: string,
   ): Promise<{ id: string; created_at: number }> =>
     mutate(`/chat/${agentId}/messages`, 'POST', 'post chat message', msg, { 'X-API-Key': apiKey })
@@ -511,11 +519,13 @@ export const api = {
     before?: number,
     limit?: number,
     userId?: string,
+    conversationId?: string,
   ): Promise<{ messages: ChatMessage[]; has_more: boolean }> {
     const params = new URLSearchParams();
     if (before) params.set('before', String(before));
     if (limit) params.set('limit', String(limit));
     if (userId) params.set('user_id', userId);
+    if (conversationId) params.set('conversation_id', conversationId);
     const qs = params.toString();
     const res = await fetch(`${API_BASE}/chat/${agentId}/messages${qs ? '?' + qs : ''}`, {
       headers: { 'X-API-Key': apiKey },
@@ -535,6 +545,85 @@ export const api = {
       has_more: data.has_more,
     };
   },
+
+  // Conversations (docs/CONVERSATIONS_DESIGN.md §3)
+  listConversations: async (
+    agentId: string,
+    apiKey: string,
+    userId?: string,
+    includeArchived = false,
+  ): Promise<Conversation[]> => {
+    const params = new URLSearchParams();
+    if (userId) params.set('user_id', userId);
+    if (includeArchived) params.set('include_archived', 'true');
+    const qs = params.toString();
+    const res = await fetch(`${API_BASE}/chat/${agentId}/conversations${qs ? '?' + qs : ''}`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    await throwIfNotOk(res, 'list conversations');
+    return res.json().then((b) => b.data.conversations as Conversation[]);
+  },
+  createConversation: (agentId: string, apiKey: string, userId?: string): Promise<Conversation> =>
+    mutate(`/chat/${agentId}/conversations`, 'POST', 'create conversation', userId ? { user_id: userId } : {}, {
+      'X-API-Key': apiKey,
+    })
+      .then((r) => r.json())
+      .then((b) => ({ ...b.data, message_count: 0 }) as Conversation),
+  updateConversation: (
+    agentId: string,
+    conversationId: string,
+    patch: { title?: string; archived?: boolean },
+    apiKey: string,
+  ): Promise<Conversation> =>
+    mutate(
+      `/chat/${agentId}/conversations/${encodeURIComponent(conversationId)}`,
+      'PATCH',
+      'update conversation',
+      patch,
+      {
+        'X-API-Key': apiKey,
+      },
+    )
+      .then((r) => r.json())
+      .then((b) => b.data as Conversation),
+  deleteConversation: (
+    agentId: string,
+    conversationId: string,
+    apiKey: string,
+  ): Promise<{ deleted_messages: number }> =>
+    mutate(
+      `/chat/${agentId}/conversations/${encodeURIComponent(conversationId)}`,
+      'DELETE',
+      'delete conversation',
+      undefined,
+      { 'X-API-Key': apiKey },
+    )
+      .then((r) => r.json())
+      .then((b) => b.data),
+  archiveAllConversations: (agentId: string, apiKey: string, userId?: string): Promise<{ archived: number }> =>
+    mutate(
+      `/chat/${agentId}/conversations/archive-all`,
+      'POST',
+      'archive all conversations',
+      userId ? { user_id: userId } : {},
+      {
+        'X-API-Key': apiKey,
+      },
+    )
+      .then((r) => r.json())
+      .then((b) => b.data),
+  deleteAllConversations: (agentId: string, apiKey: string, userId?: string): Promise<{ deleted: number }> =>
+    mutate(
+      `/chat/${agentId}/conversations/delete-all`,
+      'POST',
+      'delete all conversations',
+      userId ? { user_id: userId } : {},
+      {
+        'X-API-Key': apiKey,
+      },
+    )
+      .then((r) => r.json())
+      .then((b) => b.data),
 
   getAttachmentUrl(attachmentId: string, apiKey: string): string {
     return withToken(`${API_BASE}/chat/attachments/${attachmentId}`, apiKey);
@@ -629,6 +718,13 @@ export const api = {
       'X-API-Key': apiKey,
     }).then(() => {}),
 
+  getMcpServerTools: async (name: string, apiKey: string): Promise<McpToolInfo[]> => {
+    const res = await fetch(`${API_BASE}/mcp/servers/${encodeURIComponent(name)}/tools`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to fetch server tools: ${res.statusText}`);
+    return (await res.json()).data.tools;
+  },
   getMcpServerAccess: async (name: string, apiKey: string): Promise<AccessTreeResponse> => {
     const res = await fetch(`${API_BASE}/mcp/servers/${encodeURIComponent(name)}/access`, {
       headers: { 'X-API-Key': apiKey },
@@ -1129,8 +1225,16 @@ export function createAuthenticatedApi(apiKey: string) {
     postChat: (message: Parameters<typeof api.postChat>[0]) => api.postChat(message, k),
     postChatMessage: (agentId: string, msg: Parameters<typeof api.postChatMessage>[1]) =>
       api.postChatMessage(agentId, msg, k),
-    getChatMessages: (agentId: string, before?: number, limit?: number, userId?: string) =>
-      api.getChatMessages(agentId, k, before, limit, userId),
+    getChatMessages: (agentId: string, before?: number, limit?: number, userId?: string, conversationId?: string) =>
+      api.getChatMessages(agentId, k, before, limit, userId, conversationId),
+    listConversations: (agentId: string, userId?: string, includeArchived?: boolean) =>
+      api.listConversations(agentId, k, userId, includeArchived),
+    createConversation: (agentId: string, userId?: string) => api.createConversation(agentId, k, userId),
+    updateConversation: (agentId: string, conversationId: string, patch: { title?: string; archived?: boolean }) =>
+      api.updateConversation(agentId, conversationId, patch, k),
+    deleteConversation: (agentId: string, conversationId: string) => api.deleteConversation(agentId, conversationId, k),
+    archiveAllConversations: (agentId: string, userId?: string) => api.archiveAllConversations(agentId, k, userId),
+    deleteAllConversations: (agentId: string, userId?: string) => api.deleteAllConversations(agentId, k, userId),
     deleteChatMessages: (agentId: string, userId?: string) => api.deleteChatMessages(agentId, k, userId),
     retryResponse: (agentId: string, messageId: string) => api.retryResponse(agentId, messageId, k),
     // Permissions
@@ -1155,6 +1259,7 @@ export function createAuthenticatedApi(apiKey: string) {
     getMcpServerSettings: (name: string) => api.getMcpServerSettings(name, k),
     updateMcpServerSettings: (name: string, settings: Parameters<typeof api.updateMcpServerSettings>[1]) =>
       api.updateMcpServerSettings(name, settings, k),
+    getMcpServerTools: (name: string) => api.getMcpServerTools(name, k),
     getMcpServerAccess: (name: string) => api.getMcpServerAccess(name, k),
     putMcpServerAccess: (name: string, entries: Parameters<typeof api.putMcpServerAccess>[1]) =>
       api.putMcpServerAccess(name, entries, k),

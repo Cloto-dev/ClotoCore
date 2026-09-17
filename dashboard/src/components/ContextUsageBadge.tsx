@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../hooks/useApi';
+import { compactCount } from '../lib/chatTime';
 
 type Usage = {
   prompt_tokens: number;
@@ -21,9 +22,10 @@ type Props = {
 };
 
 /**
- * Compact header chip showing the most recent response's prompt_tokens
- * vs the provider's configured context_length. Hidden entirely when nothing
- * has been recorded yet (avoids a flash of "0 / ?").
+ * The context meter in the composer's row (docs/gui/samples/02-chat-conversation.html):
+ * the most recent response's prompt_tokens against the provider's configured
+ * context_length, as `18.9k / 128k`. Hidden entirely when nothing has been
+ * recorded yet (avoids a flash of "0 / ?").
  */
 export function ContextUsageBadge({ agentId, refreshKey }: Props) {
   const api = useApi();
@@ -51,19 +53,11 @@ export function ContextUsageBadge({ agentId, refreshKey }: Props) {
   const max = usage.context_length ?? null;
   const pct = max && max > 0 ? used / max : null;
 
-  // Progressive severity — the whole badge shifts to warn/alert once the last
-  // response was within 5%/20% of the configured context window.
-  const tone =
-    pct === null
-      ? 'text-content-tertiary border-edge'
-      : pct >= 0.95
-        ? 'text-red-400 border-red-500/40'
-        : pct >= 0.8
-          ? 'text-amber-400 border-amber-500/40'
-          : 'text-content-secondary border-edge';
+  // The colour shifts once the last response was within 20%/5% of the window.
+  const tone = pct === null ? '' : pct >= 0.95 ? ' alert' : pct >= 0.8 ? ' warn' : '';
 
-  const usedLabel = usage.is_estimate ? `~${used.toLocaleString()}` : used.toLocaleString();
-  const maxLabel = max != null ? max.toLocaleString() : '?';
+  const usedLabel = usage.is_estimate ? `~${compactCount(used)}` : compactCount(used);
+  const maxLabel = max != null ? compactCount(max) : '?';
 
   const tooltipParts = [
     `${usage.provider_id} · ${usage.model_id || '(no model)'}`,
@@ -78,23 +72,13 @@ export function ContextUsageBadge({ agentId, refreshKey }: Props) {
     .join('\n');
 
   return (
-    <div
+    <span
       role="status"
-      className={`card-solid px-4 py-2 rounded-full border text-[13px] font-mono flex items-center gap-2 ${tone}`}
+      className={`meter num${tone}`}
       title={tooltipParts}
       aria-label={t('agent.context_usage_aria', { used, max: maxLabel })}
     >
-      <span>
-        {usedLabel} / {maxLabel} tok
-      </span>
-      {pct !== null && (
-        <span className="w-16 h-1 rounded-full bg-surface-secondary overflow-hidden">
-          <span
-            className="block h-full bg-current transition-all"
-            style={{ width: `${Math.min(100, Math.round(pct * 100))}%` }}
-          />
-        </span>
-      )}
-    </div>
+      {usedLabel} / {maxLabel}
+    </span>
   );
 }
