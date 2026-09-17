@@ -1,13 +1,22 @@
-import { Activity, Info, ScrollText, Settings, Shield, Sun, Zap } from 'lucide-react';
+import { Activity, Info, MessagesSquare, ScrollText, Settings, Shield, Sun, Zap } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AboutSection, AdvancedSection, GeneralSection, HealthSection, LogSection, SecuritySection } from './settings';
+import {
+  AboutSection,
+  AdvancedSection,
+  ConversationsSection,
+  GeneralSection,
+  HealthSection,
+  LogSection,
+  SecuritySection,
+} from './settings';
 import { ViewHeader } from './ViewHeader';
 
-type Section = 'general' | 'security' | 'advanced' | 'health' | 'log' | 'about';
+type Section = 'general' | 'conversations' | 'security' | 'advanced' | 'health' | 'log' | 'about';
 
 const NAV_ITEMS: { id: Section; labelKey: string; icon: typeof Sun }[] = [
   { id: 'general', labelKey: 'sections.general', icon: Sun },
+  { id: 'conversations', labelKey: 'sections.conversations', icon: MessagesSquare },
   { id: 'security', labelKey: 'sections.security', icon: Shield },
   { id: 'advanced', labelKey: 'sections.advanced', icon: Zap },
   { id: 'health', labelKey: 'sections.health', icon: Activity },
@@ -49,6 +58,7 @@ export function SettingsView({ onBack, initialSection }: { onBack?: () => void; 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-8">
           {activeSection === 'general' && <GeneralSection />}
+          {activeSection === 'conversations' && <ConversationsSection />}
           {activeSection === 'security' && <SecuritySection />}
           {activeSection === 'advanced' && <AdvancedSection />}
           {activeSection === 'health' && <HealthSection />}

@@ -269,6 +269,7 @@
     "title": "設定",
     "sections": {
       "general": "一般",
+      "conversations": "会話",
       "security": "セキュリティ",
       "display": "表示",
       "advanced": "詳細",
@@ -345,6 +346,22 @@
         "report_path": "レポート",
         "running_resume_hint": "何か残っていた場合、その内容はレポートに記載されます。隣に置かれた計画ファイルは次のコマンドで再実行できます: clotocore purge-exec --plan <file>"
       }
+    },
+    "conversations": {
+      "archived_title": "アーカイブ済みの会話",
+      "archived_empty": "アーカイブされた会話はありません。アーカイブするとサイドバーから隠れ、ここにそのまま残ります。",
+      "untitled": "新しいチャット",
+      "unarchive": "元に戻す",
+      "delete": "削除",
+      "bulk_title": "すべての会話",
+      "bulk_desc": "エージェントごと。「すべてアーカイブ」は表示中の会話をすべて隠します (ここで 1 件ずつ戻せます)。「すべて削除」はアーカイブ済みも含めて削除し、元に戻せません。",
+      "archive_all": "すべてアーカイブ",
+      "delete_all": "すべて削除",
+      "delete_all_title": "すべての会話を削除しますか？",
+      "delete_all_message": "{{agent}} との会話をアーカイブ済みも含めてすべて削除します。元に戻せません。エージェントが作った記憶は残ります。",
+      "cancel": "キャンセル",
+      "archived_count": "{{count}} 件の会話をアーカイブしました。",
+      "deleted_count": "{{count}} 件の会話を削除しました。"
     },
     "general": {
       "theme": "テーマ",
@@ -646,7 +663,21 @@
     "module_reload": "モジュールを再読み込み",
     "module_rejected": "このモジュールを読み取れませんでした",
     "module_load_failed": "このモジュールを読み込めませんでした",
-    "module_missing": "そのモジュールはありません"
+    "module_missing": "そのモジュールはありません",
+    "new_chat": "新しいチャット",
+    "conversations": "会話",
+    "group_today": "今日",
+    "group_yesterday": "昨日",
+    "group_previous_7_days": "過去 7 日",
+    "group_older": "それ以前",
+    "untitled_conversation": "新しいチャット",
+    "conversation_menu": "会話の操作",
+    "rename": "名前を変更",
+    "archive": "アーカイブ",
+    "delete": "削除",
+    "cancel": "キャンセル",
+    "delete_conversation_title": "この会話を削除しますか？",
+    "delete_conversation_message": "「{{title}}」とそのメッセージを削除します。元に戻せません。話している間にエージェントが作った記憶は残ります。"
   },
   "cron": {
     "title": "Cron ジョブ",

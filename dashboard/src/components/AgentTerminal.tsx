@@ -16,6 +16,7 @@ import {
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation } from 'react-router-dom';
+import { useConversations } from '../contexts/ConversationContext';
 import { useAgentCreation } from '../hooks/useAgentCreation';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
@@ -308,7 +309,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
   }
 
   if (selectedAgent) {
-    return <AgentConsole key={selectedAgent.id} agent={selectedAgent} onBack={() => onSelectAgent(null)} />;
+    return <OpenConversationConsole agent={selectedAgent} onBack={() => onSelectAgent(null)} />;
   }
 
   return (
@@ -800,5 +801,23 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
         </div>
       </div>
     </div>
+  );
+}
+
+/** Mounts the console on the conversation that is open for the agent —
+ * remembered, else newest, else new — and remounts it when that changes. */
+function OpenConversationConsole({ agent, onBack }: { agent: AgentMetadata; onBack: () => void }) {
+  const { openFor, resolveOpen } = useConversations();
+  const conversationId = openFor(agent.id);
+  useEffect(() => {
+    if (!conversationId) {
+      resolveOpen(agent.id).catch((err) => {
+        if (import.meta.env.DEV) console.error('Failed to open a conversation:', err);
+      });
+    }
+  }, [agent.id, conversationId, resolveOpen]);
+  if (!conversationId) return null;
+  return (
+    <AgentConsole key={`${agent.id}:${conversationId}`} agent={agent} conversationId={conversationId} onBack={onBack} />
   );
 }

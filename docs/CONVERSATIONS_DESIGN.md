@@ -1,6 +1,6 @@
 # Conversations — Design
 
-**Status:** Approved 2026-09-17. Kernel side landed (migration, context, routes); the dashboard side is in progress.
+**Status:** Approved 2026-09-17; implemented (kernel and dashboard) in the same change.
 **Author:** kernel team · 2026-09-17
 **Related:** `DESIGN_PHILOSOPHY.md` §4.6 and §7 ("conversations need to
 exist"), `RECALL_SESSION_SCOPE_V2_DESIGN.md` (long-term recall scope, which
@@ -110,7 +110,9 @@ conversation, exactly as an edited-and-regenerated turn is today.
   conversation is the opposite of that.)
 - The dashboard remembers the open conversation per agent in `localStorage`,
   so a reload lands where the person was; if that conversation is gone, the
-  list is shown.
+  newest one is opened, and if there is none, one is created. **New chat**
+  reuses an empty conversation of that agent rather than minting a second
+  one, so pressing it twice leaves one, not two.
 
 Why the kernel and not the client: the id is a database key that other
 clients (a browser session, a future bridge) must be able to look up; a

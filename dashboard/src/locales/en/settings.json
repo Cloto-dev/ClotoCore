@@ -2,6 +2,7 @@
   "title": "Settings",
   "sections": {
     "general": "GENERAL",
+    "conversations": "CONVERSATIONS",
     "security": "SECURITY",
     "display": "DISPLAY",
     "advanced": "ADVANCED",
@@ -78,6 +79,22 @@
       "report_path": "Report",
       "running_resume_hint": "If anything is left behind, the report says what, and the plan file beside it can be re-run with: clotocore purge-exec --plan <file>"
     }
+  },
+  "conversations": {
+    "archived_title": "Archived conversations",
+    "archived_empty": "Nothing is archived. Archiving hides a conversation from the sidebar and keeps it here, whole.",
+    "untitled": "New chat",
+    "unarchive": "Unarchive",
+    "delete": "Delete",
+    "bulk_title": "All conversations",
+    "bulk_desc": "Per agent. Archive all hides every live conversation and can be undone here one by one; delete all removes them, archived ones included, and cannot.",
+    "archive_all": "Archive all",
+    "delete_all": "Delete all",
+    "delete_all_title": "Delete every conversation?",
+    "delete_all_message": "Every conversation with {{agent}}, archived ones included, and all their messages will be removed. This cannot be undone. Memories the agent formed are kept.",
+    "cancel": "Cancel",
+    "archived_count": "Archived {{count}} conversations.",
+    "deleted_count": "Deleted {{count}} conversations."
   },
   "general": {
     "theme": "Theme",

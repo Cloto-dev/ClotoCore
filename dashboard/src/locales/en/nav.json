@@ -15,5 +15,19 @@
   "module_reload": "Reload module",
   "module_rejected": "This module could not be read",
   "module_load_failed": "Could not load this module",
-  "module_missing": "No such module"
+  "module_missing": "No such module",
+  "new_chat": "New chat",
+  "conversations": "Conversations",
+  "group_today": "Today",
+  "group_yesterday": "Yesterday",
+  "group_previous_7_days": "Previous 7 days",
+  "group_older": "Older",
+  "untitled_conversation": "New chat",
+  "conversation_menu": "Conversation options",
+  "rename": "Rename",
+  "archive": "Archive",
+  "delete": "Delete",
+  "cancel": "Cancel",
+  "delete_conversation_title": "Delete this conversation?",
+  "delete_conversation_message": "\"{{title}}\" and its messages will be removed. This cannot be undone. Memories the agent formed while talking are kept."
 }

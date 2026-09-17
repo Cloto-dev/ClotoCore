@@ -5,7 +5,6 @@ import {
   Lock,
   Pencil,
   RotateCcw as RetryIcon,
-  RotateCcw,
   User as UserIcon,
   Volume2,
   Zap,
@@ -13,13 +12,14 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useActionsContext } from '../contexts/ActionsContext';
+import { useConversations } from '../contexts/ConversationContext';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
-import { useLongPress } from '../hooks/useLongPress';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { useStickToBottom } from '../hooks/useStickToBottom';
 import { AgentIcon, agentColor } from '../lib/agentIdentity';
+import { buildOutgoingChat } from '../lib/chatSend';
 import { findBranchPoints, flattenConversation } from '../lib/conversationTree';
 import { sendNativeNotification } from '../lib/notifications';
 import { isEngineServer } from '../lib/serverCategory';
@@ -51,30 +51,7 @@ import { StatusDot } from './ui/StatusDot';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
-const LONG_PRESS_MS = 1500;
 const ERROR_DISPLAY_MS = 5000;
-
-function LongPressResetButton({ onReset }: { onReset: () => void }) {
-  const { t } = useTranslation('agents');
-  const { progress, handlers } = useLongPress(LONG_PRESS_MS, onReset);
-
-  return (
-    <button
-      {...handlers}
-      aria-label={progress > 0 ? t('console.hold') : t('console.reset')}
-      className="relative card-solid px-4 py-2 rounded-full border border-edge text-[13px] font-bold text-content-tertiary hover:text-amber-500 hover:border-amber-400/30 flex items-center gap-1.5 overflow-hidden"
-    >
-      {progress > 0 && (
-        <span
-          className="absolute inset-0 bg-amber-400/20 origin-left transition-none"
-          style={{ transform: `scaleX(${progress})` }}
-        />
-      )}
-      <RotateCcw size={12} className={progress > 0 ? 'animate-spin' : ''} />
-      <span className="relative">{progress > 0 ? t('console.hold') : t('console.reset')}</span>
-    </button>
-  );
-}
 
 /** Migrate legacy localStorage session data to server */
 async function migrateLegacyData(
@@ -108,10 +85,19 @@ async function migrateLegacyData(
   }
 }
 
-export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: () => void }) {
+export function AgentConsole({
+  agent,
+  conversationId,
+  onBack,
+}: {
+  agent: AgentMetadata;
+  conversationId: string;
+  onBack: () => void;
+}) {
   const { t } = useTranslation('agents');
   const api = useApi();
   const { identity } = useUserIdentity();
+  const { refresh: refreshConversations } = useConversations();
   const { servers: mcpServers } = useMcpServers();
   const [agentEngines, setAgentEngines] = useState<McpServerInfo[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -212,7 +198,13 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
         // First, check for legacy localStorage data and migrate
         await migrateLegacyData(agent.id, api.postChatMessage);
 
-        const { messages: loaded, has_more } = await api.getChatMessages(agent.id, undefined, 50, identity.id);
+        const { messages: loaded, has_more } = await api.getChatMessages(
+          agent.id,
+          undefined,
+          50,
+          identity.id,
+          conversationId,
+        );
         // API returns newest-first; reverse for display (oldest at top)
         const reversed = loaded.reverse();
         setMessages(reversed);
@@ -229,7 +221,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
       }
     };
     loadMessages();
-  }, [agent.id, api, identity.id]);
+  }, [agent.id, api, identity.id, conversationId]);
+
+  // The list's order and titles change when a reply lands: refresh it.
+  useEffect(() => {
+    if (!isTyping) refreshConversations();
+  }, [isTyping, refreshConversations]);
 
   // Recovery: if isTyping is true but we missed the SSE response,
   // re-check the server for messages. Triggers on:
@@ -238,7 +235,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
   const recoverTypingState = useCallback(async () => {
     if (!isTyping || retryParentIdRef.current) return;
     try {
-      const { messages: latest } = await api.getChatMessages(agent.id, undefined, 5, identity.id);
+      const { messages: latest } = await api.getChatMessages(agent.id, undefined, 5, identity.id, conversationId);
       if (latest.length > 0 && latest[0].source === 'agent') {
         const reversed = latest.reverse();
         setMessages((prev) => {
@@ -252,7 +249,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     } catch {
       // Silently ignore — next event or timeout will retry
     }
-  }, [isTyping, agent.id, api, identity.id]);
+  }, [isTyping, agent.id, api, identity.id, conversationId]);
 
   useEffect(() => {
     if (!isTyping) return;
@@ -273,7 +270,13 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
 
     try {
       const oldestTs = messages[0]?.created_at;
-      const { messages: older, has_more } = await api.getChatMessages(agent.id, oldestTs, 50, identity.id);
+      const { messages: older, has_more } = await api.getChatMessages(
+        agent.id,
+        oldestTs,
+        50,
+        identity.id,
+        conversationId,
+      );
 
       if (older.length > 0) {
         // Preserve scroll position
@@ -297,7 +300,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     } finally {
       setIsLoadingMore(false);
     }
-  }, [agent.id, api, messages, isLoadingMore, hasMore, identity.id]);
+  }, [agent.id, api, messages, isLoadingMore, hasMore, identity.id, conversationId]);
 
   // Lazy load older messages on scroll to top
   useEffect(() => {
@@ -613,45 +616,25 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     setThinkingSteps([]);
     sendTimestampRef.current = Date.now();
 
-    // Extract text content for event bus (which expects a plain string)
-    const textContent = contentBlocks
-      .filter((b) => b.type === 'text')
-      .map((b) => b.text || '')
-      .join(' ');
-
     try {
+      const hasMedia = contentBlocks.some((b) => b.type === 'image' || b.type === 'audio');
+      const outgoing = buildOutgoingChat({
+        messageId: msgId,
+        agentId: agent.id,
+        conversationId,
+        identity,
+        contentBlocks,
+        engineOverride,
+        hasMedia,
+      });
       // If content blocks include media (image/audio), persist them via
       // postChatMessage first so the kernel can find attachments in DB
       // when running maybe_analyze_images / maybe_transcribe_audio.
-      const hasMedia = contentBlocks.some((b) => b.type === 'image' || b.type === 'audio');
       if (hasMedia) {
-        await api.postChatMessage(agent.id, {
-          id: msgId,
-          source: 'user',
-          content: contentBlocks,
-          metadata: {
-            user_id: identity.id,
-            user_name: identity.name,
-            ...(engineOverride ? { engine_override: engineOverride } : {}),
-          },
-        });
+        await api.postChatMessage(agent.id, outgoing.stored);
       }
-
-      const clotoMsg: ClotoMessage = {
-        id: msgId,
-        source: { type: 'User', id: identity.id, name: identity.name },
-        target_agent: agent.id,
-        content: textContent || '[attachment]',
-        timestamp: new Date().toISOString(),
-        metadata: {
-          target_agent_id: agent.id,
-          ...(engineOverride ? { engine_override: engineOverride } : {}),
-          // Tell system.rs not to re-persist the user message (already saved above)
-          ...(hasMedia ? { skip_user_persist: 'true' } : {}),
-        },
-      };
-
-      await api.postChat(clotoMsg);
+      await api.postChat(outgoing.dispatched);
+      refreshConversations();
     } catch (err) {
       setMessages((prev) => prev.filter((m) => m.id !== msgId));
       setIsTyping(false);
@@ -792,22 +775,6 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
     }
   };
 
-  const handleReset = async () => {
-    setMessages([]);
-    setIsTyping(false);
-    setPendingResponse(null);
-    setHasMore(false);
-    setActiveBranches({});
-    setEditingMessage(null);
-    initialLoadDone.current = false;
-    actions.clearAll();
-    try {
-      await api.deleteChatMessages(agent.id, identity.id);
-    } catch (err) {
-      if (import.meta.env.DEV) console.error('Failed to delete chat messages:', err);
-    }
-  };
-
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-500">
       {/* Header */}
@@ -854,7 +821,6 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
               <span>VRM</span>
             </button>
           )}
-          <LongPressResetButton onReset={handleReset} />
         </div>
       </div>
 

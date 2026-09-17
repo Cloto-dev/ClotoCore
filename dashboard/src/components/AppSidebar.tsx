@@ -20,6 +20,7 @@ import { useApi } from '../hooks/useApi';
 import { useModules } from '../hooks/useModules';
 import { AgentIcon, statusDotColor } from '../lib/agentIdentity';
 import { isExperimentalBuild } from '../lib/tauri';
+import { ConversationList } from './ConversationList';
 import { requestShutdown } from './ShutdownOverlay';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 
@@ -99,6 +100,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
         <Cpu size={24} className="shrink-0" />
         {!collapsed && <span className="text-xs font-bold">{t('system')}</span>}
       </button>
+
+      <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
+
+      {/* Conversations: New chat + the threads, by day (docs/CONVERSATIONS_DESIGN.md) */}
+      <ConversationList collapsed={collapsed} />
 
       <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
 

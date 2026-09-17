@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ActionsProvider } from '../contexts/ActionsContext';
 import { useAgentContext } from '../contexts/AgentContext';
+import { ConversationProvider } from '../contexts/ConversationContext';
 import { useLocalStorage } from '../hooks/useStorage';
 import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
@@ -78,95 +79,97 @@ export function AppLayout() {
   };
 
   return (
-    <ActionsProvider>
-      <div className="h-screen bg-surface-base flex flex-col overflow-hidden relative font-sans text-content-primary select-none">
-        {/* 1. ViewHeader — first child, full width */}
-        {!immersive && (
-          <ViewHeader
-            icon={Cpu}
-            title="ClotoCore"
-            afterTitle={<NotificationBell />}
-            onHelp={() => setHelpOpen(true)}
-            navBack={() => navigate(-1)}
-            navForward={() => navigate(1)}
-            canGoBack={canGoBack}
-            canGoForward={canGoForward}
-            right={
-              <span className="text-xs font-mono text-content-tertiary">
-                {activeCount} / {agents.length} Active
-              </span>
-            }
-          />
-        )}
-
-        {/* 2. Body — second child, sidebar + content */}
-        <div className="flex flex-1 overflow-hidden relative">
+    <ConversationProvider>
+      <ActionsProvider>
+        <div className="h-screen bg-surface-base flex flex-col overflow-hidden relative font-sans text-content-primary select-none">
+          {/* 1. ViewHeader — first child, full width */}
           {!immersive && (
-            <div className="relative z-10">
-              <AppSidebar
-                onSettingsClick={() => setSettingsOpen(true)}
-                collapsed={sidebarCollapsed}
-                onToggleCollapse={handleToggleSidebar}
-              />
-            </div>
+            <ViewHeader
+              icon={Cpu}
+              title="ClotoCore"
+              afterTitle={<NotificationBell />}
+              onHelp={() => setHelpOpen(true)}
+              navBack={() => navigate(-1)}
+              navForward={() => navigate(1)}
+              canGoBack={canGoBack}
+              canGoForward={canGoForward}
+              right={
+                <span className="text-xs font-mono text-content-tertiary">
+                  {activeCount} / {agents.length} Active
+                </span>
+              }
+            />
           )}
-          <main className="flex-1 h-full overflow-hidden relative z-10">
-            {/* AgentPage is always mounted to preserve SSE connections,
+
+          {/* 2. Body — second child, sidebar + content */}
+          <div className="flex flex-1 overflow-hidden relative">
+            {!immersive && (
+              <div className="relative z-10">
+                <AppSidebar
+                  onSettingsClick={() => setSettingsOpen(true)}
+                  collapsed={sidebarCollapsed}
+                  onToggleCollapse={handleToggleSidebar}
+                />
+              </div>
+            )}
+            <main className="flex-1 h-full overflow-hidden relative z-10">
+              {/* AgentPage is always mounted to preserve SSE connections,
               thinking steps, and chat state across navigation.
               Thinking steps also persisted in sessionStorage for reload. */}
-            <div className={isAgentRoute ? 'h-full' : 'hidden'}>
-              <AgentPage />
-            </div>
-            {!isAgentRoute && (
+              <div className={isAgentRoute ? 'h-full' : 'hidden'}>
+                <AgentPage />
+              </div>
+              {!isAgentRoute && (
+                <Suspense
+                  fallback={
+                    <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
+                      LOADING CLOTO...
+                    </div>
+                  }
+                >
+                  <Outlet context={{ setImmersive } satisfies AppOutletContext} />
+                </Suspense>
+              )}
+            </main>
+          </div>
+
+          {/* Settings modal */}
+          {settingsOpen && (
+            <Modal
+              title="Settings"
+              icon={Settings}
+              size="lg"
+              onClose={() => {
+                setSettingsOpen(false);
+                setSettingsInitialSection('general');
+              }}
+            >
               <Suspense
                 fallback={
                   <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
-                    LOADING CLOTO...
+                    SYNCHRONIZING...
                   </div>
                 }
               >
-                <Outlet context={{ setImmersive } satisfies AppOutletContext} />
+                <SettingsView initialSection={settingsInitialSection} />
               </Suspense>
-            )}
-          </main>
-        </div>
+            </Modal>
+          )}
 
-        {/* Settings modal */}
-        {settingsOpen && (
-          <Modal
-            title="Settings"
-            icon={Settings}
-            size="lg"
-            onClose={() => {
-              setSettingsOpen(false);
-              setSettingsInitialSection('general');
-            }}
-          >
-            <Suspense
-              fallback={
-                <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
-                  SYNCHRONIZING...
-                </div>
-              }
-            >
-              <SettingsView initialSection={settingsInitialSection} />
-            </Suspense>
-          </Modal>
-        )}
+          {/* Help modal */}
+          {helpOpen && (
+            <Modal title={t('help.title')} icon={HelpCircle} size="sm" onClose={() => setHelpOpen(false)}>
+              <HelpContent onAskAgent={handleAskAgent} />
+            </Modal>
+          )}
 
-        {/* Help modal */}
-        {helpOpen && (
-          <Modal title={t('help.title')} icon={HelpCircle} size="sm" onClose={() => setHelpOpen(false)}>
-            <HelpContent onAskAgent={handleAskAgent} />
-          </Modal>
-        )}
-
-        {/* Both live outside the routed content on purpose: a question an agent
+          {/* Both live outside the routed content on purpose: a question an agent
             is blocked on is not about the screen you happen to be on, and the
             immersive view does not get to hide one either. */}
-        <CommandApprovalDeck />
-        <SecurityGuard />
-      </div>
-    </ActionsProvider>
+          <CommandApprovalDeck />
+          <SecurityGuard />
+        </div>
+      </ActionsProvider>
+    </ConversationProvider>
   );
 }

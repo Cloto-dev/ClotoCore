@@ -104,6 +104,20 @@ export interface ChatMessage {
   created_at: number;
   parent_id?: string | null;
   branch_index?: number;
+  conversation_id?: string | null;
+}
+
+/** A conversation: the persistent thread the model reads as its context
+ * (docs/CONVERSATIONS_DESIGN.md). Times are Unix ms. */
+export interface Conversation {
+  id: string;
+  agent_id: string;
+  user_id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  archived_at: number | null;
+  message_count: number;
 }
 
 // API response types
