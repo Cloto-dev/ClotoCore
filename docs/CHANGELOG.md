@@ -29,7 +29,11 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   recent ones the memory server lists, which the group says). Arrows move,
   Enter goes, Escape closes and hands the focus back to where it was; the
   sidebar's search button opens it too. What was said inside conversations is
-  not searched yet — that needs a search the kernel answers. `/` puts the caret
+  searched as well, archived conversations included: the group shows the first
+  five matches with the text around each, where it was said and with whom, and
+  how many more there are. The kernel answers it (`GET /api/chat/search`, a
+  full-text index that finds a phrase inside Japanese text as readily as an
+  English word). `/` puts the caret
   in the composer when nothing else is being typed in, and ⌘N (new chat) now
   goes through the same one table of shortcuts.
 - **The keyboard can always see where it is.** One focus ring for the whole
