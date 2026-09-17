@@ -16,7 +16,10 @@
   line-height: 1.7;
   color: hsl(var(--text-primary));
 }
-.side button {
+/* The mock's element resets. Wrapped in :where() so they carry no
+ * specificity, as the mock's bare `button` / `svg` selectors carry none —
+ * otherwise `.conv`'s padding and size would lose to them. */
+:where(.side button) {
   font: inherit;
   color: inherit;
   background: none;
@@ -24,7 +27,7 @@
   padding: 0;
   cursor: pointer;
 }
-.side svg {
+:where(.side svg) {
   width: 15px;
   height: 15px;
   flex: none;
