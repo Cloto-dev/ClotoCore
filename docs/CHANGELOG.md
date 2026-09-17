@@ -19,8 +19,9 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   reply). A stop pressed while the message still waits behind the agent's
   previous turn is kept and acts as soon as the message has been stored — what
   you wrote is never lost. If the reply had already finished, it is shown after
-  all. The engine itself is not yet told to stop generating: the kernel stops
-  waiting for it and discards what it sends.
+  all. The engine is told to stop as well: the kernel sends MCP cancellation
+  for the call the reply had reached, so an engine running over stdio stops
+  generating (and spending tokens) instead of finishing an answer nobody sees.
 
 - **Search, from anywhere (⌘K / Ctrl+K).** A field over the page that goes to
   a screen or a settings section, a conversation (by its title or who it is
