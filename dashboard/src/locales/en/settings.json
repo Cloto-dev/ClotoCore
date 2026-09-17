@@ -128,7 +128,6 @@
     "theme_low_contrast": "{{label}} (low contrast)",
     "theme_low_contrast_desc": "Some of this theme's smaller text is fainter than recommended.",
     "theme_mode": "Light or dark",
-    "theme_mode_one_face": "This theme is {{face}} only.",
     "group_theme_pack": "Theme packs",
     "theme_pack_label": "Theme pack",
     "theme_pack_desc": "A theme is a JSON file of colours. Export the template, change the values, and import it.",
@@ -137,7 +136,9 @@
     "theme_import_error": "This theme can't be used: {{error}}",
     "theme_remove": "Remove",
     "theme_by": "by {{author}}",
-    "theme_rejected": "\"{{name}}\" was not loaded: {{error}}"
+    "theme_rejected": "\"{{name}}\" was not loaded: {{error}}",
+    "theme_mode_only_light": "This theme is light only.",
+    "theme_mode_only_dark": "This theme is dark only."
   },
   "about": {
     "clotocore": "ClotoCore",

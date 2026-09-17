@@ -36,9 +36,7 @@ export function ThemeRows() {
       </SettingsRow>
       <SettingsRow
         label={t('general.theme_mode')}
-        desc={
-          oneFace ? t('general.theme_mode_one_face', { face: t(`general.theme_${faces[0]}`) }) : t('general.theme_desc')
-        }
+        desc={oneFace ? t(`general.theme_mode_only_${faces[0]}`) : t('general.theme_desc')}
       >
         <Segmented<ThemeMode>
           label={t('general.theme_mode')}

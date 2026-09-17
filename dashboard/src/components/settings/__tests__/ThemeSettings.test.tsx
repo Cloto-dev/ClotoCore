@@ -61,7 +61,7 @@ describe('the theme rows', () => {
   it('say so when the theme on screen has one face only', () => {
     stub.theme.themes = [loaded('one', 'One', {}, ['dark'])];
     render(<ThemeRows />);
-    expect(screen.getByText('This theme is Dark only.')).toBeInTheDocument();
+    expect(screen.getByText('This theme is dark only.')).toBeInTheDocument();
   });
 });
 

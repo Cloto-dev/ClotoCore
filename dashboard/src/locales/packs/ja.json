@@ -588,7 +588,6 @@
       "theme_low_contrast": "{{label}} (低コントラスト)",
       "theme_low_contrast_desc": "このテーマは、小さい文字の一部が推奨より薄く表示されます。",
       "theme_mode": "ライト / ダーク",
-      "theme_mode_one_face": "このテーマは{{face}}のみです。",
       "group_theme_pack": "テーマパック",
       "theme_pack_label": "テーマパック",
       "theme_pack_desc": "テーマは配色を書いた JSON ファイルです。テンプレートをエクスポートし、値を変えてインポートします。",
@@ -597,7 +596,9 @@
       "theme_import_error": "このテーマは使えません: {{error}}",
       "theme_remove": "削除",
       "theme_by": "作者: {{author}}",
-      "theme_rejected": "「{{name}}」は読み込まれませんでした: {{error}}"
+      "theme_rejected": "「{{name}}」は読み込まれませんでした: {{error}}",
+      "theme_mode_only_light": "このテーマはライトのみです。",
+      "theme_mode_only_dark": "このテーマはダークのみです。"
     },
     "about": {
       "clotocore": "ClotoCore",
