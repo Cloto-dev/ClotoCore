@@ -11,6 +11,17 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Changed
 
+- **Back, forward and the sidebar toggle are back, in a bar of the page's own.**
+  Making the window's frame the operating system's had taken them away with the
+  old title bar. A thin bar across the top now carries three controls and
+  nothing else: hide or show the sidebar (remembered between launches), back,
+  and forward. Back and forward are dimmed when there is nowhere to go, and
+  opening something new from an earlier page drops the way forward, as a
+  browser does. The bar continues the sidebar's surface while the sidebar is
+  shown, has no line under it, and everything in it that is not a button is
+  what the window is dragged by. On macOS the controls start to the right of
+  the window buttons.
+
 - **The chat is the living room of the design mocks.** The conversation is a
   720px reading column: your turns sit right, on the receding surface; the
   agent's turns carry a dot in the agent's colour and no avatar per line. Each

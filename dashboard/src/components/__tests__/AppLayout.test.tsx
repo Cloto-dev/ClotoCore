@@ -15,6 +15,7 @@ vi.mock('react-router-dom', () => ({
   Outlet: () => null,
   useLocation: () => ({ pathname: '/' }),
   useNavigate: () => vi.fn(),
+  useNavigationType: () => 'POP',
 }));
 const agentCtx = vi.hoisted(() => ({ agents: [], setSelectedAgentId: () => {} }));
 vi.mock('../../contexts/AgentContext', () => ({ useAgentContext: () => agentCtx }));
@@ -27,7 +28,7 @@ vi.mock('../../contexts/ConversationContext', () => ({
 vi.mock('../../pages/AgentPage', () => ({ AgentPage: () => <div>agent-page</div> }));
 vi.mock('../AppSidebar', () => ({
   AppSidebar: ({ onHelpClick }: { onHelpClick?: () => void }) => (
-    <button type="button" onClick={onHelpClick}>
+    <button type="button" onClick={onHelpClick} data-testid="sidebar">
       sidebar-help
     </button>
   ),
@@ -41,27 +42,49 @@ import { AppLayout } from '../AppLayout';
 
 beforeEach(() => {
   chrome.hasOverlayTitleBar = false;
+  window.localStorage.clear();
 });
 
 describe('the window frame', () => {
-  it('draws no bar of its own where the OS draws the title bar', () => {
+  it('draws no window buttons of its own: the bar carries the sidebar toggle, back and forward, and nothing else', () => {
     const { container } = render(<AppLayout />);
-    expect(screen.queryByTestId('window-strip')).toBeNull();
-    // Nothing of the old header: no title bar element, no window buttons.
+    const bar = screen.getByTestId('window-bar');
+    expect([...bar.querySelectorAll('button')].map((b) => b.getAttribute('aria-label'))).toEqual([
+      'hide_sidebar',
+      'go_back',
+      'go_forward',
+    ]);
     expect(container.querySelector('header')).toBeNull();
     expect(screen.queryByLabelText('close_window')).toBeNull();
     expect(screen.queryByLabelText('minimize_window')).toBeNull();
+    expect(bar.className).not.toMatch(/border/);
   });
 
-  it('leaves a strip to hold the window by where the OS lays its buttons over the page', () => {
+  it('is what the window is held by, everywhere a button is not', () => {
     chrome.hasOverlayTitleBar = true;
     render(<AppLayout />);
-    const strip = screen.getByTestId('window-strip');
-    expect(strip.style.height).toBe('28px');
-    // Both halves take hold of the window; neither draws a line under itself.
-    const holds = strip.querySelectorAll('[data-tauri-drag-region]');
+    const bar = screen.getByTestId('window-bar');
+    expect(bar.className).toContain('overlay');
+    const holds = bar.querySelectorAll('[data-tauri-drag-region]');
     expect(holds).toHaveLength(2);
-    for (const hold of holds) expect(hold.className).not.toMatch(/border/);
+    // A button that dragged the window would never be clicked.
+    for (const b of bar.querySelectorAll('button')) expect(b.hasAttribute('data-tauri-drag-region')).toBe(false);
+  });
+
+  it('hides and shows the sidebar, and remembers which', () => {
+    const first = render(<AppLayout />);
+    expect(screen.getByTestId('sidebar')).toBeTruthy();
+    fireEvent.click(screen.getByLabelText('hide_sidebar'));
+    expect(screen.queryByTestId('sidebar')).toBeNull();
+    // The bar stops continuing a surface that is no longer under it.
+    expect(screen.getByTestId('window-bar').querySelector('.over-side')).toBeNull();
+    first.unmount();
+
+    render(<AppLayout />);
+    expect(screen.queryByTestId('sidebar')).toBeNull();
+    fireEvent.click(screen.getByLabelText('show_sidebar'));
+    expect(screen.getByTestId('sidebar')).toBeTruthy();
+    expect(screen.getByTestId('window-bar').querySelector('.over-side')).not.toBeNull();
   });
 
   it('still opens the help, which the sidebar now asks for', () => {

@@ -95,7 +95,8 @@ System views (non-route):
 #### Layout & Navigation
 - `AppLayout.tsx` — Master layout wrapper (header + sidebar + content). Manages settings modal with initialSection routing.
 - `AppSidebar.tsx` — Left sidebar with agent list and navigation links.
-- `ViewHeader.tsx` — The header of the setup wizard and the settings modal: title, help, connection status, update indicator. Not used by the main layout — the window's frame is the OS's (`tauri.conf.json`), and on macOS `AppLayout` leaves a drag strip under the overlaid window buttons.
+- `WindowBar.tsx` — The bar across the top of the main layout: show/hide the sidebar (remembered per browser), back and forward through the router's history. Draws no title and no window buttons; on macOS its controls start to the right of the overlaid OS window buttons.
+- `ViewHeader.tsx` — The header of the setup wizard and the settings modal: title, help, connection status, update indicator. Not used by the main layout — the window's frame is the OS's (`tauri.conf.json`), and the main layout's own bar is `WindowBar.tsx`.
 - `BranchNavigator.tsx` — Conversation branching/fork navigation.
 
 #### System & Status
@@ -213,7 +214,7 @@ System views (non-route):
 
 ```
 AppLayout
-├── window strip (macOS only: room for the OS window buttons, and the hold to drag the window by)
+├── WindowBar (sidebar toggle, back, forward; the rest of it is the hold to drag the window by)
 ├── AppSidebar (left nav: agent list + nav links + settings button)
 └── Router Outlet
     ├── AgentPage → AgentTerminal

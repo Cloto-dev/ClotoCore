@@ -5,13 +5,25 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ActionsProvider } from '../contexts/ActionsContext';
 import { useAgentContext } from '../contexts/AgentContext';
 import { ConversationProvider } from '../contexts/ConversationContext';
-import { hasOverlayTitleBar, isExperimentalBuild, OVERLAY_TITLE_BAR_PX } from '../lib/tauri';
+import { isExperimentalBuild } from '../lib/tauri';
 import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
 import { CommandApprovalDeck } from './CommandApprovalDeck';
 import { HelpContent } from './HelpContent';
 import { Modal } from './Modal';
 import { SecurityGuard } from './SecurityGuard';
+import { WindowBar } from './WindowBar';
+
+const SIDEBAR_HIDDEN_KEY = 'cloto-sidebar-hidden';
+
+/** A convenience, not state anything depends on: a browser that refuses storage just starts with the sidebar shown. */
+function readSidebarHidden(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_HIDDEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 const SettingsView = lazy(() => import('./SettingsView').then((m) => ({ default: m.SettingsView })));
 
@@ -26,6 +38,17 @@ export function AppLayout() {
   const [settingsInitialSection, setSettingsInitialSection] = useState<'general' | 'about'>('general');
   const [helpOpen, setHelpOpen] = useState(false);
   const [immersive, setImmersive] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(readSidebarHidden);
+
+  const toggleSidebar = () => {
+    const next = !sidebarHidden;
+    setSidebarHidden(next);
+    try {
+      window.localStorage.setItem(SIDEBAR_HIDDEN_KEY, next ? '1' : '0');
+    } catch {
+      // Not remembered across launches; the toggle itself still works.
+    }
+  };
   const navigate = useNavigate();
   const location = useLocation();
   const { agents, setSelectedAgentId } = useAgentContext();
@@ -63,23 +86,14 @@ export function AppLayout() {
     <ConversationProvider>
       <ActionsProvider>
         <div className="h-screen bg-surface-base flex flex-col overflow-hidden relative font-sans text-content-primary select-none">
-          {/* The window's frame is the OS's. Where the OS lays its title bar over
-              the page (macOS), the page leaves a strip for the window buttons and
-              to take hold of the window by: the two surfaces carried up to the
-              top edge, nothing drawn on them, no line under them. */}
-          {hasOverlayTitleBar && (
-            <div className="flex shrink-0" style={{ height: OVERLAY_TITLE_BAR_PX }} data-testid="window-strip">
-              {!immersive && (
-                // HARDCODED(dashboard/src/components/AppSidebar.css::.side width): the strip continues the sidebar's surface upward, so it is as wide as the sidebar.
-                <div className="shrink-0 bg-surface-secondary" style={{ width: 264 }} data-tauri-drag-region="" />
-              )}
-              <div className="flex-1" data-tauri-drag-region="" />
-            </div>
-          )}
+          {/* The window's frame is the OS's; this bar is the page's own: the
+              sidebar toggle, back and forward, and otherwise something to hold
+              the window by. */}
+          <WindowBar sidebarShown={!sidebarHidden} onToggleSidebar={toggleSidebar} immersive={immersive} />
 
           {/* Body — sidebar + content */}
           <div className="flex flex-1 overflow-hidden relative">
-            {!immersive && (
+            {!immersive && !sidebarHidden && (
               <div className="relative z-10">
                 <AppSidebar onSettingsClick={() => setSettingsOpen(true)} onHelpClick={() => setHelpOpen(true)} />
               </div>

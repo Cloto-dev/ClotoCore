@@ -848,7 +848,11 @@
     "kernel_running": "カーネル稼働中",
     "agents_count": "{{count}} 体",
     "help": "ヘルプ",
-    "kernel_unreachable": "カーネルに接続できません"
+    "kernel_unreachable": "カーネルに接続できません",
+    "hide_sidebar": "サイドバーを隠す",
+    "show_sidebar": "サイドバーを表示",
+    "go_back": "戻る",
+    "go_forward": "進む"
   },
   "cron": {
     "title": "Cron ジョブ",

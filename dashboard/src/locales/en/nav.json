@@ -37,5 +37,9 @@
   "kernel_running": "Kernel running",
   "agents_count": "{{count}} agents",
   "help": "Help",
-  "kernel_unreachable": "Kernel unreachable"
+  "kernel_unreachable": "Kernel unreachable",
+  "hide_sidebar": "Hide sidebar",
+  "show_sidebar": "Show sidebar",
+  "go_back": "Back",
+  "go_forward": "Forward"
 }
