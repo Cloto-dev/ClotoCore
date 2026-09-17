@@ -32,7 +32,7 @@ pub use response::{json_data, ok_data};
 pub use agents::{
     create_agent, delete_agent, delete_avatar, delete_vrm, generate_visemes,
     get_agent_instruction_files, get_agent_last_usage, get_agents, get_avatar, get_vrm,
-    power_toggle, serve_speech_file, update_agent, upload_avatar, upload_vrm,
+    power_toggle, serve_speech_file, set_power_password, update_agent, upload_avatar, upload_vrm,
 };
 pub use chat::chat_handler;
 pub use commands::{approve_command, deny_command, trust_command};

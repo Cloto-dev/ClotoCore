@@ -392,6 +392,61 @@ pub async fn delete_agent(
     ok_data(serde_json::json!({}))
 }
 
+#[derive(Deserialize)]
+pub struct PowerPasswordRequest {
+    pub current_password: Option<String>,
+    pub new_password: String,
+}
+
+/// POST /api/agents/:id/power-password
+///
+/// Set, change or remove the password that guards an agent's power switch and
+/// its deletion. An empty `new_password` removes it.
+///
+/// The admin key alone does not suffice once a password is set: the password
+/// exists so that whoever holds the dashboard still has to know it to stop the
+/// agent, and a change that skipped that check would be the way around it. So
+/// `current_password` is verified exactly as the power switch verifies it.
+pub async fn set_power_password(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(payload): Json<PowerPasswordRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    if !state.agent_manager.agent_exists(&id).await? {
+        return Err(AppError::Cloto(cloto_shared::ClotoError::AgentNotFound(id)));
+    }
+
+    super::utils::verify_agent_password(
+        &state,
+        &id,
+        payload.current_password.as_deref(),
+        "change this agent's password",
+    )
+    .await?;
+
+    let new_password = (!payload.new_password.is_empty()).then_some(payload.new_password.as_str());
+    state.agent_manager.set_password(&id, new_password).await?;
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        if new_password.is_some() {
+            "AGENT_PASSWORD_SET"
+        } else {
+            "AGENT_PASSWORD_REMOVED"
+        },
+        id.clone(),
+        "Agent power password changed".to_string(),
+        None,
+        None,
+        None,
+    );
+
+    ok_data(serde_json::json!({ "has_power_password": new_password.is_some() }))
+}
+
 /// Toggle agent power state (enable/disable).
 ///
 /// **Route:** `POST /api/agents/:id/power`

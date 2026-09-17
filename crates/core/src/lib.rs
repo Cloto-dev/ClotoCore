@@ -1546,6 +1546,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )
         .route("/agents/{id}/power", post(handlers::power_toggle))
         .route(
+            "/agents/{id}/power-password",
+            post(handlers::set_power_password),
+        )
+        .route(
             "/agents/{id}/avatar",
             get(handlers::get_avatar)
                 .post(handlers::upload_avatar)
