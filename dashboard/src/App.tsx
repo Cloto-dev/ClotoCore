@@ -18,6 +18,7 @@ const AgentSettingsPage = lazy(() =>
 const CronJobs = lazy(() => import('./components/CronJobs').then((m) => ({ default: m.CronJobs })));
 const ModulePage = lazy(() => import('./pages/ModulePage').then((m) => ({ default: m.ModulePage })));
 const VrmViewerPage = lazy(() => import('./vrm/VrmViewerPage').then((m) => ({ default: m.VrmViewerPage })));
+const SettingsView = lazy(() => import('./components/SettingsView').then((m) => ({ default: m.SettingsView })));
 
 export function App() {
   const [setupDone, setSetupDone] = useState(() => localStorage.getItem('cloto-setup-completed') === '1');
@@ -166,6 +167,7 @@ export function App() {
             <Route path="/agents/:id/settings" element={<AgentSettingsPage />} />
             <Route path="/dashboard" element={<MemoryCore />} />
             <Route path="/mcp-servers" element={<McpServersPage />} />
+            <Route path="/settings" element={<SettingsView />} />
             <Route path="/cron" element={<CronJobs />} />
             <Route path="/modules/:id" element={<ModulePage />} />
           </Route>

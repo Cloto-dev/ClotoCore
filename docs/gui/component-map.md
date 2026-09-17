@@ -18,7 +18,9 @@ Use `gui.read` to read any file listed below (path relative to `dashboard/src/`)
 
 System views (non-route):
 - `components/KernelMonitor.tsx` — System kernel monitor (accessed via AgentPage system mode)
-- `components/SettingsView.tsx` — Settings modal (opened from sidebar)
+
+Routes (see `App.tsx`):
+- `components/SettingsView.tsx` — Settings, at `/settings`. The open section is `?section=<id>`; an unknown or missing one opens `general`.
 
 ---
 
@@ -65,7 +67,7 @@ System views (non-route):
 - `InstallDialog.tsx` — Server installation progress dialog.
 
 #### Settings (`components/settings/`)
-- `SettingsView.tsx` — Main settings container with sidebar navigation. Accepts `initialSection` prop.
+- `SettingsView.tsx` — The settings page: the section rail on the left, rows of "item, explanation, control" on the right. The section comes from `?section=`; clicking one replaces the history entry.
 - `GeneralSection.tsx` — Theme, language, user identity (display name with onBlur pattern).
 - `DisplaySection.tsx` — Custom cursor toggle (localStorage).
 - `LlmProvidersSection.tsx` — LLM API key configuration (OpenAI, Anthropic, etc).
@@ -93,10 +95,10 @@ System views (non-route):
 - `TypewriterMessage.tsx` — Animated typing effect for message display.
 
 #### Layout & Navigation
-- `AppLayout.tsx` — Master layout wrapper (header + sidebar + content). Manages settings modal with initialSection routing.
+- `AppLayout.tsx` — Master layout wrapper (header + sidebar + content). Sends the `cloto-open-settings` event to `/settings?section=<id>`.
 - `AppSidebar.tsx` — Left sidebar with agent list and navigation links.
 - `WindowBar.tsx` — The bar across the top of the main layout: show/hide the sidebar (remembered per browser), back and forward through the router's history. Draws no title and no window buttons; on macOS its controls start to the right of the overlaid OS window buttons.
-- `ViewHeader.tsx` — The header of the setup wizard and the settings modal: title, help, connection status, update indicator. Not used by the main layout — the window's frame is the OS's (`tauri.conf.json`), and the main layout's own bar is `WindowBar.tsx`.
+- `ViewHeader.tsx` — The header of the setup wizard: title, help, connection status, update indicator. Not used by the main layout — the window's frame is the OS's (`tauri.conf.json`), and the main layout's own bar is `WindowBar.tsx`.
 - `BranchNavigator.tsx` — Conversation branching/fork navigation.
 
 #### System & Status
@@ -241,11 +243,12 @@ AppLayout
     │
     └── CronJobs (scheduler)
 
-Settings (modal, opened from sidebar or update button)
+Settings (the `/settings` page, reached from the sidebar or the update notice)
 ├── GeneralSection (theme, language, identity)
-├── SecuritySection (API keys)
-├── DisplaySection (cursor toggle)
+├── ConversationsSection (archived conversations, bulk archive/delete)
+├── SecuritySection (API keys, LLM providers)
 ├── AdvancedSection (YOLO, cron limits)
+├── HealthSection (checks, repair, danger zone)
 ├── LogSection (event viewer)
 └── AboutSection (version, auto-update toggle, update check, license, setup rerun)
 

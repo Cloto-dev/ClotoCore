@@ -1,5 +1,5 @@
-import { HelpCircle, Settings } from 'lucide-react';
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { HelpCircle } from 'lucide-react';
+import { Suspense, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ActionsProvider } from '../contexts/ActionsContext';
@@ -25,8 +25,6 @@ function readSidebarHidden(): boolean {
   }
 }
 
-const SettingsView = lazy(() => import('./SettingsView').then((m) => ({ default: m.SettingsView })));
-
 export interface AppOutletContext {
   setImmersive: (v: boolean) => void;
 }
@@ -34,8 +32,6 @@ export interface AppOutletContext {
 export function AppLayout() {
   const { t } = useTranslation('common');
   const { t: tNav } = useTranslation('nav');
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialSection, setSettingsInitialSection] = useState<'general' | 'about'>('general');
   const [helpOpen, setHelpOpen] = useState(false);
   const [immersive, setImmersive] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(readSidebarHidden);
@@ -54,26 +50,23 @@ export function AppLayout() {
   const { agents, setSelectedAgentId } = useAgentContext();
   const isAgentRoute = location.pathname === '/';
 
-  // Close settings and navigate home when quick setup completes
+  // Quick setup, re-run from Settings, ends at the living room.
   useEffect(() => {
-    const handler = () => {
-      setSettingsOpen(false);
-      navigate('/');
-    };
+    const handler = () => navigate('/');
     window.addEventListener('cloto-setup-rerun-complete', handler);
     return () => window.removeEventListener('cloto-setup-rerun-complete', handler);
   }, [navigate]);
 
-  // Open settings (optionally to About section) when update button is clicked
+  // The update notice asks for Settings, at About. Settings is a page, so the
+  // section it wants travels in the URL rather than in a prop.
   useEffect(() => {
     const handler = (e: Event) => {
       const section = (e as CustomEvent).detail?.section ?? 'general';
-      setSettingsInitialSection(section);
-      setSettingsOpen(true);
+      navigate(`/settings?section=${encodeURIComponent(section)}`);
     };
     window.addEventListener('cloto-open-settings', handler);
     return () => window.removeEventListener('cloto-open-settings', handler);
-  }, []);
+  }, [navigate]);
 
   const handleAskAgent = () => {
     setHelpOpen(false);
@@ -95,7 +88,7 @@ export function AppLayout() {
           <div className="flex flex-1 overflow-hidden relative">
             {!immersive && !sidebarHidden && (
               <div className="relative z-10">
-                <AppSidebar onSettingsClick={() => setSettingsOpen(true)} onHelpClick={() => setHelpOpen(true)} />
+                <AppSidebar onSettingsClick={() => navigate('/settings')} onHelpClick={() => setHelpOpen(true)} />
               </div>
             )}
             <main className="flex-1 h-full overflow-hidden relative z-10">
@@ -129,29 +122,6 @@ export function AppLayout() {
               </div>
             )}
           </div>
-
-          {/* Settings modal */}
-          {settingsOpen && (
-            <Modal
-              title={tNav('settings')}
-              icon={Settings}
-              size="lg"
-              onClose={() => {
-                setSettingsOpen(false);
-                setSettingsInitialSection('general');
-              }}
-            >
-              <Suspense
-                fallback={
-                  <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
-                    {t('loading')}
-                  </div>
-                }
-              >
-                <SettingsView initialSection={settingsInitialSection} />
-              </Suspense>
-            </Modal>
-          )}
 
           {/* Help modal */}
           {helpOpen && (

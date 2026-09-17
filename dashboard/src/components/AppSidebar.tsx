@@ -327,7 +327,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
           {ICONS.memory}
           {t('memory')}
         </button>
-        <button type="button" className="navlink" onClick={onSettingsClick}>
+        <button type="button" className={`navlink${isNavActive('/settings') ? ' on' : ''}`} onClick={onSettingsClick}>
           {ICONS.settings}
           {t('settings')}
         </button>

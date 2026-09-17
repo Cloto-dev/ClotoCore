@@ -501,7 +501,8 @@
         "running_desc": "列挙された項目をヘルパーが削除できるよう、アプリを終了しています。このウィンドウを閉じ、ClotoCore を再度開かないでください。",
         "report_path": "レポート",
         "running_resume_hint": "何か残っていた場合、その内容はレポートに記載されます。隣に置かれた計画ファイルは次のコマンドで再実行できます: clotocore purge-exec --plan <file>"
-      }
+      },
+      "scanning": "点検しています…"
     },
     "conversations": {
       "archived_title": "アーカイブ済みの会話",
@@ -526,8 +527,8 @@
       "theme_system": "システム",
       "theme_legacy": "レガシー",
       "language": "言語",
-      "export_template": "テンプレート出力",
-      "import_pack": "インポート",
+      "export_template": "書き出す",
+      "import_pack": "読み込む",
       "import_success": "\"{{label}}\" ({{code}}) のインポートに成功しました。",
       "import_error": "インポート失敗: {{error}}",
       "custom_label": "カスタム",
@@ -536,8 +537,15 @@
       "display_name": "表示名",
       "name_placeholder": "ユーザー",
       "name_hint": "チャット時にエージェントに表示される名前です。エージェントがあなたを名前で呼ぶことができます。",
-      "inject_language_to_prompt": "プロンプトに注入",
-      "inject_language_hint": "ONにすると、エージェントは選択した言語で返答するよう指示されます。エージェントの説明で上書き可能です。"
+      "inject_language_to_prompt": "応答言語をプロンプトに注入",
+      "inject_language_hint": "ON にすると、エージェントは選択した言語で返答するよう指示されます。エージェントの説明で上書きできます。",
+      "group_display": "表示",
+      "group_user": "ユーザー",
+      "group_language_pack": "言語テンプレート",
+      "theme_desc": "端末の設定に合わせるか、固定します。",
+      "language_desc": "ダッシュボードの表示言語。",
+      "pack_label": "翻訳パックのひな形",
+      "pack_desc": "自分の言語パックを作るための書き出しと読み込み。"
     },
     "about": {
       "clotocore": "ClotoCore",
@@ -574,7 +582,10 @@
       "channel_experimental_hint": "プレリリース (alpha/beta) — 任意参加",
       "channel_confirm_title": "Experimental チャンネルに切り替えますか？",
       "channel_confirm_message": "Experimental リリースは任意参加のみで、動作の保証はありません。修正は次のプレリリースで提供されます。",
-      "channel_confirm_label": "切り替える"
+      "channel_confirm_label": "切り替える",
+      "version_label": "バージョン",
+      "latest_label": "最新のリリース",
+      "latest_desc": "新しいビルドがあるか配信元に問い合わせます。"
     },
     "advanced": {
       "yolo_title": "YOLO モード",
@@ -590,7 +601,8 @@
       "shutdown_overlay_title": "シャットダウン中",
       "shutdown_overlay_draining": "MCP サーバーを停止しています…",
       "shutdown_overlay_stopped_title": "カーネル停止",
-      "shutdown_overlay_stopped_hint": "ClotoCore は終了しました。このタブを閉じて構いません。"
+      "shutdown_overlay_stopped_hint": "ClotoCore は終了しました。このタブを閉じて構いません。",
+      "cron_limit_label": "許可する世代数"
     },
     "security": {
       "api_key_title": "API キー",
@@ -608,7 +620,11 @@
       "invalidate_label": "現在のキーを無効化 (システム全体)",
       "invalidate_confirm_desc": "すべてのクライアントでキーが無効化されます。",
       "error_invalid_key": "無効な API キーです",
-      "error_invalidate_failed": "キーの無効化に失敗しました"
+      "error_invalidate_failed": "キーの無効化に失敗しました",
+      "status_label": "状態",
+      "new_key_label": "鍵を差し替える",
+      "new_key_desc": "このダッシュボードが送る鍵。保存する前にカーネルで試します。",
+      "invalidate_desc": "このダッシュボードを含む全クライアントで鍵が無効になります。"
     },
     "display": {
       "cursor_title": "カーソル",
@@ -661,7 +677,10 @@
       "engine_disconnected": "エンジン停止中",
       "engine_disconnected_hint": "このエンジンはインストール済みですが、実行されていません。このプロバイダーを使うには起動してください。",
       "engine_uninstalled": "エンジン未インストール",
-      "engine_uninstalled_hint": "このプロバイダー用のエンジンは、すでにインストールされていません。設定は保持されます — 再度使用するには、エンジンを再インストールしてください。"
+      "engine_uninstalled_hint": "このプロバイダー用のエンジンは、すでにインストールされていません。設定は保持されます — 再度使用するには、エンジンを再インストールしてください。",
+      "model_label": "モデル",
+      "context_length_label": "コンテキスト",
+      "key_label": "API キー"
     }
   },
   "mcp": {

@@ -1,8 +1,7 @@
-import { AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
-import { SectionCard, Toggle } from './common';
+import { SettingsGroup, SettingsRow, Toggle } from './common';
 
 export function AdvancedSection() {
   const api = useApi();
@@ -49,39 +48,29 @@ export function AdvancedSection() {
 
   return (
     <>
-      <SectionCard title={t('advanced.yolo_title')}>
-        <div className="space-y-4">
-          {!loading && (
-            <Toggle enabled={yoloEnabled} onToggle={handleToggle} label={t('advanced.auto_approve_label')} />
-          )}
-          {yoloEnabled && (
-            <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
-              <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
-              <div className="space-y-1">
-                <p className="text-xs font-bold text-amber-400">{t('advanced.yolo_warning')}</p>
-              </div>
-            </div>
-          )}
-          {!yoloEnabled && <p className="text-xs text-content-tertiary">{t('advanced.yolo_desc')}</p>}
-        </div>
-      </SectionCard>
+      <SettingsGroup title={t('advanced.yolo_title')}>
+        {!loading && (
+          <SettingsRow label={t('advanced.auto_approve_label')} desc={t('advanced.yolo_desc')}>
+            <Toggle label={t('advanced.auto_approve_label')} checked={yoloEnabled} onChange={handleToggle} />
+          </SettingsRow>
+        )}
+        {yoloEnabled && <p className="says warn">{t('advanced.yolo_warning')}</p>}
+      </SettingsGroup>
 
-      <SectionCard title={t('advanced.cron_limit_title')}>
-        <div className="space-y-3">
-          <p className="text-xs text-content-tertiary">{t('advanced.cron_limit_desc')}</p>
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              min={0}
-              max={6}
-              value={maxCronGen}
-              onChange={(e) => handleSetMaxCronGen(Number(e.target.value))}
-              className="w-16 bg-surface-secondary border border-edge rounded px-2 py-1 text-xs font-mono text-content-primary"
-            />
-            <span className="text-xs text-content-tertiary">{t('advanced.cron_limit_hint')}</span>
-          </div>
-        </div>
-      </SectionCard>
+      <SettingsGroup title={t('advanced.cron_limit_title')}>
+        <SettingsRow label={t('advanced.cron_limit_label')} desc={t('advanced.cron_limit_desc')}>
+          <input
+            className="in tiny num"
+            type="number"
+            min={0}
+            max={6}
+            aria-label={t('advanced.cron_limit_label')}
+            value={maxCronGen}
+            onChange={(e) => handleSetMaxCronGen(Number(e.target.value))}
+          />
+          <span className="val">{t('advanced.cron_limit_hint')}</span>
+        </SettingsRow>
+      </SettingsGroup>
     </>
   );
 }

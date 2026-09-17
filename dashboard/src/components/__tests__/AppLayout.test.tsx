@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -11,10 +11,11 @@ vi.mock('../../lib/tauri', () => ({
   isExperimentalBuild: false,
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }));
+const navigate = vi.hoisted(() => vi.fn());
 vi.mock('react-router-dom', () => ({
   Outlet: () => null,
   useLocation: () => ({ pathname: '/' }),
-  useNavigate: () => vi.fn(),
+  useNavigate: () => navigate,
   useNavigationType: () => 'POP',
 }));
 const agentCtx = vi.hoisted(() => ({ agents: [], setSelectedAgentId: () => {} }));
@@ -37,12 +38,15 @@ vi.mock('../CommandApprovalDeck', () => ({ CommandApprovalDeck: () => null }));
 vi.mock('../SecurityGuard', () => ({ SecurityGuard: () => null }));
 vi.mock('../HelpContent', () => ({ HelpContent: () => <div>help-content</div> }));
 vi.mock('../Modal', () => ({ Modal: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
+// Settings is a page now. If the layout ever mounted it again, this would draw.
+vi.mock('../SettingsView', () => ({ SettingsView: () => <div data-testid="settings-view" /> }));
 
 import { AppLayout } from '../AppLayout';
 
 beforeEach(() => {
   chrome.hasOverlayTitleBar = false;
   window.localStorage.clear();
+  navigate.mockClear();
 });
 
 describe('the window frame', () => {
@@ -92,5 +96,39 @@ describe('the window frame', () => {
     expect(screen.queryByText('help-content')).toBeNull();
     fireEvent.click(screen.getByText('sidebar-help'));
     expect(screen.getByText('help-content')).toBeTruthy();
+  });
+});
+
+describe('the way to settings', () => {
+  it('goes to the settings page at the section the update notice asks for', () => {
+    render(<AppLayout />);
+    act(() => {
+      window.dispatchEvent(new CustomEvent('cloto-open-settings', { detail: { section: 'about' } }));
+    });
+    expect(navigate).toHaveBeenCalledWith('/settings?section=about');
+  });
+
+  it('goes to the first section when the notice names none', () => {
+    render(<AppLayout />);
+    act(() => {
+      window.dispatchEvent(new CustomEvent('cloto-open-settings'));
+    });
+    expect(navigate).toHaveBeenCalledWith('/settings?section=general');
+  });
+
+  it('opens no dialog of its own for settings — the page is the destination', () => {
+    render(<AppLayout />);
+    act(() => {
+      window.dispatchEvent(new CustomEvent('cloto-open-settings', { detail: { section: 'about' } }));
+    });
+    expect(screen.queryByTestId('settings-view')).toBeNull();
+  });
+
+  it('still returns to the living room when quick setup finishes', () => {
+    render(<AppLayout />);
+    act(() => {
+      window.dispatchEvent(new CustomEvent('cloto-setup-rerun-complete'));
+    });
+    expect(navigate).toHaveBeenCalledWith('/');
   });
 });

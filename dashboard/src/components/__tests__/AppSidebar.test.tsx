@@ -7,8 +7,9 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
 const navigate = vi.hoisted(() => vi.fn());
+const route = vi.hoisted(() => ({ pathname: '/' }));
 vi.mock('react-router-dom', () => ({
-  useLocation: () => ({ pathname: '/' }),
+  useLocation: () => route,
   useNavigate: () => navigate,
 }));
 vi.mock('../../hooks/useApi', () => ({ useApi: () => ({ post: vi.fn() }) }));
@@ -212,5 +213,31 @@ describe('what the window header used to carry', () => {
 
     expect(opened).toHaveBeenCalledTimes(1);
     expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({ section: 'about' });
+  });
+});
+
+describe('where the sidebar says you are', () => {
+  it('marks Settings as the destination you are on, now that it is a page', () => {
+    route.pathname = '/settings';
+    try {
+      render(<AppSidebar onSettingsClick={vi.fn()} />);
+      const settings = screen.getByRole('button', { name: /settings/ });
+      expect(settings.className).toContain('on');
+      // and nothing else claims to be the place you are
+      const lit = screen.getAllByRole('button').filter((b) => b.className.split(' ').includes('on'));
+      expect(lit.map((b) => b.textContent)).toEqual(['settings']);
+    } finally {
+      route.pathname = '/';
+    }
+  });
+
+  it('does not mark Settings while another destination is open', () => {
+    route.pathname = '/cron';
+    try {
+      render(<AppSidebar onSettingsClick={vi.fn()} />);
+      expect(screen.getByRole('button', { name: /settings/ }).className).not.toContain('on');
+    } finally {
+      route.pathname = '/';
+    }
   });
 });
