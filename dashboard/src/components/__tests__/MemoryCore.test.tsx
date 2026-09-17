@@ -38,9 +38,6 @@ const metrics = vi.hoisted(() => ({
 vi.mock('../../hooks/useMetrics', () => ({ useMetrics: () => metrics }));
 vi.mock('../../hooks/useEventStream', () => ({ useEventStream: () => undefined }));
 
-const agentCtx = vi.hoisted(() => ({ selectedAgentId: null as string | null }));
-vi.mock('../../contexts/AgentContext', () => ({ useAgentContext: () => agentCtx }));
-
 import { MemoryCore } from '../MemoryCore';
 
 const KARIN = 'agent.karin';
@@ -123,7 +120,6 @@ const act = (row: HTMLElement, label: string) => {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  agentCtx.selectedAgentId = null;
   setData();
   api.deleteMemory.mockResolvedValue(undefined);
   api.deleteEpisode.mockResolvedValue(undefined);
@@ -147,20 +143,32 @@ describe('the memory screen as a time axis', () => {
     expect(page().querySelectorAll('.tl .gap')).toHaveLength(1);
   });
 
-  it('gives the point the agent colour only for the agent who is present', async () => {
-    agentCtx.selectedAgentId = SAPPHY;
+  it('wears an agent colour in one place only: the line under the selected agent tab', async () => {
     await mount();
-    const mine = rowsOnAxis().filter((r) => r.classList.contains('mine'));
-    expect(mine).toHaveLength(1);
-    expect(mine[0].querySelector('.tx')?.textContent).toBe(
-      'the morning greeting can wait; the recall gate is the thing to move',
-    );
-    expect(rowsOnAxis().filter((r) => !r.classList.contains('mine'))).toHaveLength(2);
+    const tab = (name: string) => screen.getByRole('button', { name }) as HTMLButtonElement;
+    // Nothing is selected: no tab carries a colour of its own.
+    expect(tab('Sapphy').style.borderBottomColor).toBe('');
+    fireEvent.click(tab('Sapphy'));
+    await waitFor(() => expect(tab('Sapphy').className).toBe('on'));
+    const sapphy = tab('Sapphy').style.borderBottomColor;
+    expect(sapphy).not.toBe('');
+    // The tab beside it, and "All", stay neutral.
+    expect(tab('Karin').style.borderBottomColor).toBe('');
+    expect(tab('All').style.borderBottomColor).toBe('');
+    // A different agent, a different colour: it is the agent's, not a constant.
+    fireEvent.click(tab('Karin'));
+    await waitFor(() => expect(tab('Karin').className).toBe('on'));
+    expect(tab('Karin').style.borderBottomColor).not.toBe('');
+    expect(tab('Karin').style.borderBottomColor).not.toBe(sapphy);
+    expect(tab('Sapphy').style.borderBottomColor).toBe('');
   });
 
-  it('gives nobody the agent colour when nobody is present', async () => {
+  it('never colours a point or a day of the band, whoever is selected', async () => {
     await mount();
-    expect(rowsOnAxis().filter((r) => r.classList.contains('mine'))).toHaveLength(0);
+    fireEvent.click(screen.getByRole('button', { name: 'Sapphy' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Sapphy' }).className).toBe('on'));
+    expect(page().querySelectorAll('.ev.mine, .dens .d.mine')).toHaveLength(0);
+    expect(page().querySelectorAll('.ev').length).toBeGreaterThan(0);
   });
 
   it('sets what was remembered in the reading face, and only the clock in monospace', async () => {
@@ -307,14 +315,6 @@ describe('the density band', () => {
     expect(cells[4].querySelector('i')?.getAttribute('title')).toBe('1 kept');
     const total = cells.reduce((sum, c) => sum + Number(c.querySelector('i')?.getAttribute('title')?.split(' ')[0]), 0);
     expect(total).toBe(MEMORIES.length);
-  });
-
-  it('colours a day only where the agent who is present has a memory', async () => {
-    agentCtx.selectedAgentId = SAPPHY;
-    await mount();
-    const cells = Array.from(screen.getByTestId('memory-density').querySelectorAll('.d'));
-    expect(cells.filter((c) => c.classList.contains('mine'))).toHaveLength(1);
-    expect(cells[0].classList.contains('mine')).toBe(true);
   });
 });
 

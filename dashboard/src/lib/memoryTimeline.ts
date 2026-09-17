@@ -43,8 +43,6 @@ export interface DensityCell {
   date: Date;
   count: number;
   isToday: boolean;
-  /** The agent who is present has at least one of this day's memories. */
-  present: boolean;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -121,21 +119,14 @@ export function buildTimeline<T extends TimelineEvent>(events: readonly T[], now
  * first and today last. A day outside the window is not counted at all, so the
  * cells sum to exactly the number of events inside it.
  */
-export function buildDensity<T extends TimelineEvent>(
-  events: readonly T[],
-  now: Date,
-  presentAgentId: string | null,
-  days = 30,
-): DensityCell[] {
+export function buildDensity<T extends TimelineEvent>(events: readonly T[], now: Date, days = 30): DensityCell[] {
   const today = localDayNumber(now);
   const first = today - (days - 1);
   const counts = new Map<number, number>();
-  const present = new Set<number>();
   for (const e of events) {
     const day = localDayNumber(e.at);
     if (day < first || day > today) continue;
     counts.set(day, (counts.get(day) ?? 0) + 1);
-    if (presentAgentId && e.agentId === presentAgentId) present.add(day);
   }
 
   const cells: DensityCell[] = [];
@@ -147,7 +138,6 @@ export function buildDensity<T extends TimelineEvent>(
       date: new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1 - i)),
       count: counts.get(day) ?? 0,
       isToday: day === today,
-      present: present.has(day),
     });
   }
   return cells;

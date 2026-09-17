@@ -137,7 +137,7 @@ describe('the last thirty days', () => {
   const ago = (n: number, hour = 12) => new Date(2026, 8, 17 - n, hour, 0);
 
   it('is thirty cells ending on today', () => {
-    const cells = buildDensity([], now, null);
+    const cells = buildDensity([], now);
     expect(cells).toHaveLength(30);
     expect(cells[29].isToday).toBe(true);
     expect(cells.filter((c) => c.isToday)).toHaveLength(1);
@@ -146,7 +146,7 @@ describe('the last thirty days', () => {
   });
 
   it('takes the twenty-ninth day back into the first cell and leaves the thirtieth out', () => {
-    const cells = buildDensity([ev('in', 'x', ago(29)), ev('out', 'x', ago(30))], now, null);
+    const cells = buildDensity([ev('in', 'x', ago(29)), ev('out', 'x', ago(30))], now);
     expect(cells[0].count).toBe(1);
     expect(cells.reduce((sum, c) => sum + c.count, 0)).toBe(1);
   });
@@ -154,21 +154,10 @@ describe('the last thirty days', () => {
   it('sums to exactly the memories that fall inside the window', () => {
     const inside = [ev('a', 'x', ago(0)), ev('b', 'x', ago(0, 23)), ev('c', 'x', ago(29)), ev('d', 'x', ago(7))];
     const outside = [ev('e', 'x', ago(30)), ev('f', 'x', ago(45)), ev('g', 'x', new Date(2026, 8, 18, 1, 0))];
-    const cells = buildDensity([...inside, ...outside], now, null);
+    const cells = buildDensity([...inside, ...outside], now);
     expect(cells.reduce((sum, c) => sum + c.count, 0)).toBe(inside.length);
     expect(cells[29].count).toBe(2);
     expect(cells[22].count).toBe(1);
-  });
-
-  it('colours only the days the agent who is present has a memory on', () => {
-    const cells = buildDensity([ev('mine', 'me', ago(3)), ev('theirs', 'you', ago(4))], now, 'me');
-    expect(cells.filter((c) => c.present).map((c) => c.date.getDate())).toEqual([ago(3).getDate()]);
-    expect(cells[26].count).toBe(1);
-  });
-
-  it('colours nothing when nobody is present', () => {
-    const cells = buildDensity([ev('mine', 'me', ago(3))], now, null);
-    expect(cells.some((c) => c.present)).toBe(false);
   });
 });
 

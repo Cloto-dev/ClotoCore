@@ -15,7 +15,6 @@
   "nothing_yet": "Nothing is remembered yet. What an agent keeps from your conversations appears here, newest first.",
   "no_match": "Nothing here matches what you are looking for.",
   "last_30_days": "The last 30 days",
-  "density_note": "Memories a day. The coloured days are {{agent}}'s.",
   "density_note_plain": "Memories a day.",
   "episodic": "Episodes",
   "no_episodes": "None yet. When a conversation comes to a stop, the agent leaves a summary of it here.",

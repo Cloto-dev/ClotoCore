@@ -1,7 +1,8 @@
 /* The memory screen, ported rule for rule from docs/gui/samples/06-memory.html
  * (the approved mock): one vertical time axis instead of a grid of cards. The
- * mock's ink/fg variables map onto the tokens in index.css; --agent is the
- * agent who is present and keeps its name.
+ * mock's ink/fg variables map onto the tokens in index.css; The screen wears
+ * no agent colour of its own: the only one is the line under the selected
+ * agent tab, which the component sets.
  *
  * The frame (.ws, .ws-head, .tabs, .btn, .ws-body, .in) is the workshop's and
  * lives in Workshop.css — including the mock's element resets, which are
@@ -148,10 +149,6 @@
   background: hsl(var(--text-tertiary));
   transform: translateX(-50%);
 }
-/* The point is the agent's colour only when the memory is the present agent's. */
-.tl .ev.mine .sp::after {
-  background: hsl(var(--agent));
-}
 .tl .ev .c {
   grid-column: 3;
   padding: 6px 12px 12px 14px;
@@ -169,9 +166,6 @@
   font-size: 12.5px;
   color: hsl(var(--text-secondary));
   margin-bottom: 1px;
-}
-.tl .ev.mine .who {
-  color: hsl(var(--agent));
 }
 .tl .ev .tx {
   font-size: 14px;
@@ -325,10 +319,6 @@
   height: 5px;
   background: hsl(var(--border-default));
   border-radius: 2px;
-}
-.dens .d.mine i {
-  background: hsl(var(--agent));
-  opacity: 0.85;
 }
 .dens .d.today i {
   background: hsl(var(--text-secondary));

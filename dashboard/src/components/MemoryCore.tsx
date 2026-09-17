@@ -1,10 +1,10 @@
 import { Search } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAgentContext } from '../contexts/AgentContext';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
 import { type Metrics, useMetrics } from '../hooks/useMetrics';
+import { agentColor } from '../lib/agentIdentity';
 import {
   buildDensity,
   buildTimeline,
@@ -97,7 +97,6 @@ export const MemoryCore = memo(function MemoryCore() {
   const [editContent, setEditContent] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const api = useApi();
-  const { selectedAgentId: presentAgentId } = useAgentContext();
   const { metrics: hookMetrics } = useMetrics();
   const metrics: Metrics = hookMetrics ?? { ram_usage: 'N/A', total_memories: 0, total_requests: 0, total_episodes: 0 };
 
@@ -120,6 +119,11 @@ export const MemoryCore = memo(function MemoryCore() {
     for (const a of agents) m.set(a.id, a.name);
     return m;
   }, [agents]);
+
+  const tabColor = useCallback(
+    (agentId: string) => agentColor(agents.find((a) => a.id === agentId) ?? { id: agentId }),
+    [agents],
+  );
 
   // Filter tabs: every configured agent, plus any agent_id present in the current
   // data (covers legacy/orphaned memories whose agent is no longer configured).
@@ -216,10 +220,7 @@ export const MemoryCore = memo(function MemoryCore() {
   }, [kind, filteredMemories, filteredEpisodes, agentMap]);
 
   const rows = useMemo(() => buildTimeline(axisEvents, now), [axisEvents, now]);
-  const density = useMemo(
-    () => buildDensity(axisEvents, now, presentAgentId, DENSITY_DAYS),
-    [axisEvents, now, presentAgentId],
-  );
+  const density = useMemo(() => buildDensity(axisEvents, now, DENSITY_DAYS), [axisEvents, now]);
   const busiestDay = useMemo(() => density.reduce((most, c) => Math.max(most, c.count), 0), [density]);
 
   const loadedOnce = useRef(false);
@@ -477,7 +478,6 @@ export const MemoryCore = memo(function MemoryCore() {
     api.apiKey,
   );
 
-  const presentName = presentAgentId ? agentDisplayName(presentAgentId, agentMap) : null;
   const nothingAtAll = memories.length === 0 && episodes.length === 0;
   // An agent tab narrows too (it scopes the fetch), so an empty screen under
   // one of them is "nothing matches", not "nothing has been remembered".
@@ -524,7 +524,7 @@ export const MemoryCore = memo(function MemoryCore() {
                 <span className="n">{t('day_count', { count: row.events.length })}</span>
               </div>
               {row.events.map((ev) => (
-                <div className={`ev${ev.agentId === presentAgentId ? ' mine' : ''}`} key={ev.key}>
+                <div className="ev" key={ev.key}>
                   <span className="t num">{timeFormat.format(ev.at)}</span>
                   <span className="sp" />
                   {/* The row takes focus so the keyboard can open it and reach
@@ -648,6 +648,9 @@ export const MemoryCore = memo(function MemoryCore() {
             type="button"
             key={agentId}
             className={selectedAgent === agentId ? 'on' : ''}
+            // The one place this screen wears an agent's colour: the line under
+            // the name of the agent whose memories are being read.
+            style={selectedAgent === agentId ? { borderBottomColor: tabColor(agentId) } : undefined}
             onClick={() => setSelectedAgent(agentId)}
           >
             {agentDisplayName(agentId, agentMap)}
@@ -708,18 +711,13 @@ export const MemoryCore = memo(function MemoryCore() {
             </>
           )}
           <h2 className={kind === 'episodes' ? '' : 'later'}>{t('last_30_days')}</h2>
-          <div className="note">
-            {presentName ? t('density_note', { agent: presentName }) : t('density_note_plain')}
-          </div>
+          <div className="note">{t('density_note_plain')}</div>
           <div className="dens" data-testid="memory-density">
             {density
               .slice()
               .reverse()
               .map((cell) => (
-                <div
-                  key={cell.date.getTime()}
-                  className={`d${cell.isToday ? ' today' : ''}${cell.present ? ' mine' : ''}`}
-                >
+                <div key={cell.date.getTime()} className={cell.isToday ? 'd today' : 'd'}>
                   <span>{cellFormat.format(cell.date)}</span>
                   <i
                     style={{ width: densityWidth(cell.count, busiestDay) }}
