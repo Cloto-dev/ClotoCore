@@ -1676,6 +1676,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/mcp/servers/{name}/access",
             get(handlers::get_mcp_server_access).put(handlers::put_mcp_server_access),
         )
+        .route(
+            "/mcp/servers/{name}/tools",
+            get(handlers::get_mcp_server_tools),
+        )
         // MCP server lifecycle
         .route(
             "/mcp/servers/{name}/restart",

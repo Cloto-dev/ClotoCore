@@ -1025,11 +1025,6 @@ body {
   margin: 0px;
 }
 
-.mx-0\.5 {
-  margin-left: 0.125rem;
-  margin-right: 0.125rem;
-}
-
 .mx-1 {
   margin-left: 0.25rem;
   margin-right: 0.25rem;
@@ -1412,10 +1407,6 @@ body {
   width: 1rem;
 }
 
-.w-40 {
-  width: 10rem;
-}
-
 .w-44 {
   width: 11rem;
 }
@@ -1670,10 +1661,6 @@ body {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.grid-cols-4 {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
 .grid-cols-5 {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
@@ -1825,10 +1812,6 @@ body {
 .divide-edge > :not([hidden]) ~ :not([hidden]) {
   --tw-divide-opacity: 1;
   border-color: hsl(var(--border-default) / var(--tw-divide-opacity, 1));
-}
-
-.self-center {
-  align-self: center;
 }
 
 .overflow-hidden {
@@ -2394,11 +2377,6 @@ body {
   padding: 2rem;
 }
 
-.px-0\.5 {
-  padding-left: 0.125rem;
-  padding-right: 0.125rem;
-}
-
 .px-1 {
   padding-left: 0.25rem;
   padding-right: 0.25rem;
@@ -2759,11 +2737,6 @@ body {
   color: rgb(96 165 250 / var(--tw-text-opacity, 1));
 }
 
-.text-blue-500 {
-  --tw-text-opacity: 1;
-  color: rgb(59 130 246 / var(--tw-text-opacity, 1));
-}
-
 .text-content-muted\/30 {
   color: hsl(var(--text-muted) / 0.3);
 }
@@ -2883,11 +2856,6 @@ body {
 .text-yellow-400 {
   --tw-text-opacity: 1;
   color: rgb(250 204 21 / var(--tw-text-opacity, 1));
-}
-
-.text-yellow-500 {
-  --tw-text-opacity: 1;
-  color: rgb(234 179 8 / var(--tw-text-opacity, 1));
 }
 
 .underline {
@@ -3452,11 +3420,6 @@ body {
   border-color: hsl(var(--border-default) / var(--tw-border-opacity, 1));
 }
 
-.hover\:border-mgp-accent:hover {
-  --tw-border-opacity: 1;
-  border-color: rgb(var(--mgp-accent) / var(--tw-border-opacity, 1));
-}
-
 .hover\:border-red-500:hover {
   --tw-border-opacity: 1;
   border-color: rgb(239 68 68 / var(--tw-border-opacity, 1));
@@ -3619,11 +3582,6 @@ body {
   color: rgb(229 231 235 / var(--tw-text-opacity, 1));
 }
 
-.hover\:text-green-500:hover {
-  --tw-text-opacity: 1;
-  color: rgb(34 197 94 / var(--tw-text-opacity, 1));
-}
-
 .hover\:text-mgp-accent:hover {
   --tw-text-opacity: 1;
   color: rgb(var(--mgp-accent) / var(--tw-text-opacity, 1));
@@ -3759,10 +3717,6 @@ body {
 
 .group:hover .group-hover\:opacity-15 {
   opacity: 0.15;
-}
-
-.dark\:bg-white\/5:is(.dark *) {
-  background-color: rgb(255 255 255 / 0.05);
 }
 
 @media (min-width: 768px) {

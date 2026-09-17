@@ -545,17 +545,72 @@ pub async fn create_mcp_server(
     }))
 }
 
+/// GET /api/mcp/servers
+///
+/// The registered servers as the manager sees them, each carrying what the
+/// store knows and the manager does not: the description, the installed
+/// version and the registration time. A server the manager has but the store
+/// does not (a test double, a server mid-registration) is listed without them.
 pub async fn list_mcp_servers(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> AppResult<Json<serde_json::Value>> {
     check_auth(&state, &headers)?;
 
-    let servers = state.mcp_manager.list_servers().await;
+    let mut servers = state.mcp_manager.list_servers().await;
+    let records = crate::db::load_all_mcp_servers(&state.pool)
+        .await
+        .map_err(AppError::Internal)?;
+    let by_name: HashMap<&str, &crate::db::McpServerRecord> =
+        records.iter().map(|r| (r.name.as_str(), r)).collect();
+    for server in &mut servers {
+        if let Some(record) = by_name.get(server.id.as_str()) {
+            server.description = record
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(str::to_string);
+            server.installed_version = record.installed_version.clone();
+            server.installed_at = (record.created_at > 0).then_some(record.created_at);
+        }
+    }
 
     ok_data(serde_json::json!({
         "servers": servers,
         "count": servers.len(),
+    }))
+}
+
+/// GET /api/mcp/servers/:name/tools
+///
+/// The server's tools with their descriptions — the list endpoint carries names
+/// only, and the description is what the detail page draws beside each name.
+pub async fn get_mcp_server_tools(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(name): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let tools = state
+        .mcp_manager
+        .server_tools(&name)
+        .await
+        .ok_or_else(|| AppError::Validation(format!("MCP server '{}' not found", name)))?;
+    let tools: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "name": t.name,
+                "description": t.description,
+            })
+        })
+        .collect();
+
+    ok_data(serde_json::json!({
+        "server_id": name,
+        "tools": tools,
     }))
 }
 
@@ -1306,6 +1361,66 @@ mod tests {
 
     fn is_validation(result: AppResult<()>) -> bool {
         matches!(result, Err(AppError::Validation(_)))
+    }
+
+    fn keyed(key: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-api-key", key.parse().unwrap());
+        headers
+    }
+
+    /// The tools route names each tool with its description — the list
+    /// endpoint carries names only, so this is where the detail page reads
+    /// what a tool is for.
+    #[tokio::test]
+    async fn tools_route_names_each_tool_and_its_description() {
+        let state = crate::test_utils::create_test_app_state(Some("k".into())).await;
+        state
+            .mcp_manager
+            .insert_test_server_with_tools(
+                "described",
+                vec![
+                    crate::managers::mcp_protocol::McpTool {
+                        name: "recall".into(),
+                        description: Some("Reads memories back".into()),
+                        input_schema: serde_json::json!({}),
+                        annotations: None,
+                    },
+                    crate::managers::mcp_protocol::McpTool {
+                        name: "store".into(),
+                        description: None,
+                        input_schema: serde_json::json!({}),
+                        annotations: None,
+                    },
+                ],
+            )
+            .await;
+
+        let Ok(Json(body)) = get_mcp_server_tools(
+            State(state.clone()),
+            keyed("k"),
+            Path("described".to_string()),
+        )
+        .await
+        else {
+            panic!("a registered server answers");
+        };
+        let tools = body["data"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 2, "one entry per tool");
+        assert_eq!(tools[0]["name"], "recall");
+        assert_eq!(tools[0]["description"], "Reads memories back");
+        assert_eq!(tools[1]["name"], "store");
+        assert!(
+            tools[1]["description"].is_null(),
+            "an undescribed tool has null, not a made-up line"
+        );
+
+        let missing =
+            get_mcp_server_tools(State(state), keyed("k"), Path("nobody".to_string())).await;
+        assert!(
+            matches!(missing, Err(AppError::Validation(_))),
+            "an unknown server is a validation error, not an empty list"
+        );
     }
 
     #[test]

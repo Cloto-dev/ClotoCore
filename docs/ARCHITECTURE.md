@@ -189,6 +189,7 @@ ClotoCore/
 | DELETE | `/api/mcp/servers/:name` | Delete MCP server |
 | GET/PUT | `/api/mcp/servers/:name/settings` | Server settings |
 | GET/PUT | `/api/mcp/servers/:name/access` | Access control |
+| GET | `/api/mcp/servers/:name/tools` | The server's tools with their descriptions |
 | POST | `/api/mcp/servers/:name/start\|stop\|restart` | Lifecycle |
 
 **Public Endpoints** (no authentication required):

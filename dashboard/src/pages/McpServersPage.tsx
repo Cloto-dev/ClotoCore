@@ -1,37 +1,45 @@
-import { AlertTriangle, Plus, RefreshCw, Server } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../components/Modal';
 import { MarketplaceTab } from '../components/mcp/MarketplaceTab';
 import { McpServerDetail } from '../components/mcp/McpServerDetail';
 import { AlertCard } from '../components/ui/AlertCard';
-import { StatusDot, type StatusDotStatus } from '../components/ui/StatusDot';
+import '../components/Workshop.css';
 import { useApi } from '../hooks/useApi';
 import { useAsyncAction } from '../hooks/useAsyncAction';
+import { useMarketplace } from '../hooks/useMarketplace';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { extractError } from '../lib/errors';
-import { displayServerId } from '../lib/format';
-import { isMgpServer } from '../lib/mgp';
-import { isEngineServer, isMemoryServer } from '../lib/serverCategory';
-import type { McpServerInfo } from '../types';
+import {
+  type Deviation,
+  describe,
+  deviation,
+  groupServers,
+  matchesQuery,
+  nameOf,
+  needsAttention,
+  type ServerGroup,
+  type ServerRow,
+} from '../lib/mcpGroups';
 
-function mcpStatusToDot(server: McpServerInfo): StatusDotStatus {
-  if (server.status === 'Connected') return 'connected';
-  if (server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered')
-    return 'connecting';
-  if (server.status === 'Error' && server.has_unresolved_env) return 'degraded';
-  if (server.status === 'Error') return 'error';
-  return 'offline';
-}
+type Tab = 'installed' | 'marketplace' | 'updates';
 
+/**
+ * The workshop's MCP page (docs/gui/samples/04-mcp-servers.html): one column,
+ * a band per kind, a role beside every name, and a state only when it deviates.
+ */
 export function McpServersPage() {
   const api = useApi();
   const { t } = useTranslation('mcp');
   const { t: tc } = useTranslation('common');
   const { servers, isLoading, error: fetchError, refetch } = useMcpServers();
+  // The catalog names each installed server's kind and description when the
+  // store has none; the list is drawn without it while it loads or if it fails.
+  const { servers: catalog } = useMarketplace();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<'servers' | 'marketplace'>('servers');
+  const [activeTab, setActiveTab] = useState<Tab>('installed');
+  const [query, setQuery] = useState('');
   const marketplaceRefetchRef = useRef<(() => Promise<void>) | null>(null);
 
   // Add server form state
@@ -45,30 +53,11 @@ export function McpServersPage() {
   const isValidServerName = (name: string) => /^[a-z][a-z0-9._-]{0,62}[a-z0-9]$/.test(name);
 
   const selectedServer = servers.find((s) => s.id === selectedId);
-
-  // Category sort — ids are bare, so grouping comes from the
-  // tool surface: engines first, memory second, everything else alphabetical.
-  const getOrder = (server: McpServerInfo) => {
-    if (isEngineServer(server)) return 0;
-    if (isMemoryServer(server)) return 1;
-    return 9;
-  };
-  const sortedServers = [...servers].sort((a, b) => {
-    const oa = getOrder(a),
-      ob = getOrder(b);
-    return oa !== ob ? oa - ob : a.id.localeCompare(b.id);
-  });
-
+  const groups = useMemo(() => groupServers(servers, catalog), [servers, catalog]);
+  const rows = useMemo(() => groups.flatMap((g) => g.rows), [groups]);
+  const updates = useMemo(() => rows.filter((r) => deviation(r.server, r.entry)?.kind === 'update'), [rows]);
   const running = servers.filter((s) => s.status === 'Connected').length;
-
-  function statusLabel(server: McpServerInfo) {
-    if (server.status === 'Connected') return t('status_running');
-    if (server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered')
-      return t('status_connecting');
-    if (server.status === 'Error' && server.has_unresolved_env) return t('status_warning');
-    if (server.status === 'Error') return t('status_error');
-    return t('status_stopped');
-  }
+  const failing = servers.filter((s) => s.status === 'Error').length;
 
   const handleDelete = useCallback(
     (id: string) =>
@@ -129,239 +118,251 @@ export function McpServersPage() {
     }
   }
 
-  return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* Header bar */}
-      <div className="flex items-center gap-3 px-5 py-3 border-b border-edge shrink-0">
-        <Server size={14} className="text-agent" />
-        <span className="text-xs font-mono text-content-tertiary">{t('title')}</span>
-        <span className="text-xs font-mono text-content-tertiary ml-1">
-          {t('servers_count', { count: servers.length })} &middot; {t('running_count', { count: running })}
+  if (selectedServer) {
+    return (
+      <McpServerDetail
+        server={selectedServer}
+        entry={rows.find((r) => r.server.id === selectedServer.id)?.entry}
+        onBack={() => setSelectedId(null)}
+        onRefresh={refetch}
+        onDelete={handleDelete}
+        onStart={handleStart}
+        onStop={handleStop}
+        onRestart={handleRestart}
+      />
+    );
+  }
+
+  const devText = (d: Deviation) => {
+    if (!d) return null;
+    switch (d.kind) {
+      case 'failing':
+        return d.message ? t('deviation.failing_with', { message: d.message }) : t('deviation.failing');
+      case 'env_unresolved':
+        return t('deviation.env_unresolved');
+      case 'connecting':
+        return t('deviation.connecting');
+      case 'off':
+        return t('deviation.off');
+      case 'update':
+        return t('deviation.update', { version: d.version });
+    }
+  };
+  const devClass = (d: Deviation) =>
+    !d ? '' : d.kind === 'failing' || d.kind === 'env_unresolved' ? 'dev' : d.kind === 'off' ? 'dev off' : 'dev warn';
+
+  const drawRow = ({ server, entry }: ServerRow) => {
+    const d = deviation(server, entry);
+    const what = describe(server, entry);
+    return (
+      <button
+        type="button"
+        key={server.id}
+        className="srv"
+        onClick={() => setSelectedId(server.id)}
+        aria-label={nameOf(server)}
+      >
+        <span className="nm">
+          {nameOf(server)}
+          <small>{server.id}</small>
         </span>
-        <button
-          onClick={() => {
-            refetch();
-            marketplaceRefetchRef.current?.();
-          }}
-          className="p-1.5 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
-          title={t('refresh')}
-          aria-label={t('refresh')}
-        >
-          <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
-        </button>
-        <div className="ml-auto flex items-center gap-1">
-          {activeTab === 'servers' && (
-            <button
-              onClick={() => setAddModalOpen(true)}
-              aria-label={t('add_server')}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-agent/10 hover:bg-agent/20 border border-agent/30 text-agent text-xs font-mono font-bold transition-colors"
-            >
-              <Plus size={12} />
-              {t('add_server')}
-            </button>
+        <span className="what">
+          {d && <span className={devClass(d)}>{devText(d)} </span>}
+          {what}
+        </span>
+        <span className="cnt num">{t('tools_count', { count: server.tools.length })}</span>
+        <span className="more" title={t('list.more')}>
+          <svg viewBox="0 0 24 24" fill="currentColor" style={{ width: 14, height: 14 }}>
+            <circle cx="5" cy="12" r="1.6" />
+            <circle cx="12" cy="12" r="1.6" />
+            <circle cx="19" cy="12" r="1.6" />
+          </svg>
+        </span>
+      </button>
+    );
+  };
+
+  const bandLabel = (group: ServerGroup) => t(`groups.${group}`);
+
+  const visibleGroups = groups
+    .map((g) => ({ ...g, rows: g.rows.filter((r) => matchesQuery(r, query)) }))
+    .filter((g) => g.rows.length > 0);
+
+  return (
+    <div className="ws">
+      <div className="ws-head">
+        <h1>{t('title')}</h1>
+        <span className="count">
+          {t('list.summary', { count: servers.length, running })}
+          {failing > 0 && (
+            <>
+              {t('list.sep')}
+              <span className="bad">{t('list.failing', { count: failing })}</span>
+            </>
           )}
-        </div>
+        </span>
+        <span className="spacer" />
+        {activeTab === 'installed' && (
+          <label className="find">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <circle cx="11" cy="11" r="7" />
+              <path d="m20 20-3.5-3.5" />
+            </svg>
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t('list.search')}
+              aria-label={t('list.search')}
+            />
+          </label>
+        )}
+        <button type="button" className="btn pri" onClick={() => setAddModalOpen(true)} aria-label={t('add_server')}>
+          {t('add_server')}
+        </button>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex border-b border-edge mb-4 px-5 shrink-0">
+      <div className="tabs" role="tablist">
         <button
-          onClick={() => setActiveTab('servers')}
-          aria-label={t('marketplace.tab_servers')}
-          className={`px-4 py-2 text-xs font-mono transition-colors
-            ${
-              activeTab === 'servers'
-                ? 'text-content-primary border-b-2 border-agent'
-                : 'text-content-tertiary hover:text-content-secondary'
-            }`}
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'installed'}
+          className={activeTab === 'installed' ? 'on' : ''}
+          onClick={() => setActiveTab('installed')}
         >
-          {t('marketplace.tab_servers')}
+          {t('list.tab_installed')}
+          <span className="n num">{servers.length}</span>
         </button>
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'marketplace'}
+          className={activeTab === 'marketplace' ? 'on' : ''}
           onClick={() => setActiveTab('marketplace')}
-          aria-label={t('marketplace.tab_marketplace')}
-          className={`px-4 py-2 text-xs font-mono transition-colors
-            ${
-              activeTab === 'marketplace'
-                ? 'text-content-primary border-b-2 border-agent'
-                : 'text-content-tertiary hover:text-content-secondary'
-            }`}
         >
           {t('marketplace.tab_marketplace')}
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === 'updates'}
+          className={activeTab === 'updates' ? 'on' : ''}
+          onClick={() => setActiveTab('updates')}
+        >
+          {t('list.tab_updates')}
+          <span className="n num">{updates.length}</span>
+        </button>
       </div>
 
-      {/* Action error banner */}
-      {action.error && <AlertCard className="mx-5 mt-1 shrink-0">{action.error}</AlertCard>}
+      {action.error && <div className="problem">{action.error}</div>}
+      {fetchError && <div className="problem">{t('backend_unreachable')}</div>}
 
-      {/* Connection error */}
-      {fetchError && (
-        <AlertCard className="mx-5 mt-3 flex items-center gap-2 shrink-0">
-          <AlertTriangle size={12} className="text-red-500 shrink-0" />
-          <span>{t('backend_unreachable')}</span>
-        </AlertCard>
-      )}
-
-      {/* Tab content */}
-      <div className="flex-1 overflow-y-auto p-5">
-        {activeTab === 'servers' && (
-          <>
-            {sortedServers.length === 0 && !isLoading && !fetchError && (
-              <div className="flex flex-col items-center justify-center h-full text-content-tertiary">
-                <Server size={32} className="mb-3 opacity-30" />
-                <p className="text-xs font-mono">{t('no_servers_configured')}</p>
-                <button
-                  onClick={() => setAddModalOpen(true)}
-                  aria-label={t('add_server')}
-                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-agent/10 hover:bg-agent/20 border border-agent/30 text-agent text-xs font-mono font-bold transition-colors"
-                >
-                  <Plus size={12} />
-                  {t('add_server')}
-                </button>
+      <div className="ws-body">
+        {activeTab === 'installed' && (
+          <div className="lst">
+            {visibleGroups.map((g) => (
+              <div key={g.group}>
+                <div className={`band${g.group === 'attention' ? ' bad' : ''}`}>
+                  <span className="lbl">{bandLabel(g.group)}</span>
+                  <span className="n num">{g.rows.length}</span>
+                </div>
+                {g.rows.map(drawRow)}
               </div>
+            ))}
+            {servers.length === 0 && !isLoading && !fetchError && (
+              <div className="empty">{t('no_servers_configured')}</div>
             )}
-
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
-              {sortedServers.map((server) => {
-                const isMgp = isMgpServer(server);
-                const isTransitioning =
-                  server.status === 'Connecting' || server.status === 'Restarting' || server.status === 'Registered';
-                const shimmer = isTransitioning ? (isMgp ? 'shimmer-active-mgp' : 'shimmer-active') : '';
-                return (
-                  <button
-                    key={server.id}
-                    onClick={() => setSelectedId(server.id)}
-                    aria-label={displayServerId(server.id)}
-                    // MGP servers use the `mgp` design-token palette as an identity
-                    // color (see --mgp-* tokens in index.css) — exempt from the
-                    // `hover:border-agent` rule (CLAUDE.md Dashboard UI Rules).
-                    // Non-MGP cards follow the standard `card-solid` + `hover:border-agent` pattern.
-                    className={`text-left p-4 rounded-xl border transition-all duration-200 group ${shimmer} ${
-                      isMgp
-                        ? 'card-mgp hover:bg-mgp-surface/40 hover:border-mgp-accent'
-                        : 'border-edge card-solid hover:bg-surface-secondary/80 hover:border-agent'
-                    }`}
-                  >
-                    {isMgp && <div className="mgp-halo" />}
-                    <div className={`flex items-center gap-2.5 mb-2 ${isMgp ? 'relative' : ''}`}>
-                      <Server
-                        size={14}
-                        className={`shrink-0 transition-colors ${
-                          isMgp
-                            ? 'text-mgp-accent group-hover:text-mgp-accent-light'
-                            : 'text-content-tertiary group-hover:text-agent'
-                        }`}
-                      />
-                      <span className="text-xs font-mono font-bold text-content-primary truncate">
-                        {displayServerId(server.id)}
-                      </span>
-                      {isMgp && (
-                        <span className="mgp-label" title="MGP (bidirectional protocol)">
-                          MGP
-                        </span>
-                      )}
-                      {server.transport === 'streamable-http' && (
-                        <span className="text-xs font-mono text-cyan-500/70 shrink-0" title="Remote HTTP transport">
-                          HTTP
-                        </span>
-                      )}
-                    </div>
-                    <div
-                      className={`flex items-center gap-3 text-xs font-mono text-content-tertiary leading-none ${isMgp ? 'relative' : ''}`}
-                    >
-                      <span className="inline-flex items-center gap-1.5">
-                        <StatusDot status={mcpStatusToDot(server)} />
-                        <span>{statusLabel(server)}</span>
-                      </span>
-                      <span>{t('tools_count', { count: server.tools.length })}</span>
-                      {server.is_cloto_sdk && <span className="text-agent">SDK</span>}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </>
+            {servers.length > 0 && visibleGroups.length === 0 && <div className="empty">{t('list.no_match')}</div>}
+            {servers.length > 0 && <p className="note">{t('list.note')}</p>}
+          </div>
         )}
 
-        {activeTab === 'marketplace' && <MarketplaceTab onRefetchRef={marketplaceRefetchRef} />}
-      </div>
+        {activeTab === 'updates' && (
+          <div className="lst">
+            {updates.length === 0 ? (
+              <div className="empty">{t('list.no_updates')}</div>
+            ) : (
+              <>
+                <div className="band">
+                  <span className="lbl">{t('list.tab_updates')}</span>
+                  <span className="n num">{updates.length}</span>
+                </div>
+                {updates.map(drawRow)}
+                <p className="note">{t('list.updates_note')}</p>
+              </>
+            )}
+          </div>
+        )}
 
-      {/* Server Detail Modal */}
-      {selectedServer && (
-        <Modal title={selectedServer.id} icon={Server} size="lg" onClose={() => setSelectedId(null)}>
-          <McpServerDetail
-            server={selectedServer}
-            onRefresh={refetch}
-            onDelete={handleDelete}
-            onStart={handleStart}
-            onStop={handleStop}
-            onRestart={handleRestart}
-          />
-        </Modal>
-      )}
+        {activeTab === 'marketplace' && (
+          <div className="p-5">
+            <MarketplaceTab onRefetchRef={marketplaceRefetchRef} />
+          </div>
+        )}
+      </div>
 
       {/* Add Server Modal */}
       {addModalOpen && (
         <Modal
           title={t('add_modal.title')}
-          icon={Plus}
           size="sm"
           onClose={() => {
             setAddModalOpen(false);
             setAddError(null);
           }}
         >
-          <div className="px-5 py-4 space-y-3">
+          <div className="px-5 py-4 space-y-3 ws">
             {addError && <AlertCard>{addError}</AlertCard>}
 
             <div>
-              <label className="block text-xs font-mono text-content-tertiary mb-1">{t('add_modal.server_name')}</label>
+              <label className="block text-xs text-content-tertiary mb-1">{t('add_modal.server_name')}</label>
               <input
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="my-server"
-                className="w-full text-xs font-mono bg-surface-panel border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
+                className="in mono"
               />
-              <p className="mt-0.5 text-xs font-mono text-content-tertiary">{t('add_modal.name_hint')}</p>
+              <p className="hint">{t('add_modal.name_hint')}</p>
             </div>
             <div>
-              <label className="block text-xs font-mono text-content-tertiary mb-1">{t('add_modal.command')}</label>
+              <label className="block text-xs text-content-tertiary mb-1">{t('add_modal.command')}</label>
               <input
                 type="text"
                 value={newCommand}
                 onChange={(e) => setNewCommand(e.target.value)}
                 placeholder="python3"
-                className="w-full text-xs font-mono bg-surface-panel border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
+                className="in mono"
               />
             </div>
             <div>
-              <label className="block text-xs font-mono text-content-tertiary mb-1">{t('add_modal.arguments')}</label>
+              <label className="block text-xs text-content-tertiary mb-1">{t('add_modal.arguments')}</label>
               <input
                 type="text"
                 value={newArgs}
                 onChange={(e) => setNewArgs(e.target.value)}
                 placeholder="scripts/my_server.py"
-                className="w-full text-xs font-mono bg-surface-panel border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
+                className="in mono"
               />
             </div>
 
             <div className="flex justify-end gap-2 pt-1">
               <button
+                type="button"
+                className="btn"
                 onClick={() => {
                   setAddModalOpen(false);
                   setAddError(null);
                 }}
                 aria-label={tc('cancel')}
-                className="px-3 py-1.5 text-xs font-mono rounded bg-surface-panel hover:bg-surface-field text-content-tertiary transition-colors border border-edge"
               >
                 {tc('cancel')}
               </button>
               <button
+                type="button"
+                className="btn pri"
                 onClick={handleAdd}
                 disabled={adding || !isValidServerName(newName.trim())}
                 aria-label={t('add_modal.add')}
-                className="px-3 py-1.5 text-xs font-mono rounded bg-agent/10 hover:bg-agent/20 text-agent disabled:opacity-40 transition-colors border border-agent/20"
               >
                 {adding ? t('add_modal.adding') : t('add_modal.add')}
               </button>
@@ -372,3 +373,6 @@ export function McpServersPage() {
     </div>
   );
 }
+
+// Re-exported for the detail page's header, which writes the same state words.
+export { needsAttention };

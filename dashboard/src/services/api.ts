@@ -13,6 +13,7 @@ import type {
   MarketplaceCollection,
   McpServerInfo,
   McpServerSettings,
+  McpToolInfo,
   Memory,
   MemoryCapabilities,
   Metrics,
@@ -717,6 +718,13 @@ export const api = {
       'X-API-Key': apiKey,
     }).then(() => {}),
 
+  getMcpServerTools: async (name: string, apiKey: string): Promise<McpToolInfo[]> => {
+    const res = await fetch(`${API_BASE}/mcp/servers/${encodeURIComponent(name)}/tools`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to fetch server tools: ${res.statusText}`);
+    return (await res.json()).data.tools;
+  },
   getMcpServerAccess: async (name: string, apiKey: string): Promise<AccessTreeResponse> => {
     const res = await fetch(`${API_BASE}/mcp/servers/${encodeURIComponent(name)}/access`, {
       headers: { 'X-API-Key': apiKey },
@@ -1251,6 +1259,7 @@ export function createAuthenticatedApi(apiKey: string) {
     getMcpServerSettings: (name: string) => api.getMcpServerSettings(name, k),
     updateMcpServerSettings: (name: string, settings: Parameters<typeof api.updateMcpServerSettings>[1]) =>
       api.updateMcpServerSettings(name, settings, k),
+    getMcpServerTools: (name: string) => api.getMcpServerTools(name, k),
     getMcpServerAccess: (name: string) => api.getMcpServerAccess(name, k),
     putMcpServerAccess: (name: string, entries: Parameters<typeof api.putMcpServerAccess>[1]) =>
       api.putMcpServerAccess(name, entries, k),

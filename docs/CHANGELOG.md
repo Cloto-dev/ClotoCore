@@ -27,15 +27,38 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   used, or waiting and when you last spoke) and the conversation's title.
   Agent settings and the 3D avatar window are behind the header's tools.
 
+- **The MCP page is the workshop of the design mocks.** One column with a
+  band per kind — reasoning, memory, tools, senses, output — and the servers
+  that need a hand first, whatever their kind. Every row carries the server's
+  name, its id, the one line that says what it is for, and its tool count; a
+  state is written only when it deviates (failing, an unset variable,
+  connecting, stopped, an update waiting). The line comes from the server's
+  own description, else the catalog's, never from the dashboard. Search covers
+  names, ids and descriptions; the tabs are installed, marketplace and updates.
+- **A server's page** replaces the settings modal: sections on the left
+  (overview, environment, tools, access, logs), rows of item, explanation and
+  control on the right, and a save bar below. Nothing reaches the kernel until
+  save is pressed; discard puts the edits back. The overview names the
+  description, the origin (installed from the marketplace on a date, at a
+  version, or registered by hand), the launch command and the default policy
+  in words. Tools are listed with their descriptions. Access is per agent —
+  default, allow, deny for the server, and tool by tool when the agent is
+  opened.
+- The kernel's server list now carries each server's description, installed
+  version and registration time, and `GET /api/mcp/servers/:name/tools`
+  answers with the tools and their descriptions.
+
 ### Removed
 
 - The microphone button in the composer. It never sent audio — it inserted a
   note asking the agent to transcribe a recording that was not attached.
 
-Scored against the design review checklist (docs/DESIGN_PHILOSOPHY.md §6):
-0 of 21 applicable signals present, 5 partly (a rounded "latest" button, the
-greeting in the empty room, the blinking cursor, the reading column below 800px,
-the monospace context meter) — all five drawn as the mock draws them.
+Scored against the design review checklist (docs/DESIGN_PHILOSOPHY.md §6).
+The chat: 0 of 21 applicable signals present, 5 partly (a rounded "latest"
+button, the greeting in the empty room, the blinking cursor, the reading column
+below 800px, the monospace context meter) — all five drawn as the mock draws
+them. The MCP list and page: 0 of 21 present, 2 partly (the fixed 200px section
+rail below 900px, the monospace ids under names).
 
 ## [0.6.9a1] — 2026-09-08
 <!-- release-title: an agent gets files it always reads, and skills it loads when it needs them -->

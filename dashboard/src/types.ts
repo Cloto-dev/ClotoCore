@@ -273,6 +273,17 @@ export interface McpServerInfo {
    * registered (CLI / API / mcp.toml). Used together with `mgp_supported`
    * by `isMgpServer()` in `lib/mgp.ts` to render the MGP purple card. */
   marketplace_id?: string | null;
+  /** The one line that says what the server is for (`mcp_servers.description`). */
+  description?: string;
+  installed_version?: string;
+  /** Unix seconds of the server's registration. */
+  installed_at?: number;
+}
+
+/** One of a server's tools, as `GET /api/mcp/servers/:name/tools` lists them. */
+export interface McpToolInfo {
+  name: string;
+  description: string | null;
 }
 
 export interface AccessControlEntry {

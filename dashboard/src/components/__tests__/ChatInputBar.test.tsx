@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { AgentMetadata } from '../../types';
 import { ChatInputBar } from '../ChatInputBar';
 
 // Echo i18n keys so the assertions do not depend on copy. Interpolation is
@@ -21,10 +22,12 @@ function draw(over: Partial<React.ComponentProps<typeof ChatInputBar>> = {}) {
       onStop={onStop}
       agentId="agent.a"
       agentName="Sapphy"
-      agents={[
-        { id: 'agent.a', name: 'Sapphy' },
-        { id: 'agent.b', name: 'KS22' },
-      ]}
+      agents={
+        [
+          { id: 'agent.a', name: 'Sapphy' },
+          { id: 'agent.b', name: 'KS22' },
+        ] as AgentMetadata[]
+      }
       onSwitchAgent={onSwitchAgent}
       {...over}
     />,
