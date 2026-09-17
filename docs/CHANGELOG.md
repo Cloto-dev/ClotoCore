@@ -332,6 +332,14 @@ prompt.
 
 ### Internal
 
+- The operation catalog drives the six conversation routes (create, list,
+  rename, archive and restore, delete, and the two bulk actions), asserting on
+  what the lists show afterwards rather than on the calls returning. The route
+  inventory the coverage ratchet counts against had been blind to `patch(...)`,
+  so the one PATCH route was neither counted nor reported uncovered; it is now,
+  and a CI self-test fails when a method router on a `lib.rs` route goes
+  uncounted. Local phase-0 coverage went from 39/103 to 44/103.
+
 - The issue registry — the mechanism that checks bug claims against the code —
   no longer accepts an empty verification pattern, a registry that declares no
   entries, or a name whose schema does not exist. Each of those read as proof

@@ -27,6 +27,7 @@ _MODULES = [
     "events",
     "mcp",
     "chat",
+    "conversations",
     "llm",
     "cron",
     "marketplace",

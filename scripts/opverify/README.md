@@ -83,7 +83,9 @@ present; each degrades to `None` rather than failing where unavailable.
   mcp (list **+ register→call→stop→reap** lifecycle — the subprocess-orphan
   target), chat (deepseek), **llm** (inspect + configure/real-connection test),
   **cron** (full job lifecycle), **marketplace** (catalog), **permissions**
-  (approve/deny against staged pending requests), **system**, **plugins**, and
+  (approve/deny against staged pending requests), **system**, **plugins**,
+  **conversations** (create → rename → archive → restore → delete, the two bulk
+  routes, and that an id alone cannot reach another agent's thread) and
   **setup** (onboarding gate) — every locally-drivable domain is now covered.
   Still to add: `chat.cerebras` (needs its mind engine installed) and
   `chat.groq` (needs a provider row + key), which land with the full-real
@@ -104,7 +106,10 @@ present; each degrades to `None` rather than failing where unavailable.
     own `target_kind` (`apex`), so they are only ever compared against prior
     apex rows and never trip the route-coverage check;
   * `ledger_selftest.py` gates that distillation in CI (Lint job), because
-    nothing else exercises it on a PR.
+    nothing else exercises it on a PR;
+  * `coverage_selftest.py` gates the route inventory the coverage ratchet
+    counts against: every method router on a route in `lib.rs` must be counted
+    (a verb the parser did not know — PATCH — used to vanish from the count).
 
   What is **not** wired, and what this therefore does not claim: recording a
   run is not the same as making runs happen. The apex is still hand-driven, its
