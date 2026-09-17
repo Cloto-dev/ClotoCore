@@ -95,7 +95,9 @@
     "delete_all_message": "Every conversation with {{agent}}, archived ones included, and all their messages will be removed. This cannot be undone. Memories the agent formed are kept.",
     "cancel": "Cancel",
     "archived_count": "Archived {{count}} conversations.",
-    "deleted_count": "Deleted {{count}} conversations."
+    "deleted_count": "Deleted {{count}} conversations.",
+    "unread": "Could not read the conversations of {{agents}}, so this list may be missing some.",
+    "retry": "Try again"
   },
   "general": {
     "theme": "Theme",

@@ -22,13 +22,24 @@ export function ConversationsSection() {
   const { agents } = useAgentContext();
   const { refresh } = useConversations();
   const [archived, setArchived] = useState<Conversation[]>([]);
+  // Whose list could not be read, and whether any read has finished. An agent
+  // whose list failed is not an agent with nothing archived: until every list
+  // has been read, this screen cannot say "nothing".
+  const [unread, setUnread] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const lists = await Promise.all(
-      agents.map((a) => api.listConversations(a.id, identity.id, true).catch(() => [] as Conversation[])),
-    );
+    const results = await Promise.allSettled(agents.map((a) => api.listConversations(a.id, identity.id, true)));
+    const lists: Conversation[][] = [];
+    const failed: string[] = [];
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') lists.push(r.value);
+      else failed.push(agents[i].id);
+    });
+    setUnread(failed);
+    setLoaded(true);
     setArchived(
       lists
         .flat()
@@ -65,8 +76,18 @@ export function ConversationsSection() {
   return (
     <>
       <SettingsGroup title={t('conversations.archived_title')}>
+        {unread.length > 0 && (
+          <p className="says warn" role="alert">
+            {t('conversations.unread', { agents: unread.map(agentName).join(', ') })}{' '}
+            <button type="button" className="btn" onClick={() => load()}>
+              {t('conversations.retry')}
+            </button>
+          </p>
+        )}
         {archived.length === 0 ? (
-          <p className="gdesc">{t('conversations.archived_empty')}</p>
+          // "Nothing is archived" is a claim about every agent; it is made only
+          // once every list has been read.
+          loaded && unread.length === 0 && <p className="gdesc">{t('conversations.archived_empty')}</p>
         ) : (
           <ul className="slist" data-testid="archived-conversations">
             {archived.map((c) => (

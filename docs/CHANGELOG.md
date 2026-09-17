@@ -14,8 +14,9 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 - **The memory screen is one time axis instead of a grid of cards.** What an
   agent remembers is listed newest first under a band for each calendar day, and
   a run of days with nothing on them is drawn as a single compressed segment
-  saying how long it was, so silence has a size. A point takes the colour of the
-  agent who is present and no one else's; what was remembered is set in the
+  saying how long it was, so silence has a size. The screen wears an agent's
+  colour in one place only — the line under the agent tab you have selected;
+  points and the thirty-day band stay neutral. What was remembered is set in the
   reading face rather than monospace, clamped to two lines, and opened by the
   pointer or by keyboard focus. The right column holds the episodes — with a
   line saying how the first one is made when there are none — over a band of
@@ -208,6 +209,13 @@ is the subject of the row rather than decoration, and monochrome except the one
 selected). The agent's settings page: 0 of 21 present, 3 partly (the fixed
 200px section rail below 900px, monospace ids and file names, and the same
 absent loading state while the grants and the always-loaded files are read).
+
+### Fixed
+
+- Settings → Conversations no longer says "nothing is archived" when it could
+  not read an agent's conversations (a rate limit was enough). It names the
+  agents it could not read, lists what it could, offers another try, and makes
+  the "nothing" claim only once every agent has been read.
 
 ## [0.6.9a1] — 2026-09-08
 <!-- release-title: an agent gets files it always reads, and skills it loads when it needs them -->
