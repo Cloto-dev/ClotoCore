@@ -1,6 +1,6 @@
 # Conversations — Design
 
-**Status:** Proposed
+**Status:** Approved 2026-09-17. Kernel side landed (migration, context, routes); the dashboard side is in progress.
 **Author:** kernel team · 2026-09-17
 **Related:** `DESIGN_PHILOSOPHY.md` §4.6 and §7 ("conversations need to
 exist"), `RECALL_SESSION_SCOPE_V2_DESIGN.md` (long-term recall scope, which
