@@ -357,6 +357,7 @@
     "next": "Next agent",
     "create_agent": "Create an agent",
     "create_first": "Nobody is here yet. Make someone to talk to.",
-    "create_another": "Make someone new to talk to."
+    "create_another": "Make someone new to talk to.",
+    "name_placeholder": "Name someone new to talk to"
   }
 }

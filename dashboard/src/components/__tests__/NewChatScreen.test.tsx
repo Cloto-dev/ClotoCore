@@ -25,14 +25,14 @@ vi.mock('../ChatInputBar', () => ({
     disabled?: boolean;
     agentId?: string;
     onSend: (b: unknown[], t: string, e: null) => void;
-    invitation?: { label: string; onAccept: () => void };
+    invitation?: { label: string; placeholder: string; onAccept: (name: string) => void };
   }) => (
     <>
       <button type="button" data-agent={p.agentId ?? ''} disabled={p.disabled} onClick={() => p.onSend([], 'hi', null)}>
         composer
       </button>
       {p.invitation && (
-        <button type="button" onClick={p.invitation.onAccept}>
+        <button type="button" title={p.invitation.placeholder} onClick={() => p.invitation?.onAccept('Mira')}>
           invitation:{p.invitation.label}
         </button>
       )}
@@ -42,8 +42,10 @@ vi.mock('../ChatInputBar', () => ({
 const created = vi.hoisted(() => ({ faceProblem: null as string | null }));
 vi.mock('../agents/CreateAgentModal', () => ({
   CreateAgentModal: ({
+    initialName,
     onCreated,
   }: {
+    initialName?: string;
     onCreated: (c: { name: string; id: string | null; faceProblem: string | null }) => void;
   }) => (
     <button
@@ -51,6 +53,7 @@ vi.mock('../agents/CreateAgentModal', () => ({
       onClick={() => onCreated({ name: 'Newcomer', id: 'agent.newcomer', faceProblem: created.faceProblem })}
     >
       create-modal
+      {initialName ? <span>named:{initialName}</span> : null}
     </button>
   ),
 }));
@@ -219,7 +222,12 @@ describe('the new chat', () => {
     convCtx.draft = { key: 'draft:1', agentId: null };
     rerender(<NewChatScreen />);
     expect(screen.queryByText('create-modal')).toBeNull();
+    expect(screen.getByText('invitation:new_chat.create_agent').getAttribute('title')).toBe(
+      'new_chat.name_placeholder',
+    );
     fireEvent.click(screen.getByText('invitation:new_chat.create_agent'));
-    expect(screen.getByText('create-modal')).toBeTruthy();
+    expect(screen.getByText(/create-modal/)).toBeTruthy();
+    // The name typed into the box is where the form starts.
+    expect(screen.getByText('named:Mira')).toBeTruthy();
   });
 });

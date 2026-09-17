@@ -28,12 +28,14 @@ interface ChatInputBarProps {
   /** The context meter, drawn at the row's right. */
   meter?: ReactNode;
   /**
-   * There is nobody to write to yet. The box stays empty and says nothing: it
-   * is the thing a person reaches for, so reaching for it is the way in —
-   * pressing it (or typing into it) accepts the invitation. Nothing can be
-   * written or sent, and the send button wears no one's colour.
+   * There is nobody to write to yet, so the box asks for the one thing that
+   * makes somebody: a name. It says so (`placeholder`), what is typed is that
+   * name and nothing else, and Enter or the button — a plus here, not the send
+   * arrow, because nothing is sent — hands it to `onAccept`. An empty name is
+   * accepted too: the button is the way in on its own. The button wears no
+   * one's colour.
    */
-  invitation?: { label: string; onAccept: () => void };
+  invitation?: { label: string; placeholder: string; onAccept: (name: string) => void };
 }
 
 interface PendingAttachment {
@@ -65,6 +67,14 @@ export function ChatInputBar({
 }: ChatInputBarProps) {
   const { t } = useTranslation('agents');
   const [input, setInput] = useState('');
+  // The name typed for somebody new. Kept apart from `input`: the composer is
+  // the draft's and survives turning between faces, and a message half-written
+  // to someone must not show up here as a name.
+  const [inviteName, setInviteName] = useState('');
+  const inviting = !!invitation;
+  useEffect(() => {
+    if (!inviting) setInviteName('');
+  }, [inviting]);
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
   const storageKey = agentId ? `cloto-engine-${agentId}` : null;
   const [selectedEngine, setSelectedEngineRaw] = useState<string | null>(() => {
@@ -213,7 +223,7 @@ export function ChatInputBar({
       <div className="col">
         {/* The textarea inside carries the role and the keyboard path; the click
             here only widens the pointer target to the whole box. */}
-        <div className={`box${invitation ? ' inviting' : ''}`} onClick={invitation ? invitation.onAccept : undefined}>
+        <div className={`box${invitation ? ' inviting' : ''}`} onClick={() => inputRef.current?.focus()}>
           {attachment && (
             <div className="attach">
               <img src={attachment.preview} alt="" />
@@ -228,8 +238,8 @@ export function ChatInputBar({
           <textarea
             ref={inputRef}
             rows={1}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
+            value={invitation ? inviteName : input}
+            onChange={(e) => (invitation ? setInviteName(e.target.value.replace(/\n/g, '')) : setInput(e.target.value))}
             onCompositionStart={() => {
               isComposingRef.current = true;
             }}
@@ -238,10 +248,13 @@ export function ChatInputBar({
             }}
             onKeyDown={(e) => {
               if (invitation) {
-                // Anything that would have written something accepts instead.
-                if (e.key === 'Enter' || e.key === ' ' || (e.key.length === 1 && !e.metaKey && !e.ctrlKey)) {
+                // A name has no lines: Enter hands it over, except the Enter
+                // that ends IME composition.
+                if (e.key === 'Enter') {
                   e.preventDefault();
-                  invitation.onAccept();
+                  if (!e.nativeEvent.isComposing && !isComposingRef.current && e.keyCode !== 229) {
+                    invitation.onAccept(inviteName.trim());
+                  }
                 }
                 return;
               }
@@ -261,9 +274,8 @@ export function ChatInputBar({
             }}
             onPaste={handlePaste}
             disabled={disabled && !invitation}
-            readOnly={!!invitation}
-            placeholder={invitation ? '' : placeholder}
-            aria-label={invitation ? invitation.label : placeholder}
+            placeholder={invitation ? invitation.placeholder : placeholder}
+            aria-label={invitation ? invitation.placeholder : placeholder}
           />
           <div className="row">
             {/* Nothing can be attached to nobody: the box is empty. */}
@@ -347,12 +359,27 @@ export function ChatInputBar({
                   <rect x="7" y="7" width="10" height="10" rx="1.5" />
                 </svg>
               </button>
+            ) : invitation ? (
+              <button
+                type="button"
+                className="send nobody"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  invitation.onAccept(inviteName.trim());
+                }}
+                title={invitation.label}
+                aria-label={invitation.label}
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+              </button>
             ) : (
               <button
                 type="button"
-                className={`send${invitation ? ' nobody' : ''}`}
+                className="send"
                 onClick={handleSend}
-                disabled={!canSend || !!invitation}
+                disabled={!canSend}
                 title={t('chat_input.send')}
                 aria-label={t('chat_input.send')}
               >

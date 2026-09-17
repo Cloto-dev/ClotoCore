@@ -10,6 +10,8 @@ import { Select } from '../ui/Select';
 import { VrmThumbnailDialog } from '../VrmThumbnailDialog';
 
 interface Props {
+  /** A name the person already typed on the way here; the form opens with it. */
+  initialName?: string;
   onClose: () => void;
   /** Told which agent now exists, and whether its face could be saved with it. */
   onCreated: (created: CreatedAgent) => void;
@@ -25,7 +27,7 @@ interface Props {
  * start, and a first-run form that opens with six empty controls teaches that
  * this is complicated.
  */
-export function CreateAgentModal({ onClose, onCreated }: Props) {
+export function CreateAgentModal({ initialName = '', onClose, onCreated }: Props) {
   const { t } = useTranslation('agents');
   const { t: tc } = useTranslation('common');
   const { servers } = useMcpServers();
@@ -43,7 +45,7 @@ export function CreateAgentModal({ onClose, onCreated }: Props) {
     addRoutingRule,
     updateRoutingRule,
     removeRoutingRule,
-  } = useAgentCreation(onCreated);
+  } = useAgentCreation(onCreated, initialName);
 
   // The chosen picture, shown before anything is uploaded: the files go to
   // the kernel only once the agent exists (the hook does that on Create).

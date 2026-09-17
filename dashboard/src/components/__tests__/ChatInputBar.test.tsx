@@ -15,6 +15,18 @@ const onSend = vi.fn();
 const onStop = vi.fn();
 const onSwitchAgent = vi.fn();
 
+const baseProps = {
+  onSend,
+  onStop,
+  agentId: 'agent.a',
+  agentName: 'Sapphy',
+  agents: [
+    { id: 'agent.a', name: 'Sapphy' },
+    { id: 'agent.b', name: 'KS22' },
+  ] as AgentMetadata[],
+  onSwitchAgent,
+};
+
 function draw(over: Partial<React.ComponentProps<typeof ChatInputBar>> = {}) {
   return render(
     <ChatInputBar
@@ -153,42 +165,102 @@ describe('the composer', () => {
         agentId: undefined,
         agentName: undefined,
         disabled: true,
-        invitation: { label: 'Create an agent', onAccept },
+        invitation: { label: 'Create an agent', placeholder: 'Name someone new to talk to', onAccept },
       });
       return onAccept;
     };
+    const plus = () => screen.getByRole('button', { name: 'Create an agent' }) as HTMLButtonElement;
 
-    it('is an empty box that says nothing, and pressing it accepts the invitation', () => {
-      const onAccept = drawInvitation();
-      expect(box().placeholder).toBe('');
-      expect(box().getAttribute('aria-label')).toBe('Create an agent');
-      // Not disabled: a disabled control swallows the press that is the point.
+    it('says what the box is for, and can be typed into', () => {
+      drawInvitation();
+      expect(box().placeholder).toBe('Name someone new to talk to');
+      expect(box().getAttribute('aria-label')).toBe('Name someone new to talk to');
+      // Not disabled and not read-only: the name is typed here.
       expect(box().disabled).toBe(false);
-      expect(box().readOnly).toBe(true);
-      fireEvent.click(box());
-      expect(onAccept).toHaveBeenCalledTimes(1);
+      expect(box().readOnly).toBe(false);
+      fireEvent.change(box(), { target: { value: 'Mira' } });
+      expect(box().value).toBe('Mira');
     });
 
-    it('accepts on the keys that would have written something, and not on the ones that move', () => {
+    it('does not open anything when the box is only pressed or typed into', () => {
       const onAccept = drawInvitation();
+      fireEvent.click(box());
+      fireEvent.keyDown(box(), { key: 'a' });
+      fireEvent.keyDown(box(), { key: ' ' });
       fireEvent.keyDown(box(), { key: 'Tab' });
-      fireEvent.keyDown(box(), { key: 'ArrowLeft' });
-      fireEvent.keyDown(box(), { key: 'c', metaKey: true });
+      expect(onAccept).not.toHaveBeenCalled();
+    });
+
+    it('hands over the typed name on Enter, trimmed, and keeps a name on one line', () => {
+      const onAccept = drawInvitation();
+      fireEvent.change(box(), { target: { value: '  Mira\nVale ' } });
+      expect(box().value).toBe('  MiraVale ');
+      fireEvent.keyDown(box(), { key: 'Enter' });
+      expect(onAccept).toHaveBeenCalledTimes(1);
+      expect(onAccept).toHaveBeenCalledWith('MiraVale');
+      expect(onSend).not.toHaveBeenCalled();
+    });
+
+    it('does not take the Enter that ends IME composition for the end of the name', () => {
+      const onAccept = drawInvitation();
+      fireEvent.change(box(), { target: { value: 'みら' } });
+      fireEvent.keyDown(box(), { key: 'Enter', isComposing: true });
+      fireEvent.keyDown(box(), { key: 'Enter', keyCode: 229 });
       expect(onAccept).not.toHaveBeenCalled();
       fireEvent.keyDown(box(), { key: 'Enter' });
-      fireEvent.keyDown(box(), { key: 'a' });
+      expect(onAccept).toHaveBeenCalledWith('みら');
+    });
+
+    it('has a plus where the send arrow was: pressable with no name, and it sends nothing', () => {
+      const onAccept = drawInvitation();
+      expect(screen.queryByLabelText('chat_input.send')).toBeNull();
+      expect(plus().disabled).toBe(false);
+      expect(plus().className).toContain('nobody');
+      fireEvent.click(plus());
+      expect(onAccept).toHaveBeenCalledTimes(1);
+      expect(onAccept).toHaveBeenCalledWith('');
+      fireEvent.change(box(), { target: { value: 'Mira' } });
+      fireEvent.click(plus());
+      expect(onAccept).toHaveBeenLastCalledWith('Mira');
       expect(onAccept).toHaveBeenCalledTimes(2);
       expect(onSend).not.toHaveBeenCalled();
     });
 
-    it("sends nothing, offers no engine, and the send button wears no one's colour", () => {
+    it('offers no attachment, and the hint keeps its place but says nothing', () => {
       drawInvitation();
-      const send = screen.getByLabelText('chat_input.send') as HTMLButtonElement;
-      expect(send.disabled).toBe(true);
-      expect(send.className).toContain('nobody');
-      // The hint keeps its place (the box must not move as faces turn) but says nothing.
+      // The hint keeps its place (the box must not move as faces turn).
       expect(screen.getByText('chat_input.hint').style.visibility).toBe('hidden');
       expect(screen.queryByLabelText('chat_input.attach_image')).toBeNull();
+    });
+
+    it('keeps a half-written message out of the name, and the name out of the message', () => {
+      const { rerender } = draw();
+      fireEvent.change(box(), { target: { value: 'a message to Sapphy' } });
+      const onAccept = vi.fn();
+      rerender(
+        <ChatInputBar
+          {...baseProps}
+          agentId={undefined}
+          agentName={undefined}
+          disabled
+          invitation={{ label: 'Create an agent', placeholder: 'Name someone new to talk to', onAccept }}
+        />,
+      );
+      expect(box().value).toBe('');
+      fireEvent.change(box(), { target: { value: 'Mira' } });
+      rerender(<ChatInputBar {...baseProps} />);
+      expect(box().value).toBe('a message to Sapphy');
+      // Turning back: the name typed before is not kept for the next somebody.
+      rerender(
+        <ChatInputBar
+          {...baseProps}
+          agentId={undefined}
+          agentName={undefined}
+          disabled
+          invitation={{ label: 'Create an agent', placeholder: 'Name someone new to talk to', onAccept }}
+        />,
+      );
+      expect(box().value).toBe('');
     });
 
     it('an ordinary composer is none of that', () => {

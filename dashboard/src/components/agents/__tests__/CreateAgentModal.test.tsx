@@ -45,6 +45,20 @@ describe('making a new agent', () => {
     expect(document.activeElement).toBe(screen.getByLabelText('form.name'));
   });
 
+  it('opens with a name typed on the way in, which can still be changed, and creates with it', async () => {
+    render(<CreateAgentModal initialName="Mira" onClose={vi.fn()} onCreated={vi.fn()} />);
+    const name = screen.getByLabelText('form.name') as HTMLInputElement;
+    expect(name.value).toBe('Mira');
+    fireEvent.change(name, { target: { value: 'Mira Vale' } });
+    expect(name.value).toBe('Mira Vale');
+    fireEvent.change(screen.getByLabelText('form.description'), { target: { value: 'Keeps notes.' } });
+    fireEvent.click(screen.getByLabelText('form.llm_engine'));
+    fireEvent.pointerDown(screen.getByText('ollama'));
+    fireEvent.click(screen.getByText('create'));
+    await waitFor(() => expect(apiFns.createAgent).toHaveBeenCalledTimes(1));
+    expect(apiFns.createAgent.mock.calls[0][0].name).toBe('Mira Vale');
+  });
+
   it('will not create until it has a name, a description and an engine', () => {
     render(<CreateAgentModal onClose={vi.fn()} onCreated={vi.fn()} />);
     const create = screen.getByText('create');

@@ -759,13 +759,9 @@
   color: hsl(var(--text-tertiary));
   opacity: 1;
 }
-/* The empty box is the way in: it answers the pointer like something pressable. */
-.box.inviting,
-.box.inviting textarea {
-  cursor: pointer;
-}
-.box.inviting:hover {
-  box-shadow: 0 0 0 1px hsl(var(--border-default));
+/* With nobody to write to, the button is a plus that can always be pressed. */
+.send.nobody:hover {
+  color: hsl(var(--text-primary));
 }
 .send.stop {
   background: hsl(var(--text-primary));

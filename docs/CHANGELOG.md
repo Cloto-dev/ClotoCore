@@ -24,6 +24,14 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Changed
 
+- **The box under "Create an agent" says what it is for.** On the new-chat
+  screen, with nobody facing you, the composer was an empty box with a greyed
+  send arrow: pressing it or typing anything opened the form, and what you had
+  typed was thrown away. It now asks for a name, the button is a plus rather
+  than an arrow that sends nothing, and Enter or the plus opens the form with
+  the name already in it. Pressing or typing in the box no longer opens
+  anything by itself, and a message half-written to someone else does not turn
+  up there as a name.
 - **Theme and light/dark are two settings.** "Light / Dark / System / Legacy"
   was one choice that mixed which palette with which face of it. They are now
   separate: a theme (Cloto, Legacy, or one you imported) and a mode (light,

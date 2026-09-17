@@ -44,9 +44,11 @@ const INITIAL_FORM: CreationForm = {
   vrmFile: null,
 };
 
-export function useAgentCreation(onCreated: (created: CreatedAgent) => void) {
+export function useAgentCreation(onCreated: (created: CreatedAgent) => void, initialName = '') {
   const api = useApi();
-  const [form, setForm] = useState<CreationForm>(INITIAL_FORM);
+  // Read once: a name typed on the way in is where the form starts, not
+  // something that overwrites what the person then types.
+  const [form, setForm] = useState<CreationForm>(() => ({ ...INITIAL_FORM, name: initialName }));
   const [isCreating, setIsCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 

@@ -455,7 +455,8 @@
       "next": "次の相手",
       "create_agent": "エージェントを作成",
       "create_first": "まだ誰もいません。話し相手を作りましょう。",
-      "create_another": "新しい話し相手を作ります。"
+      "create_another": "新しい話し相手を作ります。",
+      "name_placeholder": "新しい話し相手の名前"
     }
   },
   "settings": {

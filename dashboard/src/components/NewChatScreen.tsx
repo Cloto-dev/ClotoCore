@@ -41,6 +41,8 @@ export function NewChatScreen() {
   const { conversations, draft, setDraftAgent, sendDraft } = useConversations();
   const { servers } = useMcpServers();
   const [createOpen, setCreateOpen] = useState(false);
+  // The name typed into the box below, carried into the form that opens.
+  const [createName, setCreateName] = useState('');
   // The agent just made, by name, until the list that contains it arrives.
   const [arriving, setArriving] = useState<string | null>(null);
   // The agent was made but its face was not saved: said once, above the composer.
@@ -241,7 +243,18 @@ export function NewChatScreen() {
           key={draft?.key}
           onSend={(blocks, rawText, engineOverride) => sendDraft({ blocks, rawText, engineOverride })}
           disabled={!agent?.enabled}
-          invitation={agent ? undefined : { label: t('new_chat.create_agent'), onAccept: () => setCreateOpen(true) }}
+          invitation={
+            agent
+              ? undefined
+              : {
+                  label: t('new_chat.create_agent'),
+                  placeholder: t('new_chat.name_placeholder'),
+                  onAccept: (name) => {
+                    setCreateName(name);
+                    setCreateOpen(true);
+                  },
+                }
+          }
           servers={engines}
           agentId={agent?.id}
           agentName={agent?.name}
@@ -252,6 +265,7 @@ export function NewChatScreen() {
 
       {createOpen && (
         <CreateAgentModal
+          initialName={createName}
           onClose={() => setCreateOpen(false)}
           onCreated={(created) => {
             setCreateOpen(false);
