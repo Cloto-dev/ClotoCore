@@ -15,6 +15,12 @@ const data = vi.hoisted(() => ({
   servers: [] as McpServerInfo[],
   catalog: [] as MarketplaceCatalogEntry[],
 }));
+// A fixed object: the page reads ?… from it and hands back what it removed.
+const router = vi.hoisted(() => ({
+  params: new URLSearchParams(),
+  setParams: vi.fn(),
+}));
+vi.mock('react-router-dom', () => ({ useSearchParams: () => [router.params, router.setParams] }));
 vi.mock('../../hooks/useApi', () => ({ useApi: () => ({ apiKey: 'k' }) }));
 vi.mock('../../hooks/useMcpServers', () => ({
   useMcpServers: () => ({ servers: data.servers, isLoading: false, error: null, refetch: vi.fn() }),
@@ -42,6 +48,8 @@ function server(id: string, over: Partial<McpServerInfo> = {}): McpServerInfo {
 }
 
 beforeEach(() => {
+  router.params = new URLSearchParams();
+  router.setParams.mockClear();
   data.servers = [
     server('cpersona', { display_name: 'CPersona', tools: ['recall'], description: 'Long-term memory.' }),
     server('disk_checker', { status: 'Error', status_message: 'exit 1', tools: [] }),
@@ -59,6 +67,26 @@ beforeEach(() => {
       update_available: true,
     } as MarketplaceCatalogEntry,
   ];
+});
+
+describe('arriving from search', () => {
+  it('opens the server a link names, and takes the name out of the address', () => {
+    router.params = new URLSearchParams('server=deepseek&tab=x');
+    render(<McpServersPage />);
+    expect(screen.getByText('detail:deepseek')).toBeTruthy();
+    expect(router.setParams).toHaveBeenCalledTimes(1);
+    const [next, opts] = router.setParams.mock.calls[0];
+    expect((next as URLSearchParams).get('server')).toBeNull();
+    // Only its own parameter is taken.
+    expect((next as URLSearchParams).get('tab')).toBe('x');
+    expect(opts).toEqual({ replace: true });
+  });
+
+  it('opens nothing and changes nothing without one', () => {
+    render(<McpServersPage />);
+    expect(screen.queryByText(/^detail:/)).toBeNull();
+    expect(router.setParams).not.toHaveBeenCalled();
+  });
 });
 
 describe('the MCP page', () => {

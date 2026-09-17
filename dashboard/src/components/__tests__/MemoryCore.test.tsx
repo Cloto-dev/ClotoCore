@@ -5,6 +5,12 @@ import type { AgentMetadata, Episode, Memory } from '../../types';
 
 // The real English strings, so an assertion reads as what a person sees and a
 // key that does not exist fails here rather than rendering its own name.
+// A fixed object: the page reads ?… from it and hands back what it removed.
+const router = vi.hoisted(() => ({
+  params: new URLSearchParams(),
+  setParams: vi.fn(),
+}));
+vi.mock('react-router-dom', () => ({ useSearchParams: () => [router.params, router.setParams] }));
 vi.mock('react-i18next', async () => {
   const en = (await import('../../locales/en/memory.json')).default as Record<string, string>;
   return {
@@ -119,6 +125,8 @@ const act = (row: HTMLElement, label: string) => {
 };
 
 beforeEach(() => {
+  router.params = new URLSearchParams();
+  router.setParams.mockClear();
   vi.clearAllMocks();
   setData();
   api.deleteMemory.mockResolvedValue(undefined);
@@ -301,6 +309,18 @@ describe('what the screen says when it has nothing to show', () => {
     // The axis is still there; the error did not take its place.
     expect(screen.getByText('Today')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
+});
+
+describe('arriving from search', () => {
+  it('narrows the axis to what was searched for, and takes it out of the address', async () => {
+    router.params = new URLSearchParams('q=recall gate');
+    await mount();
+    expect((screen.getByLabelText(/search/i) as HTMLInputElement).value).toBe('recall gate');
+    expect(bodies()).toEqual(['the morning greeting can wait; the recall gate is the thing to move']);
+    const [next, opts] = router.setParams.mock.calls[0];
+    expect((next as URLSearchParams).get('q')).toBeNull();
+    expect(opts).toEqual({ replace: true });
   });
 });
 

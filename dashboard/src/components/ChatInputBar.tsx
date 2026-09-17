@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShortcut } from '../hooks/useShortcut';
 import { agentColor } from '../lib/agentIdentity';
 import type { AgentMetadata, ContentBlock, McpServerInfo } from '../types';
 import { EngineSelector } from './EngineSelector';
@@ -79,6 +80,15 @@ export function ChatInputBar({
   };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // '/' writes here from anywhere that is not already text — when this
+  // composer is the one on screen. The agent page stays mounted behind other
+  // routes, inside a hidden wrapper, and must not take the key from there.
+  useShortcut('focusComposer', () => {
+    const el = inputRef.current;
+    if (!el || el.disabled || el.readOnly || el.closest('.hidden')) return false;
+    el.focus();
+    return true;
+  });
   const isComposingRef = useRef(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const agentMenuRef = useRef<HTMLDivElement>(null);

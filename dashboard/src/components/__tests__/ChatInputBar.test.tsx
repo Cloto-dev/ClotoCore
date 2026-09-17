@@ -42,6 +42,38 @@ beforeEach(() => {
   onSwitchAgent.mockReset();
 });
 
+describe("'/' from anywhere", () => {
+  it('puts the caret in the composer when nothing else is being typed in', () => {
+    draw();
+    expect(document.activeElement).not.toBe(box());
+    const key = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(key);
+    expect(document.activeElement).toBe(box());
+    // The slash itself is not written into the composer.
+    expect(key.defaultPrevented).toBe(true);
+  });
+
+  it('leaves the key alone when the composer is behind another screen', () => {
+    render(
+      <div className="hidden">
+        <ChatInputBar onSend={onSend} onStop={onStop} agentId="agent.a" agentName="Sapphy" />
+      </div>,
+    );
+    const key = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(key);
+    expect(document.activeElement).not.toBe(box());
+    expect(key.defaultPrevented).toBe(false);
+  });
+
+  it('does nothing while the composer cannot be written in', () => {
+    draw({ disabled: true });
+    const key = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(key);
+    expect(document.activeElement).not.toBe(box());
+    expect(key.defaultPrevented).toBe(false);
+  });
+});
+
 describe('the composer', () => {
   it("addresses the agent by name in its placeholder, as the mock's 'Talk to Sapphy'", () => {
     draw();

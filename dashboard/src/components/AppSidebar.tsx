@@ -7,6 +7,7 @@ import { useConnection } from '../contexts/ConnectionContext';
 import { useConversations } from '../contexts/ConversationContext';
 import { useApi } from '../hooks/useApi';
 import { useModules } from '../hooks/useModules';
+import { useShortcut } from '../hooks/useShortcut';
 import { displayTitle, groupConversations } from '../lib/conversations';
 import type { Conversation } from '../types';
 import { NotificationBell } from './NotificationBell';
@@ -104,9 +105,11 @@ interface AppSidebarProps {
   onSettingsClick: () => void;
   /** Open the help. Optional: a caller with no help to show gets no link. */
   onHelpClick?: () => void;
+  /** Open search (⌘K). Optional: without it the button is not drawn. */
+  onSearchClick?: () => void;
 }
 
-export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpClick }) => {
+export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpClick, onSearchClick }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation('nav');
@@ -164,15 +167,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
   };
 
   // ⌘N / Ctrl+N: the shortcut the mock prints beside New chat.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
-        e.preventDefault();
-        handleNewChat();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+  useShortcut('newChat', () => {
+    handleNewChat();
   });
 
   const goAgents = () => {
@@ -194,9 +190,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
     <aside className="side" aria-label={t('sidebar')}>
       <div className="side-head">
         <span className="app">ClotoCore</span>
-        <button type="button" title={t('search')} aria-label={t('search')} aria-disabled="true">
-          {ICONS.search}
-        </button>
+        {onSearchClick && (
+          <button type="button" title={t('search')} aria-label={t('search')} onClick={onSearchClick}>
+            {ICONS.search}
+          </button>
+        )}
         <NotificationBell />
       </div>
 

@@ -56,7 +56,7 @@
   color: hsl(var(--text-primary));
 }
 .winbar button:focus-visible {
-  outline: 2px solid hsl(var(--agent));
+  /* Inside the button: the bar is exactly as tall as its controls. */
   outline-offset: -2px;
 }
 .winbar button:disabled {

@@ -28,7 +28,15 @@ vi.mock('../../contexts/ConversationContext', () => ({
 }));
 vi.mock('../../pages/AgentPage', () => ({ AgentPage: () => <div>agent-page</div> }));
 vi.mock('../AppSidebar', () => ({
-  AppSidebar: ({ onHelpClick, onSettingsClick }: { onHelpClick?: () => void; onSettingsClick?: () => void }) => (
+  AppSidebar: ({
+    onHelpClick,
+    onSettingsClick,
+    onSearchClick,
+  }: {
+    onHelpClick?: () => void;
+    onSettingsClick?: () => void;
+    onSearchClick?: () => void;
+  }) => (
     <>
       <button type="button" onClick={onHelpClick} data-testid="sidebar">
         sidebar-help
@@ -36,7 +44,19 @@ vi.mock('../AppSidebar', () => ({
       <button type="button" onClick={onSettingsClick}>
         sidebar-settings
       </button>
+      <button type="button" onClick={onSearchClick}>
+        sidebar-search
+      </button>
     </>
+  ),
+}));
+vi.mock('../CommandPalette', () => ({
+  CommandPalette: ({ onClose }: { onClose: () => void }) => (
+    <div data-testid="palette">
+      <button type="button" onClick={onClose}>
+        close-palette
+      </button>
+    </div>
   ),
 }));
 vi.mock('../CommandApprovalDeck', () => ({ CommandApprovalDeck: () => null }));
@@ -52,6 +72,31 @@ beforeEach(() => {
   chrome.hasOverlayTitleBar = false;
   window.localStorage.clear();
   navigate.mockClear();
+});
+
+describe('search', () => {
+  it('opens and closes on ⌘K and on Ctrl+K, from anywhere', () => {
+    render(<AppLayout />);
+    expect(screen.queryByTestId('palette')).toBeNull();
+    fireEvent.keyDown(window, { key: 'k', metaKey: true });
+    expect(screen.getByTestId('palette')).toBeTruthy();
+    fireEvent.keyDown(window, { key: 'K', ctrlKey: true });
+    expect(screen.queryByTestId('palette')).toBeNull();
+  });
+
+  it('does not open on a bare K, which is a letter being typed', () => {
+    render(<AppLayout />);
+    fireEvent.keyDown(window, { key: 'k' });
+    expect(screen.queryByTestId('palette')).toBeNull();
+  });
+
+  it("opens from the sidebar's search, and closes when it asks to", () => {
+    render(<AppLayout />);
+    fireEvent.click(screen.getByText('sidebar-search'));
+    expect(screen.getByTestId('palette')).toBeTruthy();
+    fireEvent.click(screen.getByText('close-palette'));
+    expect(screen.queryByTestId('palette')).toBeNull();
+  });
 });
 
 describe('the window frame', () => {

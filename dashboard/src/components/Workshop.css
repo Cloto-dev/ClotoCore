@@ -33,11 +33,10 @@
   height: 15px;
   flex: none;
 }
-/* The mock's focus ring, scoped to the workshop: the keyboard has to be able
- * to see where it is, and the custom picker is reachable only that way. */
+/* The focus ring in the workshop: the global one (index.css), in the
+ * neutral step — the workshop has no accent — with the controls' radius. */
 .ws :focus-visible {
-  outline: 2px solid hsl(var(--agent));
-  outline-offset: 2px;
+  outline-color: hsl(var(--text-secondary));
   border-radius: var(--radius-tool);
 }
 .ws .num {

@@ -11,6 +11,20 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Added
 
+- **Search, from anywhere (⌘K / Ctrl+K).** A field over the page that goes to
+  a screen or a settings section, a conversation (by its title or who it is
+  with), an MCP server (by its name or what it is for) or a memory (among the
+  recent ones the memory server lists, which the group says). Arrows move,
+  Enter goes, Escape closes and hands the focus back to where it was; the
+  sidebar's search button opens it too. What was said inside conversations is
+  not searched yet — that needs a search the kernel answers. `/` puts the caret
+  in the composer when nothing else is being typed in, and ⌘N (new chat) now
+  goes through the same one table of shortcuts.
+- **The keyboard can always see where it is.** One focus ring for the whole
+  app, shown only for keyboard focus: neutral everywhere, the present agent's
+  colour in the chat. The workshop's ring had been the agent's colour, which
+  the workshop does not wear, and six inputs had switched the ring off.
+
 - **CLI agents is a page.** Connecting a CLI harness moved out of a dialog to
   `/agents/cli`: the harnesses on this machine down the left — whether each is
   usable, its version, how it is billed, where its credential lives, and how

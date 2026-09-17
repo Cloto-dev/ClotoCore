@@ -1,6 +1,7 @@
 import { Search } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
 import { type Metrics, useMetrics } from '../hooks/useMetrics';
@@ -84,6 +85,16 @@ export const MemoryCore = memo(function MemoryCore() {
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null); // null = All
   const [kind, setKind] = useState<Kind>('all');
   const [query, setQuery] = useState('');
+  // ?q= narrows the axis to what search was asked for, then leaves the URL.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryParam = searchParams.get('q');
+  useEffect(() => {
+    if (queryParam === null) return;
+    setQuery(queryParam);
+    const next = new URLSearchParams(searchParams);
+    next.delete('q');
+    setSearchParams(next, { replace: true });
+  }, [queryParam, searchParams, setSearchParams]);
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [now, setNow] = useState(() => new Date());
   const [capabilities, setCapabilities] = useState<MemoryCapabilities>({

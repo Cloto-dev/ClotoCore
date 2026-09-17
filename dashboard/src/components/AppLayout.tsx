@@ -5,10 +5,12 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ActionsProvider } from '../contexts/ActionsContext';
 import { useAgentContext } from '../contexts/AgentContext';
 import { ConversationProvider } from '../contexts/ConversationContext';
+import { useShortcut } from '../hooks/useShortcut';
 import { isExperimentalBuild } from '../lib/tauri';
 import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
 import { CommandApprovalDeck } from './CommandApprovalDeck';
+import { CommandPalette } from './CommandPalette';
 import { HelpContent } from './HelpContent';
 import { Modal } from './Modal';
 import { SecurityGuard } from './SecurityGuard';
@@ -33,6 +35,10 @@ export function AppLayout() {
   const { t } = useTranslation('common');
   const { t: tNav } = useTranslation('nav');
   const [helpOpen, setHelpOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useShortcut('palette', () => {
+    setPaletteOpen((open) => !open);
+  });
   const [immersive, setImmersive] = useState(false);
   const [sidebarHidden, setSidebarHidden] = useState(readSidebarHidden);
 
@@ -88,7 +94,11 @@ export function AppLayout() {
           <div className="flex flex-1 overflow-hidden relative">
             {!immersive && !sidebarHidden && (
               <div className="relative z-10">
-                <AppSidebar onSettingsClick={() => navigate('/settings')} onHelpClick={() => setHelpOpen(true)} />
+                <AppSidebar
+                  onSettingsClick={() => navigate('/settings')}
+                  onHelpClick={() => setHelpOpen(true)}
+                  onSearchClick={() => setPaletteOpen(true)}
+                />
               </div>
             )}
             <main className="flex-1 h-full overflow-hidden relative z-10">
@@ -133,6 +143,8 @@ export function AppLayout() {
           {/* Both live outside the routed content on purpose: a question an agent
             is blocked on is not about the screen you happen to be on, and the
             immersive view does not get to hide one either. */}
+          {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+
           <CommandApprovalDeck />
           <SecurityGuard />
         </div>

@@ -167,7 +167,7 @@ export function DiagnosticsModal({ context, message, componentStack, onClose }: 
               value={text}
               onChange={(e) => setText(e.target.value)}
               spellCheck={false}
-              className="w-full h-72 p-3 text-xs font-mono leading-relaxed bg-surface-field border border-edge rounded text-content-secondary resize-none focus:outline-none focus:border-agent"
+              className="w-full h-72 p-3 text-xs font-mono leading-relaxed bg-surface-field border border-edge rounded text-content-secondary resize-none focus:border-agent"
             />
           )}
 

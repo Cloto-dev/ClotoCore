@@ -898,7 +898,7 @@
     "delete_conversation_title": "この会話を削除しますか？",
     "delete_conversation_message": "「{{title}}」とそのメッセージを削除します。元に戻せません。話している間にエージェントが作った記憶は残ります。",
     "sidebar": "サイドバー",
-    "search": "検索 (⌘K) — 検索機能と一緒に入ります",
+    "search": "検索 (⌘K)",
     "notifications": "通知",
     "show_more": "もっと表示する",
     "show_less": "たたむ",
@@ -910,7 +910,18 @@
     "hide_sidebar": "サイドバーを隠す",
     "show_sidebar": "サイドバーを表示",
     "go_back": "戻る",
-    "go_forward": "進む"
+    "go_forward": "進む",
+    "palette": {
+      "title": "移動",
+      "placeholder": "画面・会話・サーバー・記憶",
+      "group_screens": "画面",
+      "group_conversations": "会話",
+      "group_servers": "MCP サーバー",
+      "group_memories_recent": "記憶 (新しいものから)",
+      "more": "ほか {{count}} 件",
+      "memories_failed": "記憶を読み込めませんでした",
+      "no_match": "一致するものはありません"
+    }
   },
   "cron": {
     "title": "Cron ジョブ",

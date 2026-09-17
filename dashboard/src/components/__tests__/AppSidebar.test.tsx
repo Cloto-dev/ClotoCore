@@ -216,6 +216,18 @@ describe('what the window header used to carry', () => {
   });
 });
 
+describe('search', () => {
+  it('opens search from its button, and draws no button when nothing can be searched', () => {
+    const onSearch = vi.fn();
+    const { unmount } = render(<AppSidebar onSettingsClick={vi.fn()} onSearchClick={onSearch} />);
+    fireEvent.click(screen.getByLabelText('search'));
+    expect(onSearch).toHaveBeenCalledTimes(1);
+    unmount();
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.queryByLabelText('search')).toBeNull();
+  });
+});
+
 describe('where the sidebar says you are', () => {
   it('marks Settings as the destination you are on, now that it is a page', () => {
     route.pathname = '/settings';

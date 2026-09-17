@@ -1,0 +1,87 @@
+/* ⌘K. One surface over the page, in the workshop's steps: the receding
+ * surface for the panel, the raised one for the row the keyboard is on. No
+ * line under the field and no shadow — the backdrop separates it. */
+
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  background: var(--surface-overlay);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 12vh 24px 24px;
+}
+.palette {
+  width: min(640px, 100%);
+  max-height: 64vh;
+  display: flex;
+  flex-direction: column;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-surface);
+  overflow: hidden;
+  font-family: var(--font-sans);
+  color: hsl(var(--text-primary));
+}
+.palette input {
+  flex: none;
+  width: 100%;
+  background: none;
+  border: 0;
+  /* The field is the dialog's only stop and holds the caret; the open dialog
+   * is the focus indication. */
+  outline: none;
+  padding: 16px 20px 10px;
+  font-size: 15px;
+  color: hsl(var(--text-primary));
+}
+.palette input::placeholder {
+  color: hsl(var(--text-tertiary));
+}
+.palette-list {
+  overflow: auto;
+  padding: 4px 8px 10px;
+}
+.palette .pg {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px 4px;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.palette .pg .more {
+  margin-left: auto;
+}
+.palette .po {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 7px 12px;
+  border-radius: var(--radius-tool);
+  font-size: 13.5px;
+  cursor: pointer;
+}
+.palette .po.on {
+  background: hsl(var(--surface-primary));
+}
+.palette .po .l {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette .po .d {
+  flex: none;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+}
+.palette .pnote {
+  padding: 10px 12px;
+  font-size: 13px;
+  color: hsl(var(--text-tertiary));
+}

@@ -2670,6 +2670,20 @@ body {
   writing-mode: vertical-rl;
 }
 
+/* Where the keyboard is, always visible, and only for the keyboard
+ * (docs/DESIGN_PHILOSOPHY.md). Neutral everywhere; in the living room — the
+ * chat and the new chat, drawn under `.room` — it wears the present agent's
+ * colour, the one accent that room has. */
+
+:focus-visible {
+  outline: 2px solid hsl(var(--text-secondary));
+  outline-offset: 2px;
+}
+
+.room :focus-visible {
+  outline-color: hsl(var(--agent));
+}
+
 /* Agent processing glow — pulsing brand-colored box-shadow on avatar */
 
 @keyframes agent-processing-glow {
@@ -3190,11 +3204,6 @@ body {
 .focus\:border-agent:focus {
   --tw-border-opacity: 1;
   border-color: hsl(var(--agent) / var(--tw-border-opacity, 1));
-}
-
-.focus\:outline-none:focus {
-  outline: 2px solid transparent;
-  outline-offset: 2px;
 }
 
 .active\:scale-95:active {
