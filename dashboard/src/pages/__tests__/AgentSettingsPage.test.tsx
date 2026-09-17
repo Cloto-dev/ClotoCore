@@ -126,6 +126,25 @@ async function draw() {
   return view;
 }
 
+describe('an engine that runs a CLI harness', () => {
+  it('points to the CLI agents page only while such an engine is chosen, without saving anything', async () => {
+    data.servers = [server('ollama', ['think']), server('harnesses', ['think', 'probe_harnesses'])];
+    await draw();
+    expect(screen.queryByTestId('engine-harness-hint')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('form.llm_engine'));
+    fireEvent.pointerDown(screen.getByRole('option', { name: 'harnesses' }));
+    const hint = screen.getByTestId('engine-harness-hint');
+    fireEvent.click(within(hint).getByRole('button'));
+    expect(routing.navigate).toHaveBeenCalledWith('/agents/cli');
+    expect(mutationCount()).toBe(0);
+
+    fireEvent.click(screen.getByLabelText('form.llm_engine'));
+    fireEvent.pointerDown(screen.getByRole('option', { name: 'ollama' }));
+    expect(screen.queryByTestId('engine-harness-hint')).toBeNull();
+  });
+});
+
 describe('the settings page, before Save', () => {
   it('makes no mutating call while fields are edited', async () => {
     await draw();

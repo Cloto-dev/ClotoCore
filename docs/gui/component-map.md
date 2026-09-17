@@ -11,6 +11,7 @@ Use `gui.read` to read any file listed below (path relative to `dashboard/src/`)
 | Path | Page Component | Description |
 |------|---------------|-------------|
 | `/` | `pages/AgentPage.tsx` | Agent chat (default page) |
+| `/agents/cli` | `pages/CliAgentsPage.tsx` | CLI agents: the harnesses on this machine, the connector's options, per-agent settings |
 | `/mcp-servers` | `pages/McpServersPage.tsx` | MCP server management (servers tab + marketplace tab) |
 | `/dashboard` | `components/MemoryCore.tsx` | Memory & episode viewer |
 | `/cron` | `components/CronJobs.tsx` | Scheduled job management |
@@ -38,6 +39,7 @@ Routes (see `App.tsx`):
 - `agents/AgentRoster.tsx` — The roster: everyone on the left (answering now / idle, state line, last conversation, unread mark), one agent in full on the right. Import preview, export, power, delete.
 - `agents/CreateAgentModal.tsx` — Create an agent (name, description, engine, memory; password and routing under Advanced).
 - `agents/DeleteAgentModal.tsx` — Delete confirmation with the password gate; shared by the roster and the settings page.
+- `../pages/CliAgentsPage.tsx` — The CLI agents page at `/agents/cli` (opened from the roster's head, and from an agent's engine row when that engine runs a harness): the harnesses the connector's probe reports, the connection options its catalog entry declares, and the per-agent settings its probe schema describes. Knows no harness, option or field by name. Deferred save: agents are written before the options, and everything that can refuse is asked before anything is written.
 - `../pages/AgentSettingsPage.tsx` — One agent's settings at `/agents/:id/settings`: basics, engine, memory, appearance, tool permissions, danger zone. All edits use the **deferred save pattern** (pending state → apply on Save, Discard and Back make no call).
 - `AgentConsole.tsx` — Chat message display. Renders messages, thinking steps, tool calls, streaming responses. Handles SSE events (AgentThinking, ToolExecuted, etc).
 - `ChatInputBar.tsx` — Message input field with send button. Supports multiline input.

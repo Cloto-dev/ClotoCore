@@ -18,6 +18,7 @@ const AgentSettingsPage = lazy(() =>
 const CronJobs = lazy(() => import('./components/CronJobs').then((m) => ({ default: m.CronJobs })));
 const ModulePage = lazy(() => import('./pages/ModulePage').then((m) => ({ default: m.ModulePage })));
 const VrmViewerPage = lazy(() => import('./vrm/VrmViewerPage').then((m) => ({ default: m.VrmViewerPage })));
+const CliAgentsPage = lazy(() => import('./pages/CliAgentsPage').then((m) => ({ default: m.CliAgentsPage })));
 const SettingsView = lazy(() => import('./components/SettingsView').then((m) => ({ default: m.SettingsView })));
 
 export function App() {
@@ -164,6 +165,7 @@ export function App() {
           />
           <Route element={<AppLayout />}>
             <Route path="/" element={null} />
+            <Route path="/agents/cli" element={<CliAgentsPage />} />
             <Route path="/agents/:id/settings" element={<AgentSettingsPage />} />
             <Route path="/dashboard" element={<MemoryCore />} />
             <Route path="/mcp-servers" element={<McpServersPage />} />

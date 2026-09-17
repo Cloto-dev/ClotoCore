@@ -1884,11 +1884,6 @@ body {
   background-color: hsl(var(--agent) / 0.3);
 }
 
-.bg-amber-400 {
-  --tw-bg-opacity: 1;
-  background-color: rgb(251 191 36 / var(--tw-bg-opacity, 1));
-}
-
 .bg-amber-500 {
   --tw-bg-opacity: 1;
   background-color: rgb(245 158 11 / var(--tw-bg-opacity, 1));
@@ -1965,11 +1960,6 @@ body {
   background-color: hsl(var(--border-default) / var(--tw-bg-opacity, 1));
 }
 
-.bg-emerald-400 {
-  --tw-bg-opacity: 1;
-  background-color: rgb(52 211 153 / var(--tw-bg-opacity, 1));
-}
-
 .bg-emerald-500 {
   --tw-bg-opacity: 1;
   background-color: rgb(16 185 129 / var(--tw-bg-opacity, 1));
@@ -1999,11 +1989,6 @@ body {
 
 .bg-green-500\/20 {
   background-color: rgb(34 197 94 / 0.2);
-}
-
-.bg-neutral-600 {
-  --tw-bg-opacity: 1;
-  background-color: rgb(82 82 82 / var(--tw-bg-opacity, 1));
 }
 
 .bg-orange-500\/15 {
@@ -3080,10 +3065,6 @@ body {
   background-color: hsl(var(--agent) / 0.8);
 }
 
-.hover\:bg-agent\/90:hover {
-  background-color: hsl(var(--agent) / 0.9);
-}
-
 .hover\:bg-amber-500\/20:hover {
   background-color: rgb(245 158 11 / 0.2);
 }
@@ -3131,11 +3112,6 @@ body {
 .hover\:bg-surface-panel:hover {
   --tw-bg-opacity: 1;
   background-color: hsl(var(--surface-panel) / var(--tw-bg-opacity, 1));
-}
-
-.hover\:bg-surface-secondary:hover {
-  --tw-bg-opacity: 1;
-  background-color: hsl(var(--surface-secondary) / var(--tw-bg-opacity, 1));
 }
 
 .hover\:bg-surface-secondary\/80:hover {

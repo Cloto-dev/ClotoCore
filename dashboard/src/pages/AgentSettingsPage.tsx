@@ -32,6 +32,7 @@ import {
 } from '../lib/agentAccess';
 import { exportAgent } from '../lib/agentExport';
 import { AgentIcon, AVATAR_MAX_BYTES, agentAccentTriplet, parseAccentTriplet } from '../lib/agentIdentity';
+import { PROBE_TOOL } from '../lib/cliHarness';
 import { displayServerId } from '../lib/format';
 import { isEngineServer, isMemoryServer } from '../lib/serverCategory';
 import { extractVrmThumbnail } from '../lib/vrmThumbnail';
@@ -676,6 +677,17 @@ export function AgentSettingsPage() {
                 onChange={setEngineId}
               />
               <div className="hint">{t('settings.engine_hint')}</div>
+              {/* A harness connector runs one of several CLIs, and which one — with
+                  its model and directory — is set on the CLI agents page, the one
+                  place that writes it. Found by what the server can do, not its id. */}
+              {engineServers.find((s) => s.id === engineId)?.tools.includes(PROBE_TOOL) && (
+                <div className="hint" data-testid="engine-harness-hint">
+                  {t('settings.engine_harness_hint')}{' '}
+                  <button type="button" className="btn" onClick={() => navigate('/agents/cli')}>
+                    {t('cli_agent.page_title')}
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           <div className="frow">

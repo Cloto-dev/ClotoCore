@@ -13,7 +13,6 @@ import { displayServerId } from '../../lib/format';
 import { isEngineServer } from '../../lib/serverCategory';
 import { latestThinkingText } from '../../lib/thinkingSteps';
 import type { AccessControlEntry, AgentMetadata, CronJob } from '../../types';
-import { CliAgentPanel } from '../CliAgentPanel';
 import { PowerToggleModal } from '../PowerToggleModal';
 import '../Workshop.css';
 import { CreateAgentModal } from './CreateAgentModal';
@@ -74,7 +73,6 @@ export function AgentRoster({ agents, onSelectAgent, onRefresh, processing }: Pr
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [cliAgentOpen, setCliAgentOpen] = useState(false);
   const [powerTarget, setPowerTarget] = useState<AgentMetadata | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AgentMetadata | null>(null);
   const [detail, setDetail] = useState<DetailData>(EMPTY_DETAIL);
@@ -350,7 +348,7 @@ export function AgentRoster({ agents, onSelectAgent, onRefresh, processing }: Pr
             e.target.value = '';
           }}
         />
-        <button type="button" className="btn" onClick={() => setCliAgentOpen(true)}>
+        <button type="button" className="btn" onClick={() => navigate('/agents/cli')}>
           {t('cli_agent.open')}
         </button>
         <button
@@ -524,9 +522,6 @@ export function AgentRoster({ agents, onSelectAgent, onRefresh, processing }: Pr
             onRefresh();
           }}
         />
-      )}
-      {cliAgentOpen && (
-        <CliAgentPanel agents={agents} onAgentsChanged={onRefresh} onClose={() => setCliAgentOpen(false)} />
       )}
       {powerTarget && (
         <PowerToggleModal agent={powerTarget} onClose={() => setPowerTarget(null)} onSuccess={onRefresh} />

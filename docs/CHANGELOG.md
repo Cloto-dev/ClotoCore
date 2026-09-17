@@ -11,6 +11,21 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Added
 
+- **CLI agents is a page.** Connecting a CLI harness moved out of a dialog to
+  `/agents/cli`: the harnesses on this machine down the left — whether each is
+  usable, its version, how it is billed, where its credential lives, and how
+  many agents run on it — and the chosen one on the right with its state, the
+  connector's options and the agents that run on it. Each agent is listed under
+  the harness its next run will actually use; an agent whose saved settings
+  cannot be read, or that names a harness this machine does not have, is shown
+  as such under every harness, because its runs fail. "None found" now means
+  none is installed. Everything on the page comes from the connector: the
+  harness list from its probe, the options from its catalog entry, the
+  per-agent fields from its schema. Saving asks everything that can refuse —
+  the agents still existing, the server settings being readable — before it
+  writes anything, and writes the agents before restarting the connector. An
+  agent's engine row points here when its engine runs a harness.
+
 - **A new agent can be given its icon, and its VRM, as it is made.** The create
   dialog has an icon row under the name — the picture shows at once, can be
   taken back, and is refused before anything is sent if it is over the 5MB the

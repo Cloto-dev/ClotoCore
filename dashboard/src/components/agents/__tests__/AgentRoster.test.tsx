@@ -39,7 +39,6 @@ vi.mock('../../../contexts/ConversationContext', () => ({
   useConversations: () => ({ conversations: data.conversations }),
 }));
 vi.mock('../../../hooks/useEventStream', () => ({ useEventStream: () => {} }));
-vi.mock('../../CliAgentPanel', () => ({ CliAgentPanel: () => <div>cli-panel</div> }));
 vi.mock('../../PowerToggleModal', () => ({ PowerToggleModal: () => <div>power-modal</div> }));
 vi.mock('../CreateAgentModal', () => ({
   CreateAgentModal: ({
@@ -199,6 +198,13 @@ describe('the roster', () => {
     fireEvent.click(screen.getByText('create_agent'));
     fireEvent.click(screen.getByText('made-whole'));
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('opens the CLI agents page, not a dialog, from the head', () => {
+    draw();
+    fireEvent.click(screen.getByText('cli_agent.open'));
+    expect(navigate).toHaveBeenCalledWith('/agents/cli');
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('shows the empty state when there is nobody yet', () => {
