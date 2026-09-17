@@ -7,10 +7,10 @@ import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { displayTitle } from '../lib/conversations';
 import { displayServerId } from '../lib/format';
-import type { Memory } from '../types';
+import type { ChatSearchHit, Memory } from '../types';
 import './CommandPalette.css';
 
-type Group = 'screens' | 'conversations' | 'servers' | 'memories';
+type Group = 'screens' | 'conversations' | 'messages' | 'servers' | 'memories';
 
 interface Item {
   key: string;
@@ -23,6 +23,9 @@ interface Item {
 /** How many rows a group shows; the rest are narrowed to by typing more. */
 const PER_GROUP = 5;
 
+/** How long typing has to pause before what was said is searched. */
+const SEARCH_PAUSE_MS = 200;
+
 const SETTINGS_SECTIONS = ['general', 'conversations', 'security', 'advanced', 'health', 'log', 'about'] as const;
 
 /** Case- and width-insensitive enough for a name typed from memory. */
@@ -31,14 +34,14 @@ function includes(haystack: string | undefined, needle: string): boolean {
 }
 
 /**
- * ⌘K: go anywhere by name — a screen, a conversation, an MCP server, or a
- * memory.
+ * ⌘K: go anywhere by name — a screen, a conversation, something said in one,
+ * an MCP server, or a memory.
  *
- * Conversations are matched by their titles and the agent's name. What was
- * said inside them is not searched here: that needs a search the kernel
- * answers, because reading every conversation page by page from here would
- * both be slow and, when it stopped early, answer "no match" for text that
- * exists. Memories are the recent set the kernel lists, and the group says so.
+ * Conversations are matched here by their titles and the agent's name. What
+ * was said inside them is searched by the kernel (`GET /api/chat/search`),
+ * which counts every match: the group shows the first few and says how many
+ * more there are, rather than a page that reads as the whole answer. Memories
+ * are the recent set the kernel lists, and the group says so.
  */
 export function CommandPalette({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation('nav');
@@ -55,6 +58,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     status: 'loading',
     items: [],
   });
+  const [said, setSaid] = useState<{
+    status: 'idle' | 'loading' | 'ready' | 'error';
+    hits: ChatSearchHit[];
+    total: number;
+  }>({ status: 'idle', hits: [], total: 0 });
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -84,6 +92,33 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   }, [api]);
 
   const q = query.trim().toLowerCase();
+  const typed = query.trim();
+
+  // What was said is searched once typing pauses. A reply to a query that has
+  // since changed is dropped, so a slow answer never replaces a newer one.
+  useEffect(() => {
+    if (!typed) {
+      setSaid({ status: 'idle', hits: [], total: 0 });
+      return;
+    }
+    let cancelled = false;
+    setSaid((s) => ({ ...s, status: 'loading' }));
+    const timer = setTimeout(() => {
+      api
+        .searchChat(typed, PER_GROUP)
+        .then((r) => {
+          if (!cancelled) setSaid({ status: 'ready', hits: r.results, total: r.total });
+        })
+        .catch(() => {
+          // Said in the group, not drawn as "nothing matches".
+          if (!cancelled) setSaid({ status: 'error', hits: [], total: 0 });
+        });
+    }, SEARCH_PAUSE_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [api, typed]);
 
   const groups = useMemo(() => {
     const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
@@ -123,6 +158,27 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       )
       .filter((i) => !q || includes(i.label, q) || includes(i.detail, q));
 
+    const messages: Item[] =
+      q && said.status === 'ready'
+        ? said.hits.flatMap((h): Item[] => {
+            const conversationId = h.conversation_id;
+            if (!conversationId) return [];
+            const where = {
+              title: h.conversation_title?.trim() ? h.conversation_title : t('untitled_conversation'),
+              agent: agentName(h.agent_id),
+            };
+            return [
+              {
+                key: `t:${h.message_id}`,
+                group: 'messages',
+                label: h.snippet,
+                detail: h.archived ? t('palette.said_in_archived', where) : t('palette.said_in', where),
+                run: () => open(h.agent_id, conversationId),
+              },
+            ];
+          })
+        : [];
+
     const srv: Item[] = q
       ? servers
           .map(
@@ -153,15 +209,18 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 
     return (
       [
-        ['screens', screens],
-        ['conversations', convs],
-        ['servers', srv],
-        ['memories', mems],
-      ] as [Group, Item[]][]
-    ).map(([group, items]) => ({ group, items: items.slice(0, PER_GROUP), total: items.length }));
+        ['screens', screens, screens.length],
+        ['conversations', convs, convs.length],
+        // The kernel's count, not the page's: the page is at most PER_GROUP.
+        ['messages', messages, Math.max(said.total, messages.length)],
+        ['servers', srv, srv.length],
+        ['memories', mems, mems.length],
+      ] as [Group, Item[], number][]
+    ).map(([group, items, total]) => ({ group, items: items.slice(0, PER_GROUP), total }));
   }, [
     q,
     query,
+    said,
     conversations,
     servers,
     memories,
@@ -237,7 +296,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         />
         <div className="palette-list" id={listId} role="listbox" aria-label={t('palette.title')}>
           {groups.map(({ group, items, total }) =>
-            items.length === 0 && !(group === 'memories' && q && memories.status === 'error') ? null : (
+            items.length === 0 &&
+            !(group === 'memories' && q && memories.status === 'error') &&
+            !(group === 'messages' && q && said.status === 'error') ? null : (
               // A group of options inside the listbox: <fieldset> is a form control's group, not this.
               // biome-ignore lint/a11y/useSemanticElements: ARIA group within a listbox
               <div role="group" aria-label={groupTitle(group)} key={group} data-testid={`palette-${group}`}>
@@ -249,6 +310,9 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
                 </div>
                 {group === 'memories' && memories.status === 'error' && (
                   <div className="pnote">{t('palette.memories_failed')}</div>
+                )}
+                {group === 'messages' && said.status === 'error' && (
+                  <div className="pnote">{t('palette.said_failed')}</div>
                 )}
                 {items.map((item) => {
                   index += 1;
@@ -274,7 +338,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
               </div>
             ),
           )}
-          {flat.length === 0 && !(q && memories.status === 'error') && (
+          {flat.length === 0 && !(q && memories.status === 'error') && !(q && said.status !== 'ready') && (
             <div className="pnote">{t('palette.no_match')}</div>
           )}
         </div>

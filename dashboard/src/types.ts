@@ -121,6 +121,29 @@ export interface Conversation {
   message_count: number;
 }
 
+/** A message found by `GET /api/chat/search`: across every agent's
+ * conversations, archived ones included. */
+export interface ChatSearchHit {
+  message_id: string;
+  agent_id: string;
+  conversation_id: string | null;
+  conversation_title: string | null;
+  archived: boolean;
+  source: string;
+  created_at: number;
+  /** The text around the first match, on one line. */
+  snippet: string;
+}
+
+export interface ChatSearchResult {
+  query: string;
+  /** Newest first, at most the limit asked for. */
+  results: ChatSearchHit[];
+  /** Every message that matched, whether or not it is in `results`. */
+  total: number;
+  truncated: boolean;
+}
+
 // API response types
 export interface PermissionRequest {
   request_id: string;

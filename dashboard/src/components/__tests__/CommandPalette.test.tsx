@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AgentMetadata, Conversation, McpServerInfo, Memory } from '../../types';
+import type { AgentMetadata, ChatSearchHit, Conversation, McpServerInfo, Memory } from '../../types';
 
 const i18n = vi.hoisted(() => ({
   t: (k: string, o?: Record<string, unknown>) => (o ? `${k}:${Object.values(o).join('|')}` : k),
@@ -16,7 +16,7 @@ const agentCtx = vi.hoisted(() => ({
 vi.mock('../../contexts/AgentContext', () => ({ useAgentContext: () => agentCtx }));
 const convCtx = vi.hoisted(() => ({ conversations: [] as Conversation[], open: vi.fn(), leaveDraft: vi.fn() }));
 vi.mock('../../contexts/ConversationContext', () => ({ useConversations: () => convCtx }));
-const api = vi.hoisted(() => ({ getMemories: vi.fn() }));
+const api = vi.hoisted(() => ({ getMemories: vi.fn(), searchChat: vi.fn() }));
 vi.mock('../../hooks/useApi', () => ({ useApi: () => api }));
 const data = vi.hoisted(() => ({ servers: [] as McpServerInfo[] }));
 vi.mock('../../hooks/useMcpServers', () => ({ useMcpServers: () => data }));
@@ -27,6 +27,18 @@ const conv = (id: string, agentId: string, title: string) =>
   ({ id, agent_id: agentId, title, archived_at: null }) as unknown as Conversation;
 const memory = (id: number, agentId: string, content: string) =>
   ({ id, agent_id: agentId, content }) as unknown as Memory;
+const hit = (id: string, agentId: string, conversationId: string, title: string, snippet: string, archived = false) =>
+  ({
+    message_id: id,
+    agent_id: agentId,
+    conversation_id: conversationId,
+    conversation_title: title,
+    archived,
+    source: 'user',
+    created_at: 1,
+    snippet,
+  }) as ChatSearchHit;
+const saidNothing = { query: '', results: [], total: 0, truncated: false };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -50,6 +62,7 @@ beforeEach(() => {
     ],
     capabilities: {},
   });
+  api.searchChat.mockResolvedValue(saidNothing);
 });
 
 const input = () => screen.getByRole('combobox');
@@ -108,11 +121,108 @@ describe('what it offers', () => {
     expect(group.textContent).toContain('palette.more:3');
   });
 
-  it('says nothing matches when nothing does', async () => {
+  it('says nothing matches when nothing does, once what was said has been searched too', async () => {
+    let answer: (r: typeof saidNothing) => void = () => {};
+    api.searchChat.mockReturnValue(new Promise((resolve) => (answer = resolve)));
     await draw();
     fireEvent.change(input(), { target: { value: 'zzzz' } });
     expect(options()).toHaveLength(0);
+    await waitFor(() => expect(api.searchChat).toHaveBeenCalled());
+    expect(screen.queryByText('palette.no_match')).toBeNull();
+    await act(async () => answer(saidNothing));
     expect(screen.getByText('palette.no_match')).toBeTruthy();
+  });
+});
+
+describe('what was said', () => {
+  it('is searched in the kernel once typing pauses, and never before anything is typed', async () => {
+    await draw();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(api.searchChat).not.toHaveBeenCalled();
+    fireEvent.change(input(), { target: { value: '  挨拶  ' } });
+    await waitFor(() => expect(api.searchChat).toHaveBeenCalledWith('挨拶', 5));
+    expect(api.searchChat).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the first few matches and the kernel's count of the rest", async () => {
+    api.searchChat.mockResolvedValue({
+      query: 'greeting',
+      results: [
+        hit('m1', 'agent.karin', 'c2', 'Morning greeting', '…send the greeting to the lounge'),
+        hit('m2', 'agent.sapphy', 'c9', '', 'a greeting for later'),
+      ],
+      total: 12,
+      truncated: true,
+    });
+    await draw();
+    fireEvent.change(input(), { target: { value: 'greeting' } });
+    const group = await screen.findByTestId('palette-messages');
+    const rows = within(group).getAllByRole('option');
+    expect(rows.map((o) => o.querySelector('.l')?.textContent)).toEqual([
+      '…send the greeting to the lounge',
+      'a greeting for later',
+    ]);
+    expect(rows[0].querySelector('.d')?.textContent).toBe('palette.said_in:Morning greeting|Karin');
+    // An untitled conversation is named the way the sidebar names it.
+    expect(rows[1].querySelector('.d')?.textContent).toBe('palette.said_in:untitled_conversation|Sapphy');
+    expect(group.textContent).toContain('palette.more:10');
+  });
+
+  it('opens the conversation a message was said in, archived or not, and says it is archived', async () => {
+    api.searchChat.mockResolvedValue({
+      query: 'tea',
+      results: [hit('m7', 'agent.karin', 'c-old', 'Old plans', 'tea at four', true)],
+      total: 1,
+      truncated: false,
+    });
+    const { onClose } = await draw();
+    fireEvent.change(input(), { target: { value: 'tea' } });
+    const group = await screen.findByTestId('palette-messages');
+    const row = within(group).getByRole('option');
+    expect(row.querySelector('.d')?.textContent).toBe('palette.said_in_archived:Old plans|Karin');
+    fireEvent.click(row);
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(convCtx.open).toHaveBeenCalledWith('agent.karin', 'c-old');
+  });
+
+  it('says it could not search the conversations rather than finding nothing', async () => {
+    api.searchChat.mockRejectedValue(new Error('down'));
+    await draw();
+    fireEvent.change(input(), { target: { value: 'zzzz' } });
+    expect(await screen.findByText('palette.said_failed')).toBeTruthy();
+    expect(screen.queryByText('palette.no_match')).toBeNull();
+  });
+
+  it('drops a slow answer to an earlier query instead of showing it under the newer one', async () => {
+    let answerOld: (r: unknown) => void = () => {};
+    api.searchChat.mockImplementation((q: string) =>
+      q === 'old'
+        ? new Promise((resolve) => (answerOld = resolve))
+        : Promise.resolve({
+            query: q,
+            results: [hit('new', 'agent.karin', 'c2', 'Morning greeting', 'the newer match')],
+            total: 1,
+            truncated: false,
+          }),
+    );
+    await draw();
+    fireEvent.change(input(), { target: { value: 'old' } });
+    await waitFor(() => expect(api.searchChat).toHaveBeenCalledWith('old', 5));
+    fireEvent.change(input(), { target: { value: 'newer' } });
+    const group = await screen.findByTestId('palette-messages');
+    await act(async () =>
+      answerOld({
+        query: 'old',
+        results: [hit('old', 'agent.karin', 'c2', 'Morning greeting', 'the stale match')],
+        total: 1,
+        truncated: false,
+      }),
+    );
+    expect(
+      within(group)
+        .getAllByRole('option')
+        .map((o) => o.querySelector('.l')?.textContent),
+    ).toEqual(['the newer match']);
   });
 });
 

@@ -6,6 +6,7 @@ import type {
   AgentInstructionsReport,
   AgentMetadata,
   ChatMessage,
+  ChatSearchResult,
   ClotoMessage,
   ContentBlock,
   Conversation,
@@ -587,6 +588,17 @@ export const api = {
       })) as ChatMessage[],
       has_more: data.has_more,
     };
+  },
+
+  /** Messages in every conversation that contain every term of `query`. */
+  searchChat: async (query: string, apiKey: string, limit?: number): Promise<ChatSearchResult> => {
+    const params = new URLSearchParams({ q: query });
+    if (limit !== undefined) params.set('limit', String(limit));
+    const res = await fetch(`${API_BASE}/chat/search?${params.toString()}`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    await throwIfNotOk(res, 'search conversations');
+    return res.json().then((b) => b.data as ChatSearchResult);
   },
 
   // Conversations (docs/CONVERSATIONS_DESIGN.md §3)
@@ -1273,6 +1285,7 @@ export function createAuthenticatedApi(apiKey: string) {
       api.postChatMessage(agentId, msg, k),
     getChatMessages: (agentId: string, before?: number, limit?: number, userId?: string, conversationId?: string) =>
       api.getChatMessages(agentId, k, before, limit, userId, conversationId),
+    searchChat: (query: string, limit?: number) => api.searchChat(query, k, limit),
     listConversations: (agentId: string, userId?: string, includeArchived?: boolean) =>
       api.listConversations(agentId, k, userId, includeArchived),
     createConversation: (agentId: string, userId?: string) => api.createConversation(agentId, k, userId),
