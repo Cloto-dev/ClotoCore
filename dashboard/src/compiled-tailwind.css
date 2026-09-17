@@ -864,10 +864,6 @@ video {
   inset: 0px;
 }
 
-.-bottom-0\.5 {
-  bottom: -0.125rem;
-}
-
 .-right-0\.5 {
   right: -0.125rem;
 }
@@ -918,10 +914,6 @@ video {
 
 .right-0 {
   right: 0px;
-}
-
-.right-1 {
-  right: 0.25rem;
 }
 
 .right-1\.5 {
@@ -1032,16 +1024,6 @@ video {
 .mx-1 {
   margin-left: 0.25rem;
   margin-right: 0.25rem;
-}
-
-.mx-2 {
-  margin-left: 0.5rem;
-  margin-right: 0.5rem;
-}
-
-.mx-3 {
-  margin-left: 0.75rem;
-  margin-right: 0.75rem;
 }
 
 .mx-4 {
@@ -1253,10 +1235,6 @@ video {
   height: 0.5rem;
 }
 
-.h-2\.5 {
-  height: 0.625rem;
-}
-
 .h-24 {
   height: 6rem;
 }
@@ -1285,10 +1263,6 @@ video {
   height: 16rem;
 }
 
-.h-7 {
-  height: 1.75rem;
-}
-
 .h-72 {
   height: 18rem;
 }
@@ -1315,10 +1289,6 @@ video {
 
 .h-full {
   height: 100%;
-}
-
-.h-px {
-  height: 1px;
 }
 
 .h-screen {
@@ -1413,20 +1383,12 @@ video {
   width: 3rem;
 }
 
-.w-14 {
-  width: 3.5rem;
-}
-
 .w-16 {
   width: 4rem;
 }
 
 .w-2 {
   width: 0.5rem;
-}
-
-.w-2\.5 {
-  width: 0.625rem;
 }
 
 .w-20 {
@@ -1477,10 +1439,6 @@ video {
   width: 15rem;
 }
 
-.w-7 {
-  width: 1.75rem;
-}
-
 .w-8 {
   width: 2rem;
 }
@@ -1519,10 +1477,6 @@ video {
 
 .min-w-\[13px\] {
   min-width: 13px;
-}
-
-.min-w-\[140px\] {
-  min-width: 140px;
 }
 
 .min-w-\[200px\] {
@@ -1954,11 +1908,6 @@ video {
   border-radius: var(--radius-surface);
 }
 
-.rounded-r-full {
-  border-top-right-radius: 9999px;
-  border-bottom-right-radius: 9999px;
-}
-
 .rounded-tr-none {
   border-top-right-radius: 0;
 }
@@ -2120,11 +2069,6 @@ video {
 
 .border-red-500\/40 {
   border-color: rgb(239 68 68 / 0.4);
-}
-
-.border-surface-secondary {
-  --tw-border-opacity: 1;
-  border-color: hsl(var(--surface-secondary) / var(--tw-border-opacity, 1));
 }
 
 .border-transparent {
@@ -2459,11 +2403,6 @@ video {
 
 .p-8 {
   padding: 2rem;
-}
-
-.px-0 {
-  padding-left: 0px;
-  padding-right: 0px;
 }
 
 .px-0\.5 {
@@ -3116,12 +3055,6 @@ video {
 
 .transition {
   transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-}
-
-.transition-\[width\] {
-  transition-property: width;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
 }
@@ -3793,10 +3726,6 @@ video {
 .focus\:border-red-500:focus {
   --tw-border-opacity: 1;
   border-color: rgb(239 68 68 / var(--tw-border-opacity, 1));
-}
-
-.focus\:opacity-100:focus {
-  opacity: 1;
 }
 
 .focus\:outline-none:focus {

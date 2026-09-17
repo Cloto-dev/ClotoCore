@@ -5,13 +5,11 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ActionsProvider } from '../contexts/ActionsContext';
 import { useAgentContext } from '../contexts/AgentContext';
 import { ConversationProvider } from '../contexts/ConversationContext';
-import { useLocalStorage } from '../hooks/useStorage';
 import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
 import { CommandApprovalDeck } from './CommandApprovalDeck';
 import { HelpContent } from './HelpContent';
 import { Modal } from './Modal';
-import { NotificationBell } from './NotificationBell';
 import { SecurityGuard } from './SecurityGuard';
 import { ViewHeader } from './ViewHeader';
 
@@ -27,8 +25,6 @@ export function AppLayout() {
   const [settingsInitialSection, setSettingsInitialSection] = useState<'general' | 'about'>('general');
   const [helpOpen, setHelpOpen] = useState(false);
   const [immersive, setImmersive] = useState(false);
-  const [sidebarRaw, setSidebarRaw] = useLocalStorage('sidebar-collapsed', 'false');
-  const sidebarCollapsed = sidebarRaw === 'true';
   const navigate = useNavigate();
   const location = useLocation();
   const { agents, setSelectedAgentId } = useAgentContext();
@@ -47,8 +43,6 @@ export function AppLayout() {
     setCanGoBack(idx > 0);
     setCanGoForward(idx < maxIdxRef.current);
   }, []);
-
-  const handleToggleSidebar = () => setSidebarRaw(sidebarCollapsed ? 'false' : 'true');
 
   // Close settings and navigate home when quick setup completes
   useEffect(() => {
@@ -87,7 +81,6 @@ export function AppLayout() {
             <ViewHeader
               icon={Cpu}
               title="ClotoCore"
-              afterTitle={<NotificationBell />}
               onHelp={() => setHelpOpen(true)}
               navBack={() => navigate(-1)}
               navForward={() => navigate(1)}
@@ -105,11 +98,7 @@ export function AppLayout() {
           <div className="flex flex-1 overflow-hidden relative">
             {!immersive && (
               <div className="relative z-10">
-                <AppSidebar
-                  onSettingsClick={() => setSettingsOpen(true)}
-                  collapsed={sidebarCollapsed}
-                  onToggleCollapse={handleToggleSidebar}
-                />
+                <AppSidebar onSettingsClick={() => setSettingsOpen(true)} />
               </div>
             )}
             <main className="flex-1 h-full overflow-hidden relative z-10">

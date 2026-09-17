@@ -654,8 +654,6 @@
     "memory": "メモリ",
     "settings": "設定",
     "collapse": "折りたたむ",
-    "expand_sidebar": "サイドバーを展開",
-    "collapse_sidebar": "サイドバーを折りたたむ",
     "shutdown": "終了",
     "experimental": "Experimental",
     "experimental_tooltip": "Experimental ビルド — 任意参加で、動作の保証はありません",
@@ -677,7 +675,16 @@
     "delete": "削除",
     "cancel": "キャンセル",
     "delete_conversation_title": "この会話を削除しますか？",
-    "delete_conversation_message": "「{{title}}」とそのメッセージを削除します。元に戻せません。話している間にエージェントが作った記憶は残ります。"
+    "delete_conversation_message": "「{{title}}」とそのメッセージを削除します。元に戻せません。話している間にエージェントが作った記憶は残ります。",
+    "sidebar": "サイドバー",
+    "chat": "チャット",
+    "search": "検索 (⌘K) — 検索機能と一緒に入ります",
+    "notifications": "通知",
+    "show_more": "もっと表示する",
+    "show_less": "たたむ",
+    "responding": "応答中",
+    "kernel_running": "カーネル稼働中",
+    "agents_count": "{{count}} 体"
   },
   "cron": {
     "title": "Cron ジョブ",

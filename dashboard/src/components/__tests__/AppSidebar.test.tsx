@@ -6,7 +6,16 @@ import type { Conversation } from '../../types';
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
-vi.mock('react-router-dom', () => ({ useLocation: () => ({ pathname: '/' }) }));
+const navigate = vi.hoisted(() => vi.fn());
+vi.mock('react-router-dom', () => ({
+  useLocation: () => ({ pathname: '/' }),
+  useNavigate: () => navigate,
+}));
+vi.mock('../../hooks/useApi', () => ({ useApi: () => ({ post: vi.fn() }) }));
+vi.mock('../../hooks/useModules', () => ({ useModules: () => ({ modules: [] }) }));
+vi.mock('../../lib/tauri', () => ({ isExperimentalBuild: false }));
+vi.mock('../NotificationBell', () => ({ NotificationBell: () => null }));
+vi.mock('../ShutdownOverlay', () => ({ requestShutdown: vi.fn() }));
 
 const conversations = vi.hoisted(() => ({
   open: vi.fn(),
@@ -26,6 +35,7 @@ const agentCtx = vi.hoisted(() => ({
   systemActive: false,
   setSelectedAgentId: vi.fn(),
   setSystemActive: vi.fn(),
+  processingAgentIds: new Set<string>(['agent.b']),
 }));
 vi.mock('../../contexts/ConversationContext', () => ({
   useConversations: () => ({
@@ -40,7 +50,7 @@ vi.mock('../../contexts/ConversationContext', () => ({
 }));
 vi.mock('../../contexts/AgentContext', () => ({ useAgentContext: () => agentCtx }));
 
-import { ConversationList } from '../ConversationList';
+import { AppSidebar } from '../AppSidebar';
 
 function conv(id: string, agent_id: string, updated_at: number, title = id): Conversation {
   return {
@@ -55,7 +65,10 @@ function conv(id: string, agent_id: string, updated_at: number, title = id): Con
   };
 }
 
+const DAY = 24 * 60 * 60 * 1000;
+
 beforeEach(() => {
+  navigate.mockReset();
   conversations.open.mockReset();
   conversations.newChat.mockReset();
   conversations.archive.mockReset();
@@ -64,41 +77,55 @@ beforeEach(() => {
   const now = Date.now();
   conversations.list = [
     conv('today-1', 'agent.a', now - 60_000, 'Plans'),
-    conv('old-1', 'agent.b', now - 40 * 24 * 60 * 60 * 1000, ''),
+    conv('yday-1', 'agent.b', now - DAY, ''),
+    conv('old-1', 'agent.a', now - 40 * DAY, 'Long ago'),
   ];
   conversations.newChat.mockResolvedValue(conv('fresh', 'agent.a', now));
 });
 
-describe('the conversation list', () => {
-  it('shows each thread under its day with the agent it is with, and the open one marked', () => {
-    render(<ConversationList collapsed={false} />);
+describe("the sidebar's conversations", () => {
+  it('draws the day groups the mock draws, and keeps older threads behind show more', () => {
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
     expect(screen.getByText('group_today')).toBeTruthy();
+    expect(screen.getByText('group_yesterday')).toBeTruthy();
+    expect(screen.queryByText('group_older')).toBeNull();
+    expect(screen.queryByTitle('Long ago')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'show_more' }));
     expect(screen.getByText('group_older')).toBeTruthy();
-    expect(screen.getByText('Plans')).toBeTruthy();
-    expect(screen.getByText('Sapphy')).toBeTruthy();
-    // An untitled thread reads as a new chat, and the other agent's name is on its row.
-    expect(screen.getByText('untitled_conversation')).toBeTruthy();
-    expect(screen.getByText('KS22')).toBeTruthy();
+    expect(screen.getByTitle('Long ago')).toBeTruthy();
+  });
+
+  it("marks the open thread, colours the present agent's rows, and shows who is responding", () => {
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
     const open = screen.getByTitle('Plans');
     expect(open.getAttribute('aria-current')).toBe('true');
-    expect(screen.getByTitle('untitled_conversation').getAttribute('aria-current')).toBeNull();
+    expect(open.className).toContain('on');
+    expect(open.className).toContain('mine');
+    const other = screen.getByTitle('untitled_conversation');
+    expect(other.getAttribute('aria-current')).toBeNull();
+    expect(other.className).not.toContain('mine');
+    expect(other.querySelector('.live')).not.toBeNull();
+    expect(open.querySelector('.live')).toBeNull();
+    expect(screen.getByText('KS22')).toBeTruthy();
   });
 
   it('opens a thread with its own agent, not the selected one', () => {
-    render(<ConversationList collapsed={false} />);
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
     fireEvent.click(screen.getByTitle('untitled_conversation'));
-    expect(conversations.open).toHaveBeenCalledWith('agent.b', 'old-1');
+    expect(conversations.open).toHaveBeenCalledWith('agent.b', 'yday-1');
   });
 
-  it('new chat creates for the selected agent and opens it', async () => {
-    render(<ConversationList collapsed={false} />);
+  it('new chat — the button and ⌘N — creates for the selected agent and opens it', async () => {
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'new_chat' }));
     await vi.waitFor(() => expect(conversations.open).toHaveBeenCalledWith('agent.a', 'fresh'));
-    expect(conversations.newChat).toHaveBeenCalledWith('agent.a');
+    expect(conversations.newChat).toHaveBeenCalledTimes(1);
+    fireEvent.keyDown(window, { key: 'n', metaKey: true });
+    await vi.waitFor(() => expect(conversations.newChat).toHaveBeenCalledTimes(2));
   });
 
   it('archives from the row menu, and deletes only after confirming', async () => {
-    render(<ConversationList collapsed={false} />);
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
     const menus = screen.getAllByRole('button', { name: 'conversation_menu' });
     fireEvent.click(menus[0]);
     fireEvent.click(screen.getByRole('menuitem', { name: 'archive' }));
@@ -111,9 +138,9 @@ describe('the conversation list', () => {
     await vi.waitFor(() => expect(conversations.remove).toHaveBeenCalledWith('agent.a', 'today-1'));
   });
 
-  it('shows only new chat when collapsed', () => {
-    render(<ConversationList collapsed={true} />);
-    expect(screen.getByRole('button', { name: 'new_chat' })).toBeTruthy();
-    expect(screen.queryByTestId('conversation-list')).toBeNull();
+  it('shows the kernel state in the footer as the mock does', () => {
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.getByText('kernel_running')).toBeTruthy();
+    expect(screen.getByText('agents_count')).toBeTruthy();
   });
 });
