@@ -170,8 +170,8 @@ export function densityWidth(count: number, busiest: number): string {
 }
 
 /**
- * Does this row match what was typed? Every needle has to be found in one of
- * the haystacks — an empty query matches everything, and a query narrows.
+ * Does this row match what was typed? The query, as one phrase, has to be
+ * found in at least one of the haystacks — an empty query matches everything.
  */
 export function matchesSearch(haystacks: readonly (string | undefined)[], query: string): boolean {
   const q = query.trim().toLowerCase();

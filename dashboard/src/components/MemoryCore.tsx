@@ -222,6 +222,11 @@ export const MemoryCore = memo(function MemoryCore() {
   );
   const busiestDay = useMemo(() => density.reduce((most, c) => Math.max(most, c.count), 0), [density]);
 
+  const loadedOnce = useRef(false);
+  // Read through a ref: `t` is a new function whenever the language changes,
+  // and a fetch that depended on it would refetch for that alone.
+  const tRef = useRef(t);
+  tRef.current = t;
   const fetchData = useCallback(async () => {
     try {
       // Scope memory/episode fetch to the selected agent (null = global "All" view)
@@ -242,9 +247,14 @@ export const MemoryCore = memo(function MemoryCore() {
       setEpisodes(episodes);
       setAgents(agents);
       setNow(new Date());
+      loadedOnce.current = true;
       setStatus('ready');
     } catch (error) {
-      setStatus('error');
+      // Only the first load has nothing to fall back on. A refresh that fails —
+      // they are fired by every kernel event — keeps what is already on the
+      // screen and says so, rather than replacing a full axis with an error.
+      if (loadedOnce.current) setErrorMsg(tRef.current('operation_failed'));
+      else setStatus('error');
       if (import.meta.env.DEV) console.error('Failed to fetch data', error);
     }
   }, [api.getAgents, api.getEpisodes, api.getMemories, selectedAgent]);

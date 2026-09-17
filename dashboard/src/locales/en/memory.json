@@ -8,7 +8,7 @@
   "long_term_only": "Long-term only",
   "episodes_only": "Episodes only",
   "today": "Today",
-  "day_count": "{{count}} memories",
+  "day_count": "{{count}} kept",
   "gap_days": "{{count}} days, no memories",
   "loading": "Reading the memories…",
   "retry": "Try again",

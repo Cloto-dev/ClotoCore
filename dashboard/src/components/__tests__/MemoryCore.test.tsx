@@ -142,7 +142,7 @@ describe('the memory screen as a time axis', () => {
     expect(page().querySelectorAll('.tl .tday')).toHaveLength(2);
     expect(rowsOnAxis()).toHaveLength(3);
     expect(page().querySelector('.tl .tday .lbl')?.textContent).toBe('Today');
-    expect(page().querySelector('.tl .tday .n')?.textContent).toBe('2 memories');
+    expect(page().querySelector('.tl .tday .n')?.textContent).toBe('2 kept');
     expect(screen.getByText('3 days, no memories')).toBeTruthy();
     expect(page().querySelectorAll('.tl .gap')).toHaveLength(1);
   });
@@ -283,6 +283,17 @@ describe('what the screen says when it has nothing to show', () => {
     await waitFor(() => expect(api.getMemories).toHaveBeenCalled());
     await screen.findByText('Today');
   });
+
+  it('keeps what is on the screen when a later refresh fails, and says it failed', async () => {
+    await mount();
+    expect(screen.getByText('Today')).toBeTruthy();
+    api.getMemories.mockRejectedValue(new Error('rate limited'));
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
+    await screen.findByText('Operation failed');
+    // The axis is still there; the error did not take its place.
+    expect(screen.getByText('Today')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+  });
 });
 
 describe('the density band', () => {
@@ -292,8 +303,8 @@ describe('the density band', () => {
     expect(cells).toHaveLength(30);
     // Newest first, as the mock draws it.
     expect(cells[0].classList.contains('today')).toBe(true);
-    expect(cells[0].querySelector('i')?.getAttribute('title')).toBe('2 memories');
-    expect(cells[4].querySelector('i')?.getAttribute('title')).toBe('1 memories');
+    expect(cells[0].querySelector('i')?.getAttribute('title')).toBe('2 kept');
+    expect(cells[4].querySelector('i')?.getAttribute('title')).toBe('1 kept');
     const total = cells.reduce((sum, c) => sum + Number(c.querySelector('i')?.getAttribute('title')?.split(' ')[0]), 0);
     expect(total).toBe(MEMORIES.length);
   });
