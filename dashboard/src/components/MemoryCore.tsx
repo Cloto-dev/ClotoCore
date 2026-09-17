@@ -1,14 +1,26 @@
-import { Brain, Check, Download, History, Lock, Pencil, Trash2, Unlock, Upload, User, X } from 'lucide-react';
+import { Search } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useAgentContext } from '../contexts/AgentContext';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
 import { type Metrics, useMetrics } from '../hooks/useMetrics';
+import {
+  buildDensity,
+  buildTimeline,
+  densityWidth,
+  matchesSearch,
+  parseMemoryTime,
+  type TimelineEvent,
+} from '../lib/memoryTimeline';
 import { EVENTS_URL } from '../services/api';
 import type { AgentMetadata, Episode, Memory, MemoryCapabilities } from '../types';
-import { SectionHeader } from './ui/SectionHeader';
+import './Memory.css';
+import './Workshop.css';
 
 const DEBOUNCE_DELAY_MS = 300;
+/** Days in the band on the right. */
+const DENSITY_DAYS = 30;
 
 /** Extract a display name from an agent_id like "agent.サフィー___sapphy" */
 function agentDisplayName(agentId: string, agentMap: Map<string, string>): string {
@@ -49,12 +61,31 @@ function memorySpeakerName(source: Record<string, unknown>, agentId: string, age
   return agentDisplayName(agentId, agentMap);
 }
 
-export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { isWindowMode?: boolean }) {
-  const { t } = useTranslation('memory');
+/** Which kind of memory the axis is showing. */
+type Kind = 'all' | 'long' | 'episodes';
+
+/** A row on the axis: a long-term memory, or an episode. */
+type AxisEvent = TimelineEvent & { who: string; text: string } & (
+    | { type: 'memory'; memory: Memory }
+    | { type: 'episode'; episode: Episode }
+  );
+
+/**
+ * The memory screen (docs/gui/samples/06-memory.html): one vertical time axis,
+ * newest first. A day is a band, a memory is a point beside what was
+ * remembered, and a run of days with nothing on them is compressed into one
+ * dotted segment that says how long it was.
+ */
+export const MemoryCore = memo(function MemoryCore() {
+  const { t, i18n } = useTranslation('memory');
   const [memories, setMemories] = useState<Memory[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
   const [agents, setAgents] = useState<AgentMetadata[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null); // null = All
+  const [kind, setKind] = useState<Kind>('all');
+  const [query, setQuery] = useState('');
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [now, setNow] = useState(() => new Date());
   const [capabilities, setCapabilities] = useState<MemoryCapabilities>({
     update_memory: false,
     lock_memory: false,
@@ -66,8 +97,22 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
   const [editContent, setEditContent] = useState('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const api = useApi();
+  const { selectedAgentId: presentAgentId } = useAgentContext();
   const { metrics: hookMetrics } = useMetrics();
   const metrics: Metrics = hookMetrics ?? { ram_usage: 'N/A', total_memories: 0, total_requests: 0, total_episodes: 0 };
+
+  // Dates are written in the reader's language, not in ours.
+  const lang = i18n?.language || 'en';
+  const dayFormat = useMemo(() => new Intl.DateTimeFormat(lang, { month: 'long', day: 'numeric' }), [lang]);
+  const dayYearFormat = useMemo(
+    () => new Intl.DateTimeFormat(lang, { year: 'numeric', month: 'long', day: 'numeric' }),
+    [lang],
+  );
+  const timeFormat = useMemo(
+    () => new Intl.DateTimeFormat(lang, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }),
+    [lang],
+  );
+  const cellFormat = useMemo(() => new Intl.DateTimeFormat(lang, { month: 'numeric', day: 'numeric' }), [lang]);
 
   // Map agent_id → display name
   const agentMap = useMemo(() => {
@@ -94,15 +139,88 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
     return Array.from(ids).sort();
   }, [agents, memories, episodes]);
 
-  // Filtered data
+  // The agent tab and the search narrow together: a row has to pass both.
   const filteredMemories = useMemo(
-    () => (selectedAgent ? memories.filter((m) => m.agent_id === selectedAgent) : memories),
-    [memories, selectedAgent],
+    () =>
+      memories.filter((m) => {
+        if (selectedAgent && m.agent_id !== selectedAgent) return false;
+        const at = parseMemoryTime(m.timestamp) ?? parseMemoryTime(m.created_at);
+        return matchesSearch(
+          [
+            m.content,
+            memorySpeakerName(m.source as Record<string, unknown>, m.agent_id, agentMap),
+            agentDisplayName(m.agent_id, agentMap),
+            m.created_at,
+            at ? dayYearFormat.format(at) : undefined,
+          ],
+          query,
+        );
+      }),
+    [memories, selectedAgent, query, agentMap, dayYearFormat],
   );
   const filteredEpisodes = useMemo(
-    () => (selectedAgent ? episodes.filter((e) => e.agent_id === selectedAgent) : episodes),
-    [episodes, selectedAgent],
+    () =>
+      episodes.filter((e) => {
+        if (selectedAgent && e.agent_id !== selectedAgent) return false;
+        const at = parseMemoryTime(e.end_time) ?? parseMemoryTime(e.created_at);
+        return matchesSearch(
+          [
+            e.summary,
+            e.keywords,
+            agentDisplayName(e.agent_id, agentMap),
+            e.created_at,
+            at ? dayYearFormat.format(at) : undefined,
+          ],
+          query,
+        );
+      }),
+    [episodes, selectedAgent, query, agentMap, dayYearFormat],
   );
+
+  // What goes on the axis. "All" and "long-term only" put the memories there;
+  // "episodes only" puts the episodes there, so the two tabs never draw the
+  // same row twice (the panel on the right holds the episodes otherwise).
+  const axisEvents = useMemo<AxisEvent[]>(() => {
+    if (kind === 'episodes') {
+      const rows: AxisEvent[] = [];
+      for (const e of filteredEpisodes) {
+        const at = parseMemoryTime(e.end_time) ?? parseMemoryTime(e.created_at);
+        if (!at) continue;
+        rows.push({
+          key: `e${e.id}`,
+          agentId: e.agent_id,
+          at,
+          who: agentDisplayName(e.agent_id, agentMap),
+          text: e.summary,
+          type: 'episode',
+          episode: e,
+        });
+      }
+      return rows;
+    }
+    const rows: AxisEvent[] = [];
+    for (const m of filteredMemories) {
+      const at = parseMemoryTime(m.timestamp) ?? parseMemoryTime(m.created_at);
+      if (!at) continue;
+      rows.push({
+        key: `m${m.id}`,
+        agentId: m.agent_id,
+        at,
+        who: memorySpeakerName(m.source as Record<string, unknown>, m.agent_id, agentMap),
+        text: m.content,
+        type: 'memory',
+        memory: m,
+      });
+    }
+    return rows;
+  }, [kind, filteredMemories, filteredEpisodes, agentMap]);
+
+  const rows = useMemo(() => buildTimeline(axisEvents, now), [axisEvents, now]);
+  const density = useMemo(
+    () => buildDensity(axisEvents, now, presentAgentId, DENSITY_DAYS),
+    [axisEvents, now, presentAgentId],
+  );
+  const busiestDay = useMemo(() => density.reduce((most, c) => Math.max(most, c.count), 0), [density]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -123,7 +241,10 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
       setCapabilities(memResult.capabilities);
       setEpisodes(episodes);
       setAgents(agents);
+      setNow(new Date());
+      setStatus('ready');
     } catch (error) {
+      setStatus('error');
       if (import.meta.env.DEV) console.error('Failed to fetch data', error);
     }
   }, [api.getAgents, api.getEpisodes, api.getMemories, selectedAgent]);
@@ -346,255 +467,258 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
     api.apiKey,
   );
 
-  return (
-    <div
-      className={`${isWindowMode ? 'bg-transparent p-4' : 'h-full overflow-y-auto'} relative font-sans text-content-primary overflow-x-hidden animate-in fade-in duration-500`}
-    >
-      {/* Inline header bar with metrics */}
-      {!isWindowMode && (
-        <div className="px-6 pt-4 pb-2 md:px-12 space-y-2">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Brain className="text-agent" size={16} />
-              <h2 className="text-xs font-mono text-content-primary font-bold">{t('title')}</h2>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-content-tertiary">
-                {metrics.ram_usage} / {metrics.total_memories} {t('objs')}
-              </span>
-              <button
-                onClick={handleExport}
-                disabled={filteredMemories.length === 0 && filteredEpisodes.length === 0}
-                title={t('export_tooltip')}
-                aria-label={t('export')}
-                className="p-1 rounded text-content-tertiary hover:text-agent hover:bg-agent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <Upload size={14} />
-              </button>
-              <button
-                onClick={handleImportClick}
-                disabled={importing}
-                title={t('import_tooltip')}
-                aria-label={t('import')}
-                className="p-1 rounded text-content-tertiary hover:text-agent hover:bg-agent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              >
-                <Download size={14} />
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".jsonl,.ndjson"
-                className="hidden"
-                onChange={handleImportFile}
-                aria-label={t('import')}
-              />
-            </div>
-          </div>
-          {/* Agent filter tabs */}
-          {agentTabs.length > 0 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-              <button
-                onClick={() => setSelectedAgent(null)}
-                aria-label={t('all')}
-                className={`px-3 py-1 rounded-full text-xs font-mono font-bold transition-colors whitespace-nowrap ${
-                  selectedAgent === null
-                    ? 'bg-agent text-agent-ink'
-                    : 'bg-surface-field text-content-tertiary hover:text-content-secondary border border-edge'
-                }`}
-              >
-                {t('all')}
-              </button>
-              {agentTabs.map((agentId) => (
-                <button
-                  key={agentId}
-                  onClick={() => setSelectedAgent(agentId)}
-                  aria-label={agentDisplayName(agentId, agentMap)}
-                  className={`px-3 py-1 rounded-full text-xs font-mono font-bold transition-colors whitespace-nowrap ${
-                    selectedAgent === agentId
-                      ? 'bg-agent text-agent-ink'
-                      : 'bg-surface-field text-content-tertiary hover:text-content-secondary border border-edge'
-                  }`}
-                >
-                  {agentDisplayName(agentId, agentMap)}
-                </button>
-              ))}
-            </div>
-          )}
+  const presentName = presentAgentId ? agentDisplayName(presentAgentId, agentMap) : null;
+  const nothingAtAll = memories.length === 0 && episodes.length === 0;
+  // An agent tab narrows too (it scopes the fetch), so an empty screen under
+  // one of them is "nothing matches", not "nothing has been remembered".
+  const narrowing = selectedAgent !== null || query.trim() !== '' || kind !== 'all';
+  // The kernel answers "Unknown" when it cannot measure the memory in use;
+  // saying so in the head would be a word about nothing.
+  const ram = metrics.ram_usage;
+  const ramKnown = !!ram && ram !== 'N/A' && ram !== 'Unknown';
+
+  function dayLabel(group: { date: Date; isToday: boolean }): string {
+    if (group.isToday) return t('today');
+    const sameYear = group.date.getFullYear() === now.getFullYear();
+    return (sameYear ? dayFormat : dayYearFormat).format(group.date);
+  }
+
+  function axis() {
+    if (status === 'loading') return <div className="mem-state">{t('loading')}</div>;
+    if (status === 'error') {
+      return (
+        <div className="mem-state">
+          <div>{t('operation_failed')}</div>
+          <button type="button" className="btn" onClick={() => fetchData()}>
+            {t('retry')}
+          </button>
         </div>
-      )}
-
-      <div className={`relative z-10 ${isWindowMode ? '' : 'p-6 md:px-12'}`}>
-        {errorMsg && (
-          <div className="mb-4 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2 font-mono">
-            {errorMsg}
-          </div>
-        )}
-        <main className={`grid grid-cols-1 ${isWindowMode ? 'gap-4' : 'lg:grid-cols-3 gap-8'}`}>
-          <section className={`${isWindowMode ? '' : 'lg:col-span-2'} space-y-4`}>
-            <SectionHeader icon={User} title={t('long_term')} className="mb-2" />
-
-            <div className={`grid ${isWindowMode ? 'grid-cols-1' : 'grid-cols-1 md:grid-cols-2'} gap-4`}>
-              {filteredMemories.length > 0 ? (
-                filteredMemories.map((mem) => {
-                  const isEditing = editingId === mem.id;
-                  const isLocked = !!mem.locked;
-                  return (
-                    <div
-                      key={mem.id}
-                      className={`card-solid p-4 rounded-xl border border-edge hover:border-agent group flex flex-col ${isEditing ? '' : 'max-h-48'}`}
-                    >
-                      <div className="flex items-center gap-3 mb-2">
-                        <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-agent/10 transition-colors">
-                          <User size={12} className="text-content-tertiary group-hover:text-agent" />
-                        </div>
-                        <span className="text-[13px] font-mono text-content-tertiary flex-1 min-w-0 truncate">
-                          {memorySpeakerName(mem.source as Record<string, unknown>, mem.agent_id, agentMap)}
-                        </span>
-                        {/* Lock toggle — top-right corner */}
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggleLock(mem.id, isLocked);
-                          }}
-                          className={`p-1 rounded shrink-0 transition-all ${
-                            isLocked
-                              ? mem.lock_level === 'server'
-                                ? 'memory-lock-glow text-mgp-accent'
-                                : 'text-agent'
-                              : capabilities.lock_memory
-                                ? 'text-content-tertiary hover:text-mgp-accent hover:bg-mgp/10 opacity-0 group-hover:opacity-100'
-                                : 'text-content-tertiary hover:text-agent hover:bg-agent/10 opacity-0 group-hover:opacity-100'
-                          }`}
-                          title={isLocked ? t('unlock_memory') : t('lock_memory')}
-                          aria-label={isLocked ? t('unlock_memory') : t('lock_memory')}
-                        >
-                          {isLocked ? <Lock size={16} /> : <Unlock size={16} />}
-                        </button>
-                      </div>
-                      {isEditing ? (
-                        <div className="flex-1 min-h-0 flex flex-col gap-2">
-                          <textarea
-                            className="w-full flex-1 min-h-[6rem] text-xs font-mono leading-relaxed bg-surface-secondary/50 text-content-primary rounded-lg p-2 border border-edge focus:border-agent focus:outline-none resize-y"
-                            value={editContent}
-                            onChange={(e) => setEditContent(e.target.value)}
-                          />
-                          <div className="flex gap-1 justify-end">
-                            <button
-                              type="button"
-                              onClick={() => handleSaveEdit(mem.id)}
-                              className="p-1 rounded text-green-500 hover:bg-green-500/10 transition-all"
-                              title={t('save')}
-                            >
-                              <Check size={16} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={handleCancelEdit}
-                              className="p-1 rounded text-content-tertiary hover:text-content-secondary hover:bg-surface-secondary transition-all"
-                              title={t('cancel')}
-                            >
-                              <X size={16} />
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex-1 min-h-0 text-xs font-medium leading-relaxed text-content-secondary whitespace-pre-wrap line-clamp-6 font-mono">
-                          {mem.content}
-                        </div>
-                      )}
-                      <div className="mt-2 pt-2 border-t border-edge-subtle flex justify-between items-center">
-                        <span className="text-xs text-content-tertiary font-bold">{mem.created_at}</span>
-                        <div className="flex items-center gap-2">
-                          {/* Edit button: only if server supports it and memory is unlocked */}
-                          {capabilities.update_memory && !isLocked && !isEditing && (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleStartEdit(mem);
-                              }}
-                              className="p-1 rounded text-content-tertiary hover:text-agent hover:bg-agent/10 transition-all opacity-0 group-hover:opacity-100"
-                              title={t('edit_memory')}
-                              aria-label={t('edit_memory')}
-                            >
-                              <Pencil size={16} />
-                            </button>
-                          )}
-                          {/* Delete button: disabled when locked */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              if (!isLocked) handleDeleteMemory(mem.id);
-                            }}
-                            className={`p-1 rounded transition-all ${
-                              isLocked
-                                ? 'text-content-muted/30 cursor-not-allowed'
-                                : 'text-content-tertiary hover:text-red-500 hover:bg-red-500/10 opacity-0 group-hover:opacity-100'
-                            }`}
-                            title={isLocked ? t('memory_locked') : t('delete_memory')}
-                            aria-label={t('delete_memory')}
-                            disabled={isLocked}
-                          >
-                            <Trash2 size={16} />
+      );
+    }
+    if (rows.length === 0) {
+      return <div className="mem-state">{nothingAtAll && !narrowing ? t('nothing_yet') : t('no_match')}</div>;
+    }
+    return (
+      <div className="tl">
+        {rows.map((row, i) =>
+          row.kind === 'gap' ? (
+            <div className="gap" key={`gap-${i}`}>
+              <span className="sp" />
+              <span className="n">{t('gap_days', { count: row.days })}</span>
+            </div>
+          ) : (
+            <div key={row.day}>
+              <div className="tday">
+                <span className="lbl">{dayLabel(row)}</span>
+                <span className="tick" />
+                <span className="n">{t('day_count', { count: row.events.length })}</span>
+              </div>
+              {row.events.map((ev) => (
+                <div className={`ev${ev.agentId === presentAgentId ? ' mine' : ''}`} key={ev.key}>
+                  <span className="t num">{timeFormat.format(ev.at)}</span>
+                  <span className="sp" />
+                  {/* The row takes focus so the keyboard can open it and reach
+                      what it can be told to do. */}
+                  {/* biome-ignore lint/a11y/noNoninteractiveTabindex: the row is what expands; focus is the keyboard's way to do what hover does */}
+                  <div className="c" tabIndex={0} data-testid={`memory-row-${ev.key}`}>
+                    <div className="who">{ev.who}</div>
+                    {ev.type === 'memory' && editingId === ev.memory.id ? (
+                      <div className="edit">
+                        <textarea
+                          className="in"
+                          value={editContent}
+                          onChange={(e) => setEditContent(e.target.value)}
+                          aria-label={t('edit_memory')}
+                        />
+                        <div className="acts">
+                          <button type="button" onClick={() => handleSaveEdit(ev.memory.id)}>
+                            {t('save')}
+                          </button>
+                          <button type="button" onClick={handleCancelEdit}>
+                            {t('cancel')}
                           </button>
                         </div>
+                      </div>
+                    ) : (
+                      <div className="tx">{ev.text}</div>
+                    )}
+                    {ev.type === 'memory' && editingId !== ev.memory.id && (
+                      <div className="acts">
+                        {capabilities.update_memory && !ev.memory.locked && (
+                          <button type="button" onClick={() => handleStartEdit(ev.memory)}>
+                            {t('edit_memory')}
+                          </button>
+                        )}
+                        <button type="button" onClick={() => handleToggleLock(ev.memory.id, !!ev.memory.locked)}>
+                          {ev.memory.locked ? t('unlock_memory') : t('lock_memory')}
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          disabled={!!ev.memory.locked}
+                          title={ev.memory.locked ? t('memory_locked') : undefined}
+                          onClick={() => handleDeleteMemory(ev.memory.id)}
+                        >
+                          {t('delete_memory')}
+                        </button>
+                      </div>
+                    )}
+                    {ev.type === 'episode' && (
+                      <div className="acts">
+                        <button type="button" className="danger" onClick={() => handleDeleteEpisode(ev.episode.id)}>
+                          {t('delete_episode')}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ),
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="ws mem" data-testid="memory-page">
+      <div className="ws-head">
+        <h1>{t('title')}</h1>
+        <span className="count">
+          {t('counts', { memories: filteredMemories.length, episodes: filteredEpisodes.length })}
+        </span>
+        {ramKnown && <span className="count">{t('ram_in_use', { ram })}</span>}
+        <span className="spacer" />
+        <div className="find wide">
+          <Search aria-hidden="true" />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t('search_placeholder')}
+            aria-label={t('search_placeholder')}
+          />
+        </div>
+        <button type="button" className="btn" onClick={() => fetchData()}>
+          {t('refresh')}
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={handleExport}
+          disabled={filteredMemories.length === 0 && filteredEpisodes.length === 0}
+          title={t('export_tooltip')}
+        >
+          {t('export')}
+        </button>
+        <button
+          type="button"
+          className="btn"
+          onClick={handleImportClick}
+          disabled={importing}
+          title={t('import_tooltip')}
+        >
+          {importing ? t('importing') : t('import')}
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".jsonl,.ndjson"
+          className="hidden"
+          onChange={handleImportFile}
+          aria-label={t('import')}
+        />
+      </div>
+
+      <div className="tabs">
+        <button type="button" className={selectedAgent === null ? 'on' : ''} onClick={() => setSelectedAgent(null)}>
+          {t('all')}
+        </button>
+        {agentTabs.map((agentId) => (
+          <button
+            type="button"
+            key={agentId}
+            className={selectedAgent === agentId ? 'on' : ''}
+            onClick={() => setSelectedAgent(agentId)}
+          >
+            {agentDisplayName(agentId, agentMap)}
+          </button>
+        ))}
+        <span className="spacer" />
+        <button
+          type="button"
+          className={kind === 'long' ? 'on' : ''}
+          onClick={() => setKind(kind === 'long' ? 'all' : 'long')}
+        >
+          {t('long_term_only')}
+        </button>
+        <button
+          type="button"
+          className={kind === 'episodes' ? 'on' : ''}
+          onClick={() => setKind(kind === 'episodes' ? 'all' : 'episodes')}
+        >
+          {t('episodes_only')}
+        </button>
+      </div>
+
+      {errorMsg && <div className="mem-toast">{errorMsg}</div>}
+
+      <div className="ws-body mem-body">
+        <div className="mem-axis">{axis()}</div>
+        <aside className="mem-side">
+          {kind !== 'episodes' && (
+            <>
+              <h2>{t('episodic')}</h2>
+              {filteredEpisodes.length > 0 ? (
+                filteredEpisodes.map((epi) => {
+                  const at = parseMemoryTime(epi.end_time) ?? parseMemoryTime(epi.created_at);
+                  return (
+                    <div className="mem-ep" key={epi.id}>
+                      <div className="when">
+                        {t('episode_meta', {
+                          agent: agentDisplayName(epi.agent_id, agentMap),
+                          when: at ? dayYearFormat.format(at) : epi.created_at,
+                        })}
+                      </div>
+                      <p className="sum">{epi.summary}</p>
+                      {epi.keywords && <div className="kw">{epi.keywords}</div>}
+                      <div className="acts">
+                        <button type="button" onClick={() => handleDeleteEpisode(epi.id)}>
+                          {t('delete_episode')}
+                        </button>
                       </div>
                     </div>
                   );
                 })
               ) : (
-                <div className="col-span-full py-8 text-center text-content-tertiary bg-surface-panel rounded-lg border border-edge border-dashed font-mono text-xs">
-                  {t('no_memories')}
-                </div>
+                <>
+                  <p className="said">{t('no_episodes')}</p>
+                  <p className="next">{t('episodes_how')}</p>
+                </>
               )}
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <SectionHeader icon={History} title={t('episodic')} className="mb-2" />
-
-            <div className="space-y-3">
-              {filteredEpisodes.length > 0 ? (
-                filteredEpisodes.map((epi) => (
-                  <div
-                    key={epi.id}
-                    className="card-solid p-3 rounded-xl border-l-2 border-agent hover:translate-x-1 transition-transform group"
-                  >
-                    <div className="text-xs font-black text-agent mb-1 flex justify-between items-center">
-                      <span className="text-xs">{epi.created_at || 'LOG: RECENT'}</span>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-content-tertiary font-mono">
-                          {agentDisplayName(epi.agent_id, agentMap)}
-                        </span>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteEpisode(epi.id);
-                          }}
-                          className="p-1 rounded text-content-tertiary hover:text-red-500 hover:bg-red-500/10 transition-all opacity-0 group-hover:opacity-100"
-                          title={t('delete_episode')}
-                          aria-label={t('delete_episode')}
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </div>
-                    {epi.keywords && <div className="text-xs font-mono text-content-tertiary mb-1">{epi.keywords}</div>}
-                    <p className="text-xs text-content-secondary line-clamp-3 font-mono leading-relaxed group-hover:text-content-primary">
-                      {epi.summary}
-                    </p>
-                  </div>
-                ))
-              ) : (
-                <div className="py-8 text-center text-content-tertiary bg-surface-panel rounded-lg border border-edge border-dashed font-mono text-xs">
-                  {t('no_episodes')}
+            </>
+          )}
+          <h2 className={kind === 'episodes' ? '' : 'later'}>{t('last_30_days')}</h2>
+          <div className="note">
+            {presentName ? t('density_note', { agent: presentName }) : t('density_note_plain')}
+          </div>
+          <div className="dens" data-testid="memory-density">
+            {density
+              .slice()
+              .reverse()
+              .map((cell) => (
+                <div
+                  key={cell.date.getTime()}
+                  className={`d${cell.isToday ? ' today' : ''}${cell.present ? ' mine' : ''}`}
+                >
+                  <span>{cellFormat.format(cell.date)}</span>
+                  <i
+                    style={{ width: densityWidth(cell.count, busiestDay) }}
+                    title={t('day_count', { count: cell.count })}
+                  />
                 </div>
-              )}
-            </div>
-          </section>
-        </main>
+              ))}
+          </div>
+        </aside>
       </div>
     </div>
   );

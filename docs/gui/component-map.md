@@ -49,7 +49,7 @@ Routes (see `App.tsx`):
 - `SetupWizard.tsx` — First-run setup flow (7 steps): welcome, API key, language, presets, server installation, quick guide, completion.
 
 #### Memory & Episodes
-- `MemoryCore.tsx` — **Dashboard view**. Displays agent memories (long-term) and episodes (episodic summaries). Filterable by agent. Shows metrics (memory count, RAM usage).
+- `MemoryCore.tsx` — **Dashboard view**. One vertical time axis: memories newest first, grouped by local day, with a run of empty days compressed into a single segment. Filterable by agent, by kind (long-term / episodes) and by a client-side search. The right column holds the episodes and a band of the last 30 days' counts. Grouping, gaps and that band are computed in `lib/memoryTimeline.ts`.
 
 #### Cron Scheduler
 - `CronJobs.tsx` — Create, view, and manage scheduled autonomous jobs for agents. Cron expression input, execution history, enable/disable toggles.
@@ -238,8 +238,8 @@ AppLayout
     │       └── InstallDialog (progress)
     │
     ├── MemoryCore (dashboard)
-    │   ├── Memory cards (long-term memories)
-    │   └── Episode timeline (episodic summaries)
+    │   ├── Time axis (day bands, memory rows, gap segments)
+    │   └── Side column (episodes, the last 30 days)
     │
     └── CronJobs (scheduler)
 
