@@ -389,8 +389,8 @@ async fn a_message_without_an_id_lands_in_the_default_conversation_every_time() 
         .await
         .unwrap();
     let expected = db::default_conversation_id("agent.a", "default");
-    let rows: Vec<(String, Option<String>)> = sqlx::query_as(
-        "SELECT source, conversation_id FROM chat_messages ORDER BY created_at, rowid",
+    let rows: Vec<(String, Option<String>, String)> = sqlx::query_as(
+        "SELECT source, conversation_id, user_id FROM chat_messages ORDER BY created_at, rowid",
     )
     .fetch_all(&s.pool)
     .await
@@ -400,8 +400,16 @@ async fn a_message_without_an_id_lands_in_the_default_conversation_every_time() 
         "user rows (and their error replies) were stored: {rows:?}"
     );
     assert!(
-        rows.iter().all(|(_, c)| c.as_deref() == Some(expected.as_str())),
+        rows.iter().all(|(_, c, _)| c.as_deref() == Some(expected.as_str())),
         "every row — user turns and the replies filed after them — carries the default id: {rows:?}"
+    );
+    assert!(
+        rows.iter().all(|(_, _, u)| u == "default"),
+        "the replies are filed under the user they answer, so the user's list shows them: {rows:?}"
+    );
+    assert!(
+        rows.iter().any(|(s, _, _)| s == "agent"),
+        "a reply (here the error reply, no engine being registered) was stored: {rows:?}"
     );
     let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM conversations")
         .fetch_one(&s.pool)
