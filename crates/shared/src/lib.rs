@@ -612,6 +612,14 @@ pub enum ClotoEventData {
         #[serde(default)]
         auto_spoken: bool,
     },
+    /// The reply to `source_message_id` was stopped before it was finished
+    /// (`POST /api/chat/{agent_id}/stop`). No `ThoughtResponse` follows and
+    /// nothing of the reply is stored; this is what tells every client the
+    /// agent is no longer working on it.
+    ResponseStopped {
+        agent_id: String,
+        source_message_id: String,
+    },
     /// Start consensus-building across several plugins.
     ConsensusRequested {
         task: String,

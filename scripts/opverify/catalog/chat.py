@@ -367,3 +367,38 @@ def _messages(payload):
     if isinstance(payload, dict):
         return payload.get("messages") or []
     return payload or []
+
+
+@register
+class ChatStop(Operation):
+    """``POST /api/chat/{agent_id}/stop`` answers whether there was a reply to
+    stop, and asks for the admin key.
+
+    Only the "nothing to stop" side is driven here: stopping a reply in flight
+    needs a reasoning engine producing one, which phase 0 does not have. The
+    kernel's own tests stop turns (``crates/core/tests/response_stop_test.rs``);
+    this proves the route is served by the running binary and refuses what it
+    must.
+    """
+
+    domain = "chat"
+    name = "stop"
+    covers = ["POST /api/chat/{agent_id}/stop"]
+    phase0 = True
+
+    def drive(self, ctx: RunContext):
+        c = ctx.client
+        unknown = "opv-stop-" + secrets.token_hex(8)
+        nothing = c.post(f"/api/chat/{_AGENT}/stop", body={"source_message_id": unknown})
+        no_key_status, _ = c.request_raw(
+            "POST", f"/api/chat/{_AGENT}/stop", body={"source_message_id": unknown}, auth=False
+        )
+        malformed_status, _ = c.request_raw("POST", f"/api/chat/{_AGENT}/stop", body={})
+        return {"nothing": nothing, "no_key_status": no_key_status, "malformed_status": malformed_status}
+
+    def assert_success(self, ctx: RunContext, result):
+        assert result["nothing"] == {"stopped": False}, f"stopping nothing answered {result['nothing']!r}"
+        assert result["no_key_status"] in (401, 403), f"stop without a key: HTTP {result['no_key_status']}"
+        assert 400 <= result["malformed_status"] < 500, (
+            f"a stop naming no message was accepted: HTTP {result['malformed_status']}"
+        )

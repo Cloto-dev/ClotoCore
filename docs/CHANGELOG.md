@@ -11,6 +11,17 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Added
 
+- **Stop stops the reply, not just the waiting.** The stop button now asks the
+  kernel to stop the reply where it is being produced
+  (`POST /api/chat/{agent_id}/stop`). Nothing of a stopped reply is stored, so
+  it no longer reappears when the conversation is opened again, and every open
+  window learns it stopped (a `ResponseStopped` event takes the place of the
+  reply). A stop pressed while the message still waits behind the agent's
+  previous turn is kept and acts as soon as the message has been stored — what
+  you wrote is never lost. If the reply had already finished, it is shown after
+  all. The engine itself is not yet told to stop generating: the kernel stops
+  waiting for it and discards what it sends.
+
 - **Search, from anywhere (⌘K / Ctrl+K).** A field over the page that goes to
   a screen or a settings section, a conversation (by its title or who it is
   with), an MCP server (by its name or what it is for) or a memory (among the

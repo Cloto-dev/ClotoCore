@@ -271,6 +271,8 @@ pub struct AppState {
     /// Populated by the agentic loop on each completion; read by the dashboard
     /// "context usage" badge.
     pub last_usage: managers::usage_tracker::UsageStore,
+    /// The replies being produced, by the message they answer (`POST /api/chat/{agent_id}/stop`).
+    pub response_stops: managers::response_stop::ResponseStops,
     /// In-flight conversation state (T1, v0.6.3+) keyed by
     /// `(agent_id, bridge_session_id)`. Process-lifetime only — see
     /// `managers::session_manager` for the tier model and rationale.
@@ -929,6 +931,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // Shared between SystemHandler (writer — records usage after each LLM call) and
     // AppState (reader — exposes GET /api/agents/:id/last-usage to the dashboard).
     let last_usage_store = managers::usage_tracker::UsageStore::new();
+    let response_stops = managers::response_stop::ResponseStops::new();
 
     // Shared T1 conversation state (v0.6.3+) — SystemHandler reads / mutates
     // it during the agentic loop; a background cleanup task below evicts
@@ -984,6 +987,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         );
         h.set_probe_cache(probe_cache.clone());
         h.set_usage_store(last_usage_store.clone());
+        h.set_response_stops(response_stops.clone());
         h.set_session_manager(session_manager.clone());
         h.set_max_conversation_context(config.max_conversation_context);
         h.set_consensus_config(consensus_config);
@@ -1099,6 +1103,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
         provider_probe_cache: probe_cache,
         last_usage: last_usage_store,
+        response_stops,
         session_manager,
     });
 
@@ -1639,6 +1644,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/chat/{agent_id}/messages/{message_id}/retry",
             post(handlers::chat::retry_response),
         )
+        .route("/chat/{agent_id}/stop", post(handlers::chat::stop_response))
         // Conversations (docs/CONVERSATIONS_DESIGN.md §3). The two bulk routes
         // are registered before the `{conversation_id}` route so their literal
         // segments are never read as an id.

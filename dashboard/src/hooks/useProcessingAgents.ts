@@ -77,6 +77,7 @@ export function useProcessingAgents(): Set<string> {
           startProcessing(agentId);
           break;
         case 'ThoughtResponse':
+        case 'ResponseStopped':
           stopProcessing(agentId);
           break;
       }

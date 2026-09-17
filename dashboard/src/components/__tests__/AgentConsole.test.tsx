@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   postChat: vi.fn(),
   postChatMessage: vi.fn(),
   retryResponse: vi.fn(),
+  stopResponse: vi.fn(),
   getAgentLastUsage: vi.fn(),
   getAvatarUrl: vi.fn(() => ''),
   getNotifications: vi.fn(),
@@ -139,6 +140,7 @@ beforeEach(() => {
   api.postChat.mockReset().mockResolvedValue(undefined);
   api.postChatMessage.mockReset().mockResolvedValue({ id: 'x', created_at: 0 });
   api.retryResponse.mockReset().mockResolvedValue({ retry_id: 'r' });
+  api.stopResponse.mockReset().mockResolvedValue({ stopped: true });
   api.getAgentLastUsage.mockReset().mockResolvedValue({ usage: null });
   api.getNotifications.mockReset().mockResolvedValue([]);
   api.approveCommand.mockReset().mockResolvedValue(undefined);
@@ -247,6 +249,56 @@ describe('the living room', () => {
     const next = await send('next question');
     reply(next, 'a fresh reply');
     expect(await screen.findByText('a fresh reply')).toBeTruthy();
+  });
+
+  it('asks the kernel to stop the reply it was waiting for', async () => {
+    draw();
+    await screen.findByText('console.remark');
+    const stopped = await send('slow question');
+    fireEvent.click(screen.getByRole('button', { name: 'chat_input.stop' }));
+    expect(api.stopResponse).toHaveBeenCalledWith('agent.a', stopped);
+  });
+
+  it('shows the reply after all when the kernel says it had already finished', async () => {
+    api.stopResponse.mockResolvedValue({ stopped: false });
+    draw();
+    await screen.findByText('console.remark');
+    const finished = await send('quick question');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'chat_input.stop' }));
+    });
+    // The reply is stored; holding it back would hide it until a reload.
+    reply(finished, 'it was already written');
+    expect(await screen.findByText('it was already written')).toBeTruthy();
+  });
+
+  it('keeps the reply held back when the stop call fails', async () => {
+    api.stopResponse.mockRejectedValue(new Error('down'));
+    draw();
+    await screen.findByText('console.remark');
+    const unsure = await send('question');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'chat_input.stop' }));
+    });
+    reply(unsure, 'should not be drawn');
+    expect(screen.queryByText('should not be drawn')).toBeNull();
+  });
+
+  it('ends the wait when the reply is stopped from another window', async () => {
+    draw();
+    await screen.findByText('console.remark');
+    const elsewhere = await send('question');
+    expect(screen.getByRole('button', { name: 'chat_input.stop' })).toBeTruthy();
+    act(() => {
+      stream.handler?.({ type: 'ResponseStopped', data: { agent_id: 'agent.b', source_message_id: elsewhere } });
+    });
+    // Another agent's stop is not this one's.
+    expect(screen.getByRole('button', { name: 'chat_input.stop' })).toBeTruthy();
+    act(() => {
+      stream.handler?.({ type: 'ResponseStopped', data: { agent_id: 'agent.a', source_message_id: elsewhere } });
+    });
+    expect(screen.getByRole('button', { name: 'chat_input.send' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'chat_input.stop' })).toBeNull();
   });
 });
 

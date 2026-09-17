@@ -510,6 +510,17 @@ export const api = {
       .then((r) => r.json())
       .then((b) => b.data);
   },
+  /** Stop the reply to a message. `stopped: false` means it had already finished. */
+  stopResponse: (agentId: string, sourceMessageId: string, apiKey: string): Promise<{ stopped: boolean }> =>
+    mutate(
+      `/chat/${encodeURIComponent(agentId)}/stop`,
+      'POST',
+      'stop response',
+      { source_message_id: sourceMessageId },
+      { 'X-API-Key': apiKey },
+    )
+      .then((r) => r.json())
+      .then((b: { data: { stopped: boolean } }) => b.data),
   retryResponse: (agentId: string, messageId: string, apiKey: string): Promise<{ retry_id: string }> =>
     mutate(
       `/chat/${agentId}/messages/${encodeURIComponent(messageId)}/retry`,
@@ -1272,6 +1283,7 @@ export function createAuthenticatedApi(apiKey: string) {
     deleteAllConversations: (agentId: string, userId?: string) => api.deleteAllConversations(agentId, k, userId),
     deleteChatMessages: (agentId: string, userId?: string) => api.deleteChatMessages(agentId, k, userId),
     retryResponse: (agentId: string, messageId: string) => api.retryResponse(agentId, messageId, k),
+    stopResponse: (agentId: string, sourceMessageId: string) => api.stopResponse(agentId, sourceMessageId, k),
     // Permissions
     approvePermission: (requestId: string, approvedBy: string) => api.approvePermission(requestId, approvedBy, k),
     denyPermission: (requestId: string, approvedBy: string) => api.denyPermission(requestId, approvedBy, k),

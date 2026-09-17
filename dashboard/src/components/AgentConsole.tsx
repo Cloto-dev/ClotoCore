@@ -609,6 +609,20 @@ export function AgentConsole({
         setPendingApprovals((prev) => prev.filter((a) => a.approval_id !== event.data.approval_id));
       }
 
+      // A reply stopped — here or from another window. No ThoughtResponse
+      // follows, so this is what ends the wait wherever it is still shown.
+      if (event.type === 'ResponseStopped' && event.data.agent_id === agent.id) {
+        const sourceId = event.data.source_message_id as string;
+        stoppedSourceIdsRef.current.delete(sourceId);
+        if (inflightSourceIdRef.current === sourceId) {
+          inflightSourceIdRef.current = null;
+          setIsTyping(false);
+          setThinkingSteps([]);
+          setPendingResponse(null);
+        }
+        return;
+      }
+
       if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
         const sourceId = event.data.source_message_id as string;
         // The reply to a message the user stopped waiting for: it is in the
@@ -788,7 +802,19 @@ export function AgentConsole({
   const handleStop = () => {
     if (!isTyping && !pendingResponse) return;
     const sourceId = inflightSourceIdRef.current;
-    if (sourceId) stoppedSourceIdsRef.current.add(sourceId);
+    if (sourceId) {
+      stoppedSourceIdsRef.current.add(sourceId);
+      // Stop the reply where it is produced, so nothing of it is stored. When
+      // the kernel answers that there was nothing to stop, the reply had
+      // already finished and is stored: stop holding it back from this room.
+      // A failed call keeps it held back — nothing says whether it stopped.
+      api
+        .stopResponse(agent.id, sourceId)
+        .then(({ stopped }) => {
+          if (!stopped) stoppedSourceIdsRef.current.delete(sourceId);
+        })
+        .catch(() => {});
+    }
     inflightSourceIdRef.current = null;
     retryParentIdRef.current = null;
     setIsTyping(false);

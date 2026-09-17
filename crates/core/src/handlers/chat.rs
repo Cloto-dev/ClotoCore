@@ -339,6 +339,34 @@ pub async fn get_attachment(
     Ok((headers, Bytes::from(data)))
 }
 
+#[derive(Deserialize)]
+pub struct StopResponseRequest {
+    /// The id of the message whose reply is to stop.
+    pub source_message_id: String,
+}
+
+/// Stop the reply an agent is producing to one message.
+///
+/// **Route:** `POST /api/chat/:agent_id/stop`
+///
+/// Answers `{"stopped": true}` when that reply was still being produced (or
+/// was queued behind the agent's previous turn): it is dropped where it was,
+/// nothing of it is stored, and a `ResponseStopped` event is sent instead of a
+/// `ThoughtResponse`. `{"stopped": false}` means there was no such reply to
+/// stop — it had already finished, so what it produced stands.
+pub async fn stop_response(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+    Json(payload): Json<StopResponseRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let stopped = state
+        .response_stops
+        .stop(&agent_id, &payload.source_message_id);
+    ok_data(serde_json::json!({ "stopped": stopped }))
+}
+
 /// Retry an agent response: re-sends the original user message for re-generation.
 ///
 /// **Route:** `POST /api/chat/:agent_id/messages/:message_id/retry`
