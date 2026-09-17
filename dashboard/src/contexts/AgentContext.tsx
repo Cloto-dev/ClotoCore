@@ -23,7 +23,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const [systemActive, setSystemActive] = useState(false);
   const processingAgentIds = useProcessingAgents();
 
-  // The selected agent is the one present: the whole app takes its hue.
+  // The selected agent is the one present: the accent takes its colour.
   const presentAgentId = agents.some((a) => a.id === selectedAgentId) ? selectedAgentId : null;
   useEffect(() => {
     applyPresentAgent(presentAgentId === null ? null : { id: presentAgentId });

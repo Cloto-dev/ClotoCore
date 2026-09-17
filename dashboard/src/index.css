@@ -12,12 +12,14 @@
    * Colour tokens are HSL component triplets ("H S% L%") so Tailwind can add an
    * alpha: `hsl(var(--surface-base) / <alpha-value>)`. */
   :root {
-    /* The hue of the agent who is present. AgentProvider writes --h and
-     * --agent on <html> when an agent is selected (lib/agentIdentity.tsx); these
-     * are the values with nobody selected. */
+    /* The tint of the neutral scale: one fixed hue for every screen and every
+     * agent. It does not follow the selection — the surfaces stay put and only
+     * the agent's own things change colour. */
     --h: 190;
-    /* The accent: the present agent's colour, and nothing else (§4.2). The
-     * lightness is raised per hue where 58% would not read on a raised surface. */
+    /* The accent: the present agent's colour, and nothing else (§4.2).
+     * AgentProvider writes it on <html> from the selection (lib/agentIdentity.tsx);
+     * this is the value with nobody selected. The lightness is raised per hue
+     * where 58% would not read on a raised surface. */
     --agent: var(--h) 70% 58%;
     /* Text set on the agent's colour. */
     --agent-ink: var(--h) 50% 10%;

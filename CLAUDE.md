@@ -176,7 +176,8 @@ change one.
 - **Two registers, one token set.** The living room (chat, the agent's face, questions the agent
   asks) and the workshop (MCP servers, cron, settings, memory, logs) share every token and differ
   in density and colour only. Do not add a second palette or a per-screen surface style.
-- **Surfaces.** Four steps of one neutral scale, tinted toward the present agent's hue:
+- **Surfaces.** Four steps of one neutral scale with one fixed tint (it does not follow the
+  selected agent):
   `bg-surface-base` (base) / `bg-surface-secondary` (receding: sidebar, panels) /
   `bg-surface-primary` (raised: inputs, hover, cards) / `border-edge` (boundary). Separate with
   lightness, not lines — a 1 px rule belongs inside tables. No translucent glass, no

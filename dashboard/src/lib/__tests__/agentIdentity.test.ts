@@ -52,9 +52,10 @@ describe('agent accent', () => {
   });
 
   it('holds 4.5:1 on the raised surface at every hue', () => {
+    // The surface keeps the scale's fixed tint whatever the agent's hue is.
+    const raised = hsl(190, 0.07, 0.16);
     for (let h = 0; h < 360; h++) {
       const accent = hsl(h, 0.7, accentLightness(h) / 100);
-      const raised = hsl(h, 0.07, 0.16);
       expect(contrast(accent, raised), `hue ${h}`).toBeGreaterThanOrEqual(4.5);
     }
   });
@@ -68,6 +69,7 @@ describe('agent accent', () => {
     const css = readFileSync('src/index.css', 'utf8');
     const root = css.match(/:root\s*\{[\s\S]*?\n {2}\}/)?.[0] ?? '';
     const dark = css.match(/\.dark\s*\{[\s\S]*?\n {2}\}/)?.[0] ?? '';
+    expect(root).toMatch(/--h: 190;/);
     expect(root).toMatch(/--agent: var\(--h\) 70% 58%;/);
     expect(dark).toMatch(/--surface-primary: var\(--h\) 7% 16%;/);
     expect(agentAccentTriplet({ id: 'x' })).toMatch(/^\d+ 70% \d+%$/);
@@ -76,11 +78,11 @@ describe('agent accent', () => {
   it('writes the present agent onto the root, and clears it when nobody is present', () => {
     const root = document.createElement('html');
     applyPresentAgent({ id: 'agent.sapphy' }, root);
-    expect(root.style.getPropertyValue('--h')).toBe(String(agentHue({ id: 'agent.sapphy' })));
     expect(root.style.getPropertyValue('--agent')).toBe(agentAccentTriplet({ id: 'agent.sapphy' }));
+    // The scale's tint is not the agent's to change: the surfaces stay put.
+    expect(root.style.getPropertyValue('--h')).toBe('');
 
     applyPresentAgent(null, root);
-    expect(root.style.getPropertyValue('--h')).toBe('');
     expect(root.style.getPropertyValue('--agent')).toBe('');
   });
 });

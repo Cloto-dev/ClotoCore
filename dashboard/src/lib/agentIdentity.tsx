@@ -38,7 +38,8 @@ export function contrastRatio(a: [number, number, number], b: [number, number, n
 const ACCENT_SATURATION = 0.7;
 const ACCENT_BASE_LIGHTNESS = 0.58;
 /** The raised surface in dark (`--surface-primary` in index.css): the lightest
- * surface the accent is set on as text. */
+ * surface the accent is set on as text. Its hue is the scale's fixed tint. */
+const SCALE_HUE = 190;
 const RAISED_SATURATION = 0.07;
 const RAISED_LIGHTNESS = 0.16;
 const MIN_CONTRAST = 4.5;
@@ -47,7 +48,7 @@ const MIN_CONTRAST = 4.5;
  * at blue (2.4:1), so the lightness rises until the accent holds 4.5:1 on the
  * raised surface. */
 export function accentLightness(hue: number): number {
-  const raised = hslToRgb(hue, RAISED_SATURATION, RAISED_LIGHTNESS);
+  const raised = hslToRgb(SCALE_HUE, RAISED_SATURATION, RAISED_LIGHTNESS);
   let l = ACCENT_BASE_LIGHTNESS;
   while (l < 0.9 && contrastRatio(hslToRgb(hue, ACCENT_SATURATION, l), raised) < MIN_CONTRAST) {
     l += 0.01;
@@ -68,19 +69,18 @@ export function agentColor(agent: Pick<AgentMetadata, 'id'>, root: HTMLElement =
   return `hsl(${agentAccentTriplet(agent)})`;
 }
 
-/** Make `agent` the one present: its hue tints the neutral scale and its colour
- * becomes the accent (docs/DESIGN_PHILOSOPHY.md §4.1–4.2). `null` falls back to
- * the defaults in index.css. */
+/** Make `agent` the one present: its colour becomes the accent
+ * (docs/DESIGN_PHILOSOPHY.md §4.2). The neutral scale is not touched — its tint
+ * is fixed, so the surfaces do not change when the selection does. `null` falls
+ * back to the default in index.css. */
 export function applyPresentAgent(
   agent: Pick<AgentMetadata, 'id'> | null,
   root: HTMLElement = document.documentElement,
 ) {
   if (!agent) {
-    root.style.removeProperty('--h');
     root.style.removeProperty('--agent');
     return;
   }
-  root.style.setProperty('--h', String(agentHue(agent)));
   root.style.setProperty('--agent', agentAccentTriplet(agent));
 }
 

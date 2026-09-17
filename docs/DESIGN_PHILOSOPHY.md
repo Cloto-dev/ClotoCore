@@ -78,8 +78,11 @@ are not applied until saved. One part, used everywhere it fits.
 ## 4. Six decisions
 
 1. **Neutral scale.** Not a framework palette. A near-black tinted 4 % toward
-   the present agent's hue, in four fixed steps: base L8 %, receding surface
-   (sidebar) L12 %, raised surface L16 %, boundary L22 %. Separation is done
+   one fixed hue, in four fixed steps: base L8 %, receding surface (sidebar)
+   L12 %, raised surface L16 %, boundary L22 %. The tint does not follow the
+   agent who is present — the surfaces stay put and only what belongs to the
+   agent takes their colour (a whole-screen shift on every selection was tried
+   and turned down on 2026-09-17). Separation is done
    with lightness, not lines; a 1 px rule is used only inside tables. Dark is
    the default by decision — this product lives at night. A light theme is the
    same four steps reversed, and is not yet drawn. A Legacy theme keeps the
@@ -95,8 +98,8 @@ are not applied until saved. One part, used everywhere it fits.
 
    An agent's hue comes from its id, so renaming it does not recolour it.
    Saturation 70 % is fixed; lightness starts at 58 % and rises only where that
-   would not hold 4.5:1 on the raised surface — cyan reads at 58 %, blue needs
-   72 %. A fixed lightness across hues reads at some and not at others.
+   would not hold 4.5:1 on the raised surface (which keeps the scale's own
+   tint) — cyan reads at 58 %, blue needs 72 %. A fixed lightness across hues reads at some and not at others.
 3. **Type.** IBM Plex Sans JP for everything read (body 15–16, UI 13.5, notes
    12.5; headings 600, letter-spacing 0). IBM Plex Mono only for identifiers,
    code and tabular numbers. The product bundles the fonts.
