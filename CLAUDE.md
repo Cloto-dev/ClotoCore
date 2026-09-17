@@ -144,7 +144,7 @@ Automation: a PostToolUse hook auto-runs cases (1) and (2) whenever `qa/issue-re
 - Direct mutation API calls (upload, delete, update) are PROHIBITED outside `handleSave`
 - Cancel/Back MUST discard all pending changes without API calls
 - Pattern: event handler → set pending state only, `handleSave` → execute all pending
-- Reference implementation: `AgentPluginWorkspace.tsx`
+- Reference implementation: `dashboard/src/pages/AgentSettingsPage.tsx` (its test counts every mutating call before Save, on Discard and on Back)
 
 ### Exception: Confirm-modal destructive actions
 
@@ -152,7 +152,7 @@ Destructive actions that are already gated by a dedicated Confirm modal
 (optionally password-protected) are exempt from the deferred pattern and
 MAY execute immediately on confirm. Current exempted handlers:
 
-- `AgentTerminal.tsx` — Delete agent (`handleDeleteConfirm`)
+- `agents/DeleteAgentModal.tsx` — Delete agent (`handleDeleteConfirm`)
 - `SecuritySection.tsx` — Invalidate API key (`handleInvalidate`)
 - `PowerToggleModal.tsx` — Toggle agent power (`handleConfirm`)
 

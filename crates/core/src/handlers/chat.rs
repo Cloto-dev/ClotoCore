@@ -339,6 +339,34 @@ pub async fn get_attachment(
     Ok((headers, Bytes::from(data)))
 }
 
+#[derive(Deserialize)]
+pub struct StopResponseRequest {
+    /// The id of the message whose reply is to stop.
+    pub source_message_id: String,
+}
+
+/// Stop the reply an agent is producing to one message.
+///
+/// **Route:** `POST /api/chat/:agent_id/stop`
+///
+/// Answers `{"stopped": true}` when that reply was still being produced (or
+/// was queued behind the agent's previous turn): it is dropped where it was,
+/// nothing of it is stored, and a `ResponseStopped` event is sent instead of a
+/// `ThoughtResponse`. `{"stopped": false}` means there was no such reply to
+/// stop — it had already finished, so what it produced stands.
+pub async fn stop_response(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+    Json(payload): Json<StopResponseRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let stopped = state
+        .response_stops
+        .stop(&agent_id, &payload.source_message_id);
+    ok_data(serde_json::json!({ "stopped": stopped }))
+}
+
 /// Retry an agent response: re-sends the original user message for re-generation.
 ///
 /// **Route:** `POST /api/chat/:agent_id/messages/:message_id/retry`
@@ -478,6 +506,48 @@ pub async fn chat_handler(
         )));
     }
     ok_data(serde_json::json!({}))
+}
+
+// --- Search across conversations ---
+
+#[derive(Deserialize)]
+pub struct SearchMessagesQuery {
+    /// Whitespace-separated terms; a message matches when it contains all of them.
+    pub q: Option<String>,
+    pub user_id: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// GET /api/chat/search
+/// Messages across every agent's conversations (archived ones included) whose
+/// text contains every term of `q`, newest first. `total` counts every match
+/// and `truncated` says when `results` holds fewer than that.
+pub async fn search_messages(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(params): Query<SearchMessagesQuery>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+
+    let query = params.q.as_deref().unwrap_or("").trim();
+    if query.is_empty() {
+        return Err(AppError::Validation("q is required".to_string()));
+    }
+    let user_id = params.user_id.as_deref().unwrap_or(DEFAULT_USER_ID);
+    let limit = params
+        .limit
+        .unwrap_or(50)
+        .max(1)
+        .min(state.config.max_chat_query_limit);
+
+    let found = db::search_chat_messages(&state.pool, user_id, query, limit).await?;
+    let truncated = found.truncated();
+    ok_data(serde_json::json!({
+        "query": query,
+        "results": found.hits,
+        "total": found.total,
+        "truncated": truncated,
+    }))
 }
 
 // --- Conversations (docs/CONVERSATIONS_DESIGN.md §3) ---

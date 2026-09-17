@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
 import { useEventStream } from '../../hooks/useEventStream';
 import { EVENTS_URL } from '../../services/api';
-import { SectionCard } from './common';
+import { SettingsGroup } from './common';
 
 export function LogSection() {
   const api = useApi();
@@ -42,16 +42,18 @@ export function LogSection() {
   }, []);
 
   return (
-    <SectionCard title={t('log.title')}>
-      <div ref={scrollRef} className="h-[60vh] overflow-y-auto font-mono text-xs space-y-1 no-scrollbar">
-        {logs.length === 0 && <div className="opacity-30">{t('log.awaiting_signal')}</div>}
-        {logs.map((log, i) => (
-          <div key={i} className="text-content-secondary animate-in fade-in slide-in-from-left-1 duration-300">
-            <span className="opacity-50 mr-2">&gt;</span>
-            {log}
-          </div>
-        ))}
+    <SettingsGroup title={t('log.title')}>
+      <div className="set-block">
+        <div ref={scrollRef} className="set-log">
+          {logs.length === 0 && <div className="waiting">{t('log.awaiting_signal')}</div>}
+          {logs.map((log, i) => (
+            <div key={i}>
+              <span className="t">&gt;</span>
+              {log}
+            </div>
+          ))}
+        </div>
       </div>
-    </SectionCard>
+    </SettingsGroup>
   );
 }

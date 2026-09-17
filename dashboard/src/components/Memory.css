@@ -1,0 +1,352 @@
+/* The memory screen, ported rule for rule from docs/gui/samples/06-memory.html
+ * (the approved mock): one vertical time axis instead of a grid of cards. The
+ * mock's ink/fg variables map onto the tokens in index.css; The screen wears
+ * no agent colour of its own: the only one is the line under the selected
+ * agent tab, which the component sets.
+ *
+ * The frame (.ws, .ws-head, .tabs, .btn, .ws-body, .in) is the workshop's and
+ * lives in Workshop.css — including the mock's element resets, which are
+ * wrapped in :where() there so a rule with a class still wins over them. This
+ * file holds only what is the memory screen's own. */
+
+/* The head is the workshop's, with the title held on one line: this screen
+ * puts a search and three buttons beside it, and in a narrow window the word
+ * was breaking in two. */
+.mem .ws-head h1 {
+  white-space: nowrap;
+}
+
+/* ---------- the two columns ---------- */
+.mem-body {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  min-height: 0;
+  /* Each column scrolls on its own: the axis is long and the panel is not. */
+  overflow: hidden;
+}
+.mem-axis {
+  overflow: auto;
+  min-width: 0;
+}
+.mem-side {
+  border-left: 1px solid hsl(var(--surface-primary));
+  padding: 18px 22px;
+  overflow: auto;
+}
+.mem-side h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 6px;
+}
+.mem-side h2.later {
+  margin: 28px 0 2px;
+}
+.mem-side .said {
+  font-size: 13px;
+  color: hsl(var(--text-secondary));
+  line-height: 1.7;
+  margin: 0;
+}
+.mem-side .next {
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+  margin: 12px 0 0;
+}
+.mem-side .note {
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  padding: 0;
+}
+
+/* ---------- the time axis ---------- */
+.tl {
+  padding: 8px 24px 60px 8px;
+}
+.tl .tday {
+  display: grid;
+  grid-template-columns: 72px 28px 1fr;
+  align-items: center;
+  height: 44px;
+  position: relative;
+  margin-top: 4px;
+}
+.tl .tday::before {
+  content: '';
+  position: absolute;
+  left: 72px;
+  right: 0;
+  top: 9px;
+  height: 26px;
+  background: hsl(var(--surface-secondary));
+  border-radius: 6px;
+}
+.tl .tday .lbl {
+  grid-column: 3;
+  grid-row: 1;
+  position: relative;
+  font-size: 12.5px;
+  color: hsl(var(--text-primary));
+  padding-left: 14px;
+  font-weight: 500;
+}
+.tl .tday .tick {
+  grid-column: 2;
+  grid-row: 1;
+  position: relative;
+  justify-self: center;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: hsl(var(--surface-secondary));
+  border: 1.5px solid hsl(var(--text-tertiary));
+}
+.tl .tday .n {
+  position: absolute;
+  right: 14px;
+  top: 9px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.tl .ev {
+  display: grid;
+  grid-template-columns: 72px 28px 1fr;
+  align-items: start;
+  position: relative;
+}
+.tl .ev .t {
+  grid-column: 1;
+  text-align: right;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  padding: 9px 12px 0 0;
+}
+.tl .ev .sp {
+  grid-column: 2;
+  align-self: stretch;
+  position: relative;
+}
+.tl .ev .sp::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: hsl(var(--border-default));
+  transform: translateX(-50%);
+}
+.tl .ev .sp::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 13px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: hsl(var(--text-tertiary));
+  transform: translateX(-50%);
+}
+.tl .ev .c {
+  grid-column: 3;
+  padding: 6px 12px 12px 14px;
+  border-radius: var(--radius-surface);
+  margin: 0 0 2px;
+  /* What the row can be told to do is laid over its right, not added under
+   * it: the row is as tall as the mock's either way, and nothing on the axis
+   * moves when the pointer arrives. */
+  position: relative;
+}
+.tl .ev .c:hover {
+  background: hsl(var(--surface-secondary));
+}
+.tl .ev .who {
+  font-size: 12.5px;
+  color: hsl(var(--text-secondary));
+  margin-bottom: 1px;
+}
+.tl .ev .tx {
+  font-size: 14px;
+  line-height: 1.7;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+/* Reading the rest of it is not a mouse's privilege: the row takes focus, so
+ * the keyboard opens it the same way. */
+.tl .ev .c:hover .tx,
+.tl .ev .c:focus .tx,
+.tl .ev .c:focus-within .tx {
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+}
+.tl .gap {
+  display: grid;
+  grid-template-columns: 72px 28px 1fr;
+  align-items: center;
+  height: 56px;
+}
+.tl .gap .sp {
+  grid-column: 2;
+  justify-self: center;
+  height: 100%;
+  width: 1px;
+  background: repeating-linear-gradient(to bottom, hsl(var(--border-default)) 0 3px, transparent 3px 7px);
+}
+.tl .gap .n {
+  grid-column: 3;
+  font-size: 11.5px;
+  color: hsl(var(--text-tertiary));
+  padding-left: 14px;
+}
+.tl .tday + .ev .sp::before {
+  top: 0;
+}
+
+/* What a row can be told to do, at the row's right and only while it is under
+ * the pointer or holding focus. The mock's table rows say it this way. */
+.tl .ev .c .acts {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.tl .ev .c > .acts {
+  position: absolute;
+  top: 4px;
+  right: 10px;
+}
+.tl .ev .c:hover .acts,
+.tl .ev .c:focus .acts,
+.tl .ev .c:focus-within .acts {
+  opacity: 1;
+}
+.tl .ev .c .acts button {
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: hsl(var(--text-tertiary));
+  font-size: 12px;
+}
+.tl .ev .c .acts button:hover {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-primary));
+}
+.tl .ev .c .acts button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.tl .ev .c .acts button.danger:hover {
+  color: hsl(6 70% 72%);
+}
+.tl .ev .c .edit {
+  margin-top: 4px;
+}
+/* While a memory is being written, its two buttons are not a hover secret. */
+.tl .ev .c .edit .acts {
+  position: static;
+  opacity: 1;
+  margin-top: 4px;
+}
+
+/* ---------- the episodes in the right column ---------- */
+.mem-ep {
+  padding: 9px 0;
+  border-top: 1px solid hsl(var(--surface-primary));
+}
+.mem-ep:first-of-type {
+  border-top: 0;
+}
+.mem-ep .when {
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.mem-ep .sum {
+  font-size: 13px;
+  line-height: 1.7;
+  color: hsl(var(--text-primary));
+  margin: 2px 0 0;
+}
+.mem-ep .kw {
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  margin-top: 2px;
+}
+.mem-ep .acts {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.mem-ep:hover .acts,
+.mem-ep:focus-within .acts {
+  opacity: 1;
+}
+.mem-ep .acts button {
+  padding: 2px 7px;
+  border-radius: 4px;
+  color: hsl(var(--text-tertiary));
+  font-size: 12px;
+}
+.mem-ep .acts button:hover {
+  background: hsl(var(--border-default));
+  color: hsl(6 70% 72%);
+}
+
+/* ---------- the density band (30 days) ---------- */
+.dens {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 3px;
+  margin-top: 8px;
+}
+.dens .d {
+  display: grid;
+  grid-template-columns: 34px 1fr;
+  align-items: center;
+  gap: 8px;
+  height: 9px;
+  font-size: 10.5px;
+  color: hsl(var(--text-tertiary));
+}
+.dens .d i {
+  display: block;
+  height: 5px;
+  background: hsl(var(--border-default));
+  border-radius: 2px;
+}
+.dens .d.today i {
+  background: hsl(var(--text-secondary));
+}
+
+/* ---------- what the screen says when it has nothing to show ---------- */
+.mem-state {
+  padding: 60px 24px;
+  text-align: center;
+  color: hsl(var(--text-tertiary));
+  font-size: 13px;
+  line-height: 1.8;
+}
+.mem-state .btn {
+  margin-top: 8px;
+}
+.mem-toast {
+  margin: 8px 24px 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-tool);
+  background: hsl(var(--surface-secondary));
+  color: hsl(6 70% 72%);
+  font-size: 13px;
+}
+.tabs .spacer {
+  flex: 1;
+}
+/* The head's search is the mock's, a little wider. */
+.ws-head .find.wide {
+  width: 320px;
+}

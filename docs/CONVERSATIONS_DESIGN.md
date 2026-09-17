@@ -95,7 +95,10 @@ conversation, exactly as an edited-and-regenerated turn is today.
 ### (b) The kernel mints the id; the client names the conversation it is in
 
 - `POST /api/chat/{agent_id}/conversations` → `{ id, title: "", created_at }`.
-  **New chat** calls this and switches to the returned id.
+  The dashboard calls this when the first message of a **new chat** is sent,
+  and sends that message into the returned id. Pressing New chat does not call
+  it: a conversation nobody spoke in is not a conversation, and would only be
+  an empty row in the list.
 - Every message the dashboard sends carries `metadata.conversation_id`. The
   kernel persists the user message and the reply under it and bumps
   `updated_at`.
@@ -110,9 +113,13 @@ conversation, exactly as an edited-and-regenerated turn is today.
   conversation is the opposite of that.)
 - The dashboard remembers the open conversation per agent in `localStorage`,
   so a reload lands where the person was; if that conversation is gone, the
-  newest one is opened, and if there is none, one is created. **New chat**
-  reuses an empty conversation of that agent rather than minting a second
-  one, so pressing it twice leaves one, not two.
+  newest one is opened, and if there is none, the new chat is. **New chat** is
+  a screen, not a row: it shows who would be spoken to — the agents turn by a
+  swipe, a drag or the arrow buttons, with "create an agent" at the left end,
+  and that is the only face when nobody exists — above the ordinary composer.
+  Turning keeps what was typed. Nothing is created, in the kernel or in the
+  list, until the first message is sent; leaving without sending leaves
+  nothing behind.
 
 Why the kernel and not the client: the id is a database key that other
 clients (a browser session, a future bridge) must be able to look up; a

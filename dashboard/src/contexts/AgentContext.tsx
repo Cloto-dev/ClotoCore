@@ -24,10 +24,17 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const processingAgentIds = useProcessingAgents();
 
   // The selected agent is the one present: the accent takes its colour.
-  const presentAgentId = agents.some((a) => a.id === selectedAgentId) ? selectedAgentId : null;
+  // Keyed on the accent it resolves to, not on the agent object: a refetch
+  // replaces every object, and a colour chosen in settings has to arrive here
+  // without the selection changing.
+  const presentAgent = agents.find((a) => a.id === selectedAgentId) ?? null;
+  const presentAgentId = presentAgent?.id ?? null;
+  const presentAccent = presentAgent?.metadata?.accent;
   useEffect(() => {
-    applyPresentAgent(presentAgentId === null ? null : { id: presentAgentId });
-  }, [presentAgentId]);
+    applyPresentAgent(
+      presentAgentId === null ? null : { id: presentAgentId, metadata: { accent: presentAccent ?? '' } },
+    );
+  }, [presentAgentId, presentAccent]);
 
   const refetchAgents = useCallback(async () => {
     await refetch();

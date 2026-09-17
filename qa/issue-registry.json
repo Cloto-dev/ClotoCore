@@ -1224,10 +1224,11 @@
       "discovered": "2026-03-09T12:00:00Z",
       "version": "0.6.1",
       "commit": "b60f329",
-      "file": "dashboard/src/components/AgentTerminal.tsx",
+      "file": "dashboard/src/components/agents/AgentRoster.tsx",
       "pattern": "importWarnings\\.map\\(\\(w\\) =>",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "notes": "2026-09-17 workshop port: the agent screens were rebuilt against docs/gui/samples/03-agents.html and 08-agent-settings.html. The pending-import warning list moved out of AgentTerminal.tsx into the new roster; the pinned pattern is the same keyed map, re-pointed at its new home."
     },
     {
       "id": "bug-250",
@@ -2172,10 +2173,11 @@
       "discovered": "2026-03-15T19:15:00Z",
       "version": "0.6.3-alpha.2",
       "commit": "ebde11a",
-      "file": "dashboard/src/components/AgentPluginWorkspace.tsx",
+      "file": "dashboard/src/pages/AgentSettingsPage.tsx",
       "pattern": "delete metadata.avatar_path",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "notes": "2026-09-17 workshop port: the agent screens were rebuilt against docs/gui/samples/03-agents.html and 08-agent-settings.html. AgentPluginWorkspace.tsx was replaced by this page and deleted. The delete of the avatar keys before updateAgent moved with the save path, so the pin follows it."
     },
     {
       "id": "bug-326",
@@ -2297,7 +2299,8 @@
       "file": "dashboard/src/components/AgentPluginWorkspace.tsx",
       "pattern": "import \\{ AlertCard \\} from './ui/AlertCard'",
       "expected": "present",
-      "status": "fixed"
+      "status": "obsolete",
+      "notes": "2026-09-17 workshop port: the agent screens were rebuilt against docs/gui/samples/03-agents.html and 08-agent-settings.html. AgentPluginWorkspace.tsx was replaced by dashboard/src/pages/AgentSettingsPage.tsx and deleted; the pinned import statement does not exist anywhere now, and the defect it pinned (import order) has no successor line to point at. Marked obsolete rather than re-pointed: `npx biome check src/` enforces organizeImports across the whole tree on every commit, which is a stronger gate than a per-file grep."
     },
     {
       "id": "bug-336",
@@ -2318,10 +2321,11 @@
       "discovered": "2026-03-21T00:00:00Z",
       "version": "0.6.3-alpha.11",
       "commit": "c4d0741",
-      "file": "dashboard/src/components/AgentTerminal.tsx",
-      "pattern": "text-content-tertiary shrink-0",
-      "expected": "present",
-      "status": "fixed"
+      "file": "dashboard/src/components/agents/AgentRoster.tsx",
+      "pattern": "text-content-muted",
+      "expected": "absent",
+      "status": "fixed",
+      "notes": "2026-09-17 workshop port: the agent screens were rebuilt against docs/gui/samples/03-agents.html and 08-agent-settings.html. The roster no longer uses Tailwind utilities at all — it is drawn from components/Workshop.css — so the old pin (a Tailwind class string) had nothing to match. The pin now asserts the rule the bug was about directly: text-content-muted is never used for readable text on this screen."
     },
     {
       "id": "bug-338",

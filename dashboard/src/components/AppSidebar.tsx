@@ -3,9 +3,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAgentContext } from '../contexts/AgentContext';
+import { useConnection } from '../contexts/ConnectionContext';
 import { useConversations } from '../contexts/ConversationContext';
 import { useApi } from '../hooks/useApi';
 import { useModules } from '../hooks/useModules';
+import { useShortcut } from '../hooks/useShortcut';
 import { displayTitle, groupConversations } from '../lib/conversations';
 import type { Conversation } from '../types';
 import { NotificationBell } from './NotificationBell';
@@ -35,11 +37,6 @@ const ICONS = {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
       <path d="M12 20h9" />
       <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
-    </svg>
-  ),
-  chat: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M4 5h16v11H8l-4 4Z" />
     </svg>
   ),
   agents: (
@@ -79,6 +76,13 @@ const ICONS = {
       <rect x="13" y="13" width="8" height="8" rx="1.5" />
     </svg>
   ),
+  help: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7" />
+      <path d="M12 17h.01" />
+    </svg>
+  ),
   power: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
       <path d="M12 3v9" />
@@ -99,18 +103,32 @@ const VISIBLE_GROUPS = new Set(['today', 'yesterday', 'previous_7_days']);
 
 interface AppSidebarProps {
   onSettingsClick: () => void;
+  /** Open the help. Optional: a caller with no help to show gets no link. */
+  onHelpClick?: () => void;
+  /** Open search (⌘K). Optional: without it the button is not drawn. */
+  onSearchClick?: () => void;
 }
 
-export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
+export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpClick, onSearchClick }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation('nav');
   const { t: tSettings } = useTranslation('settings');
   const { t: tCommon } = useTranslation('common');
+  const { connected } = useConnection();
+
+  // The updater announces a newer build with this event; the foot's version
+  // number turns into the way to it.
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  useEffect(() => {
+    const handler = (e: Event) => setUpdateVersion((e as CustomEvent).detail?.version ?? 'new');
+    window.addEventListener('cloto-update-available', handler);
+    return () => window.removeEventListener('cloto-update-available', handler);
+  }, []);
   const api = useApi();
   const { agents, selectedAgentId, setSelectedAgentId, systemActive, setSystemActive, processingAgentIds } =
     useAgentContext();
-  const { conversations, openFor, open, newChat, rename, archive, remove } = useConversations();
+  const { conversations, openFor, open, draft, startDraft, leaveDraft, rename, archive, remove } = useConversations();
   const { modules } = useModules();
   const [shutdownConfirm, setShutdownConfirm] = useState(false);
   const [showOlder, setShowOlder] = useState(false);
@@ -127,59 +145,40 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
 
   const groups = useMemo(() => groupConversations(conversations, now), [conversations, now]);
   const hiddenCount = groups.filter((g) => !VISIBLE_GROUPS.has(g.group)).reduce((n, g) => n + g.items.length, 0);
-  const shownGroups = showOlder ? groups : groups.filter((g) => VISIBLE_GROUPS.has(g.group));
+  // With nothing from the last week, folding the rest away leaves an empty list
+  // and a lone "show more": the older conversations are then the list.
+  const nothingRecent = hiddenCount === groups.reduce((n, g) => n + g.items.length, 0);
+  const shownGroups = showOlder || nothingRecent ? groups : groups.filter((g) => VISIBLE_GROUPS.has(g.group));
   const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
   const isAgentPage = location.pathname === '/';
-  const isChatOpen = isAgentPage && !systemActive && selectedAgentId !== null;
+  // The living room is showing: a conversation, or the new chat (which may be
+  // turned to "create an agent", with nobody selected).
+  const isChatOpen = isAgentPage && !systemActive && (selectedAgentId !== null || draft !== null);
   const isNavActive = (path: string) => location.pathname === path;
 
-  const handleNewChat = async () => {
-    // A chat needs someone to talk to: with an agent open, start theirs;
-    // otherwise go to the agents page to pick one.
-    const agentId = selectedAgentId ?? (agents.length === 1 ? agents[0].id : null);
-    if (!agentId) {
-      setSelectedAgentId(null);
-      setSystemActive(false);
-      navigate('/');
-      return;
-    }
-    const created = await newChat(agentId);
-    open(agentId, created.id);
+  const handleNewChat = () => {
+    // The new chat opens on whoever is present, else whoever was spoken with
+    // last, else anyone who is on — and on "create an agent" when nobody
+    // exists. Nothing is created here: the conversation exists, and appears in
+    // this list, once something is said.
+    const agentId =
+      selectedAgentId ?? conversations[0]?.agent_id ?? (agents.find((a) => a.enabled) ?? agents[0])?.id ?? null;
+    startDraft(agentId);
   };
 
   // ⌘N / Ctrl+N: the shortcut the mock prints beside New chat.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
-        e.preventDefault();
-        void handleNewChat();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+  useShortcut('newChat', () => {
+    handleNewChat();
   });
 
-  const goChat = () => {
-    // The living room: the conversation last open, else the newest, else the agents.
-    const agentId = selectedAgentId ?? conversations[0]?.agent_id ?? null;
-    if (!agentId) {
-      navigate('/');
-      return;
-    }
-    const conversationId = openFor(agentId) ?? conversations.find((c) => c.agent_id === agentId)?.id ?? null;
-    if (conversationId) open(agentId, conversationId);
-    else {
-      setSystemActive(false);
-      setSelectedAgentId(agentId);
-      navigate(`/?agent=${encodeURIComponent(agentId)}`);
-    }
-  };
   const goAgents = () => {
+    leaveDraft();
     setSelectedAgentId(null);
     setSystemActive(false);
     navigate('/');
   };
   const goTo = (path: string) => {
+    leaveDraft();
     setSelectedAgentId(null);
     setSystemActive(false);
     navigate(path);
@@ -191,9 +190,11 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
     <aside className="side" aria-label={t('sidebar')}>
       <div className="side-head">
         <span className="app">ClotoCore</span>
-        <button type="button" title={t('search')} aria-label={t('search')} aria-disabled="true">
-          {ICONS.search}
-        </button>
+        {onSearchClick && (
+          <button type="button" title={t('search')} aria-label={t('search')} onClick={onSearchClick}>
+            {ICONS.search}
+          </button>
+        )}
         <NotificationBell />
       </div>
 
@@ -208,7 +209,9 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
           <div key={group}>
             <div className="glabel">{t(`group_${group}`)}</div>
             {items.map((c) => {
-              const isOpen = isChatOpen && selectedAgentId === c.agent_id && openFor(c.agent_id) === c.id;
+              // While the new chat is open, no conversation is.
+              const isOpen =
+                isChatOpen && draft === null && selectedAgentId === c.agent_id && openFor(c.agent_id) === c.id;
               const mine = selectedAgentId === c.agent_id;
               const live = processingAgentIds.has(c.agent_id);
               const title = displayTitle(c, t('untitled_conversation'));
@@ -290,7 +293,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
             })}
           </div>
         ))}
-        {hiddenCount > 0 && (
+        {hiddenCount > 0 && !nothingRecent && (
           <button type="button" className="more" onClick={() => setShowOlder((v) => !v)}>
             {showOlder ? t('show_less') : t('show_more')}
           </button>
@@ -298,10 +301,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
       </div>
 
       <nav className="nav">
-        <button type="button" className={`navlink${isChatOpen ? ' on' : ''}`} onClick={goChat}>
-          {ICONS.chat}
-          {t('chat')}
-        </button>
         <button
           type="button"
           className={`navlink${isAgentPage && !isChatOpen && !systemActive ? ' on' : ''}`}
@@ -326,7 +325,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
           {ICONS.memory}
           {t('memory')}
         </button>
-        <button type="button" className="navlink" onClick={onSettingsClick}>
+        <button type="button" className={`navlink${isNavActive('/settings') ? ' on' : ''}`} onClick={onSettingsClick}>
           {ICONS.settings}
           {t('settings')}
         </button>
@@ -348,12 +347,33 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
             </button>
           );
         })}
+        {onHelpClick && (
+          <button type="button" className="navlink" onClick={onHelpClick}>
+            {ICONS.help}
+            {t('help')}
+          </button>
+        )}
       </nav>
 
       <div className="side-foot">
-        <span className="ok">{t('kernel_running')}</span>
+        <span className={connected ? 'ok' : 'bad'}>{connected ? t('kernel_running') : t('kernel_unreachable')}</span>
         <span>{t('agents_count', { count: agents.length })}</span>
-        <span className="num">{__APP_VERSION__}</span>
+        {updateVersion ? (
+          // A newer build exists: the version itself is the way to it.
+          <button
+            type="button"
+            className="num update"
+            title={tCommon('update_available_banner', { version: updateVersion })}
+            aria-label={tCommon('update_available_banner', { version: updateVersion })}
+            onClick={() =>
+              window.dispatchEvent(new CustomEvent('cloto-open-settings', { detail: { section: 'about' } }))
+            }
+          >
+            {__APP_VERSION__} ↑
+          </button>
+        ) : (
+          <span className="num">{__APP_VERSION__}</span>
+        )}
         <button
           type="button"
           className="power"

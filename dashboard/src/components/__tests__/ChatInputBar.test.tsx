@@ -42,6 +42,38 @@ beforeEach(() => {
   onSwitchAgent.mockReset();
 });
 
+describe("'/' from anywhere", () => {
+  it('puts the caret in the composer when nothing else is being typed in', () => {
+    draw();
+    expect(document.activeElement).not.toBe(box());
+    const key = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(key);
+    expect(document.activeElement).toBe(box());
+    // The slash itself is not written into the composer.
+    expect(key.defaultPrevented).toBe(true);
+  });
+
+  it('leaves the key alone when the composer is behind another screen', () => {
+    render(
+      <div className="hidden">
+        <ChatInputBar onSend={onSend} onStop={onStop} agentId="agent.a" agentName="Sapphy" />
+      </div>,
+    );
+    const key = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(key);
+    expect(document.activeElement).not.toBe(box());
+    expect(key.defaultPrevented).toBe(false);
+  });
+
+  it('does nothing while the composer cannot be written in', () => {
+    draw({ disabled: true });
+    const key = new KeyboardEvent('keydown', { key: '/', bubbles: true, cancelable: true });
+    document.body.dispatchEvent(key);
+    expect(document.activeElement).not.toBe(box());
+    expect(key.defaultPrevented).toBe(false);
+  });
+});
+
 describe('the composer', () => {
   it("addresses the agent by name in its placeholder, as the mock's 'Talk to Sapphy'", () => {
     draw();
@@ -113,5 +145,58 @@ describe('the composer', () => {
   it('carries no microphone: audio was never sent, only a note pretending it was', () => {
     draw();
     expect(screen.queryByRole('button', { name: /record/i })).toBeNull();
+  });
+
+  describe('with nobody to write to', () => {
+    const drawInvitation = (onAccept = vi.fn()) => {
+      draw({
+        agentId: undefined,
+        agentName: undefined,
+        disabled: true,
+        invitation: { label: 'Create an agent', onAccept },
+      });
+      return onAccept;
+    };
+
+    it('is an empty box that says nothing, and pressing it accepts the invitation', () => {
+      const onAccept = drawInvitation();
+      expect(box().placeholder).toBe('');
+      expect(box().getAttribute('aria-label')).toBe('Create an agent');
+      // Not disabled: a disabled control swallows the press that is the point.
+      expect(box().disabled).toBe(false);
+      expect(box().readOnly).toBe(true);
+      fireEvent.click(box());
+      expect(onAccept).toHaveBeenCalledTimes(1);
+    });
+
+    it('accepts on the keys that would have written something, and not on the ones that move', () => {
+      const onAccept = drawInvitation();
+      fireEvent.keyDown(box(), { key: 'Tab' });
+      fireEvent.keyDown(box(), { key: 'ArrowLeft' });
+      fireEvent.keyDown(box(), { key: 'c', metaKey: true });
+      expect(onAccept).not.toHaveBeenCalled();
+      fireEvent.keyDown(box(), { key: 'Enter' });
+      fireEvent.keyDown(box(), { key: 'a' });
+      expect(onAccept).toHaveBeenCalledTimes(2);
+      expect(onSend).not.toHaveBeenCalled();
+    });
+
+    it("sends nothing, offers no engine, and the send button wears no one's colour", () => {
+      drawInvitation();
+      const send = screen.getByLabelText('chat_input.send') as HTMLButtonElement;
+      expect(send.disabled).toBe(true);
+      expect(send.className).toContain('nobody');
+      // The hint keeps its place (the box must not move as faces turn) but says nothing.
+      expect(screen.getByText('chat_input.hint').style.visibility).toBe('hidden');
+      expect(screen.queryByLabelText('chat_input.attach_image')).toBeNull();
+    });
+
+    it('an ordinary composer is none of that', () => {
+      draw();
+      expect(box().readOnly).toBe(false);
+      expect((screen.getByLabelText('chat_input.send') as HTMLButtonElement).className).not.toContain('nobody');
+      expect(screen.getByText('chat_input.hint').style.visibility).toBe('');
+      expect(screen.getByLabelText('chat_input.attach_image')).toBeTruthy();
+    });
   });
 });

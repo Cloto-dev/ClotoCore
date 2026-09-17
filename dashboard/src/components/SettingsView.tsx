@@ -1,6 +1,5 @@
-import { Activity, Info, MessagesSquare, ScrollText, Settings, Shield, Sun, Zap } from 'lucide-react';
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import {
   AboutSection,
   AdvancedSection,
@@ -10,60 +9,66 @@ import {
   LogSection,
   SecuritySection,
 } from './settings';
-import { ViewHeader } from './ViewHeader';
+import './settings/Settings.css';
+import './Workshop.css';
 
-type Section = 'general' | 'conversations' | 'security' | 'advanced' | 'health' | 'log' | 'about';
+export type Section = 'general' | 'conversations' | 'security' | 'advanced' | 'health' | 'log' | 'about';
 
-const NAV_ITEMS: { id: Section; labelKey: string; icon: typeof Sun }[] = [
-  { id: 'general', labelKey: 'sections.general', icon: Sun },
-  { id: 'conversations', labelKey: 'sections.conversations', icon: MessagesSquare },
-  { id: 'security', labelKey: 'sections.security', icon: Shield },
-  { id: 'advanced', labelKey: 'sections.advanced', icon: Zap },
-  { id: 'health', labelKey: 'sections.health', icon: Activity },
-  { id: 'log', labelKey: 'sections.log', icon: ScrollText },
-  { id: 'about', labelKey: 'sections.about', icon: Info },
-];
+const SECTIONS: Section[] = ['general', 'conversations', 'security', 'advanced', 'health', 'log', 'about'];
 
-export function SettingsView({ onBack, initialSection }: { onBack?: () => void; initialSection?: Section }) {
-  const [activeSection, setActiveSection] = useState<Section>(initialSection ?? 'general');
+/** `?section=` names one of the seven; anything else opens the first. */
+export function sectionFromQuery(value: string | null): Section {
+  return (SECTIONS as string[]).includes(value ?? '') ? (value as Section) : 'general';
+}
+
+/**
+ * Settings (docs/gui/samples/05-settings.html): the sections on the left, and
+ * on the right rows of "what it is, what it is for, and the control".
+ *
+ * It is a page rather than a dialog. Which section is open is in the URL, so
+ * the update notice can arrive at About and the window bar's Back leaves the
+ * page in one step — section clicks replace the entry rather than stack on it.
+ */
+export function SettingsView() {
   const { t } = useTranslation('settings');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const section = sectionFromQuery(searchParams.get('section'));
+
+  const open = (next: Section) => {
+    const params = new URLSearchParams(searchParams);
+    params.set('section', next);
+    setSearchParams(params, { replace: true });
+  };
 
   return (
-    <div className="flex flex-col h-full bg-surface-base text-content-primary relative">
-      {onBack && (
-        <div className="relative z-10">
-          <ViewHeader icon={Settings} title={t('title')} onBack={onBack} />
-        </div>
-      )}
+    <div className="ws">
+      <div className="ws-head">
+        <h1>{t('title')}</h1>
+      </div>
 
-      <div className="relative z-10 flex flex-1 overflow-hidden">
-        {/* Sidebar Navigation */}
-        <nav className="w-44 border-r border-edge bg-surface-control flex flex-col py-4">
-          {NAV_ITEMS.map(({ id, labelKey, icon: Icon }) => (
+      <div className="ws-body set-body">
+        <nav className="rail" aria-label={t('title')}>
+          {SECTIONS.map((id) => (
             <button
+              type="button"
               key={id}
-              onClick={() => setActiveSection(id)}
-              className={`flex items-center gap-3 px-5 py-3 text-sm font-bold transition-all ${
-                activeSection === id
-                  ? 'text-agent bg-agent/5 border-r-2 border-agent'
-                  : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-secondary'
-              }`}
+              className={section === id ? 'on' : undefined}
+              aria-current={section === id ? 'page' : undefined}
+              onClick={() => open(id)}
             >
-              <Icon size={16} />
-              {t(labelKey)}
+              {t(`sections.${id}`)}
             </button>
           ))}
         </nav>
 
-        {/* Content Area */}
-        <div className="flex-1 overflow-y-auto p-8">
-          {activeSection === 'general' && <GeneralSection />}
-          {activeSection === 'conversations' && <ConversationsSection />}
-          {activeSection === 'security' && <SecuritySection />}
-          {activeSection === 'advanced' && <AdvancedSection />}
-          {activeSection === 'health' && <HealthSection />}
-          {activeSection === 'log' && <LogSection />}
-          {activeSection === 'about' && <AboutSection />}
+        <div className="set-pane">
+          {section === 'general' && <GeneralSection />}
+          {section === 'conversations' && <ConversationsSection />}
+          {section === 'security' && <SecuritySection />}
+          {section === 'advanced' && <AdvancedSection />}
+          {section === 'health' && <HealthSection />}
+          {section === 'log' && <LogSection />}
+          {section === 'about' && <AboutSection />}
         </div>
       </div>
     </div>

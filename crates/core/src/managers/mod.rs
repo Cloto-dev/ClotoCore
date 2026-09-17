@@ -34,6 +34,7 @@ pub mod mcp_venv;
 mod plugin;
 pub mod provider_probe;
 mod registry;
+pub mod response_stop;
 pub mod scheduler;
 pub mod session_manager;
 pub mod token_budget;

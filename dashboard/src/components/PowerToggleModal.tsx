@@ -57,7 +57,7 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && password && handleConfirm()}
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-edge text-sm focus:outline-none focus:border-agent"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-edge text-sm focus:border-agent"
               placeholder="Password"
             />
           </div>

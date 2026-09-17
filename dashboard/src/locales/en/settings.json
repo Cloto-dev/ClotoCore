@@ -1,14 +1,14 @@
 {
   "title": "Settings",
   "sections": {
-    "general": "GENERAL",
-    "conversations": "CONVERSATIONS",
-    "security": "SECURITY",
-    "display": "DISPLAY",
-    "advanced": "ADVANCED",
-    "log": "LOG",
-    "health": "HEALTH",
-    "about": "ABOUT"
+    "general": "General",
+    "conversations": "Conversations",
+    "security": "Security",
+    "display": "Display",
+    "advanced": "Advanced",
+    "log": "Log",
+    "health": "Health",
+    "about": "About"
   },
   "health": {
     "title": "System Health",
@@ -78,7 +78,8 @@
       "running_desc": "The app is shutting down so the helper can remove the items it listed. Close this window and do not reopen ClotoCore.",
       "report_path": "Report",
       "running_resume_hint": "If anything is left behind, the report says what, and the plan file beside it can be re-run with: clotocore purge-exec --plan <file>"
-    }
+    },
+    "scanning": "Scanning…"
   },
   "conversations": {
     "archived_title": "Archived conversations",
@@ -94,7 +95,9 @@
     "delete_all_message": "Every conversation with {{agent}}, archived ones included, and all their messages will be removed. This cannot be undone. Memories the agent formed are kept.",
     "cancel": "Cancel",
     "archived_count": "Archived {{count}} conversations.",
-    "deleted_count": "Deleted {{count}} conversations."
+    "deleted_count": "Deleted {{count}} conversations.",
+    "unread": "Could not read the conversations of {{agents}}, so this list may be missing some.",
+    "retry": "Try again"
   },
   "general": {
     "theme": "Theme",
@@ -103,7 +106,7 @@
     "theme_system": "System",
     "theme_legacy": "Legacy",
     "language": "Language",
-    "export_template": "Export Template",
+    "export_template": "Export",
     "import_pack": "Import",
     "import_success": "\"{{label}}\" ({{code}}) imported successfully.",
     "import_error": "Import failed: {{error}}",
@@ -113,8 +116,15 @@
     "display_name": "Display Name",
     "name_placeholder": "User",
     "name_hint": "The name shown to agents when you chat. Agents can use it to address you personally.",
-    "inject_language_to_prompt": "Inject into prompt",
-    "inject_language_hint": "When ON, agents are instructed to reply in the selected language unless their description says otherwise."
+    "inject_language_to_prompt": "Inject the response language into the prompt",
+    "inject_language_hint": "When ON, agents are instructed to reply in the selected language. An agent's description can override it.",
+    "group_display": "Display",
+    "group_user": "User",
+    "group_language_pack": "Language templates",
+    "theme_desc": "Follow the device's setting, or pin it.",
+    "language_desc": "The dashboard's display language.",
+    "pack_label": "Translation pack template",
+    "pack_desc": "Export a template to build your own language pack, and read one back in."
   },
   "about": {
     "clotocore": "ClotoCore",
@@ -151,7 +161,10 @@
     "contact": "Contact",
     "setup": "Quick Setup",
     "setup_desc": "Re-run the initial setup wizard to change language, theme, and display name.",
-    "rerun_setup": "Re-open Quick Setup"
+    "rerun_setup": "Re-open Quick Setup",
+    "version_label": "Version",
+    "latest_label": "Latest release",
+    "latest_desc": "Ask the release feed whether a newer build exists."
   },
   "advanced": {
     "yolo_title": "YOLO Mode",
@@ -167,7 +180,8 @@
     "shutdown_overlay_title": "Shutting down",
     "shutdown_overlay_draining": "Stopping MCP servers…",
     "shutdown_overlay_stopped_title": "Kernel stopped",
-    "shutdown_overlay_stopped_hint": "ClotoCore has shut down. You can close this tab."
+    "shutdown_overlay_stopped_hint": "ClotoCore has shut down. You can close this tab.",
+    "cron_limit_label": "Generations allowed"
   },
   "llm_providers": {
     "title": "LLM Providers",
@@ -211,7 +225,10 @@
     "model_cancel": "Cancel",
     "model_unset": "(not set)",
     "model_validation_empty": "Model ID must not be empty",
-    "model_validation_too_long": "Model ID must be 200 characters or fewer"
+    "model_validation_too_long": "Model ID must be 200 characters or fewer",
+    "model_label": "Model",
+    "context_length_label": "Context",
+    "key_label": "API key"
   },
   "security": {
     "api_key_title": "API Key",
@@ -229,7 +246,11 @@
     "invalidate_label": "Invalidate current key (system-wide)",
     "invalidate_confirm_desc": "This will revoke the key for all clients.",
     "error_invalid_key": "Invalid API key",
-    "error_invalidate_failed": "Failed to invalidate key"
+    "error_invalidate_failed": "Failed to invalidate key",
+    "status_label": "State",
+    "new_key_label": "Replace the key",
+    "new_key_desc": "The key this dashboard sends. It is tried against the kernel before it is kept.",
+    "invalidate_desc": "Revokes the key for every client, this dashboard included."
   },
   "display": {
     "cursor_title": "Cursor",

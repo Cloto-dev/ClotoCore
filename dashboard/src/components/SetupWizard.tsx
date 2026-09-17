@@ -473,7 +473,7 @@ export function SetupWizard({ onComplete }: Props) {
                 <select
                   value={i18n.language.split('-')[0]}
                   onChange={(e) => i18n.changeLanguage(e.target.value)}
-                  className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-agent focus:outline-none transition-colors"
+                  className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-agent transition-colors"
                 >
                   {allLanguages.map((lang) => (
                     <option key={lang.code} value={lang.code}>
@@ -516,7 +516,7 @@ export function SetupWizard({ onComplete }: Props) {
                   onChange={(e) => setDisplayName(e.target.value)}
                   onBlur={handleNameBlur}
                   placeholder={t('name_placeholder')}
-                  className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-agent focus:outline-none transition-colors text-center"
+                  className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-agent transition-colors text-center"
                 />
                 <p className="text-xs text-content-tertiary">{t('name_hint')}</p>
               </div>
@@ -898,7 +898,7 @@ function PresetStep({
           <select
             value={selectedEngine}
             onChange={(e) => onSelectEngine(e.target.value)}
-            className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-xs text-content-primary focus:border-agent focus:outline-none appearance-none"
+            className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-xs text-content-primary focus:border-agent appearance-none"
           >
             {ENGINE_IDS.map((id) => (
               <option key={id} value={id}>

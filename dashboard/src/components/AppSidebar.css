@@ -277,6 +277,19 @@
 .side-foot .num {
   margin-left: auto;
 }
+.side-foot .bad {
+  color: hsl(6 70% 72%);
+}
+/* A newer build exists: the version is a button, in the one colour the
+   workshop uses for "good news". */
+.side-foot .update {
+  color: hsl(150 45% 65%);
+  border-radius: var(--radius-tool);
+  padding: 0 4px;
+}
+.side-foot .update:hover {
+  background: hsl(var(--surface-primary));
+}
 .side-foot .power {
   width: 22px;
   height: 22px;

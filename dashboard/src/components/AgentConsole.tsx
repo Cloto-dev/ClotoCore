@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useActionsContext } from '../contexts/ActionsContext';
 import { useAgentContext } from '../contexts/AgentContext';
-import { useConversations } from '../contexts/ConversationContext';
+import { type FirstMessage, useConversations } from '../contexts/ConversationContext';
 import { useUserIdentity } from '../contexts/UserIdentityContext';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
@@ -19,6 +19,7 @@ import { mostSevere } from '../lib/notificationSeverity';
 import { sendNativeNotification } from '../lib/notifications';
 import { isEngineServer } from '../lib/serverCategory';
 import { openVrmWindow } from '../lib/tauri';
+import { thinkingStorageKey } from '../lib/thinkingSteps';
 import { EVENTS_URL } from '../services/api';
 import type {
   AgentMetadata,
@@ -101,12 +102,20 @@ type ThinkingStep = {
 
 export function AgentConsole({
   agent,
-  conversationId,
+  conversationId: openedConversationId,
+  onFirstMessage,
+  initialSend,
   onBack,
   onConfigure,
 }: {
   agent: AgentMetadata;
-  conversationId: string;
+  /** The conversation to show. `null` is a draft: nothing exists yet, and the
+   * first message creates it through `onFirstMessage`. */
+  conversationId: string | null;
+  /** Create the draft's conversation and answer its id. */
+  onFirstMessage?: () => Promise<string>;
+  /** What the new chat screen was given to say: sent once, on mount. */
+  initialSend?: FirstMessage;
   onBack: () => void;
   onConfigure?: () => void;
 }) {
@@ -117,6 +126,10 @@ export function AgentConsole({
   const { conversations, open: openConversation, refresh: refreshConversations } = useConversations();
   const { servers: mcpServers } = useMcpServers();
   const [agentEngines, setAgentEngines] = useState<McpServerInfo[]>([]);
+  // The conversation this console talks in. It starts as what was opened and,
+  // for a draft, becomes the conversation its first message created — held here
+  // because the console outlives that moment (it is not remounted).
+  const [conversationId, setConversationId] = useState<string | null>(openedConversationId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -134,7 +147,7 @@ export function AgentConsole({
   } | null>(null);
   const [thinkingSteps, setThinkingStepsRaw] = useState<ThinkingStep[]>(() => {
     try {
-      const saved = sessionStorage.getItem(`cloto-thinking-${agent.id}`);
+      const saved = sessionStorage.getItem(thinkingStorageKey(agent.id));
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -146,9 +159,9 @@ export function AgentConsole({
       const next = typeof action === 'function' ? action(prev) : action;
       try {
         if (next.length === 0) {
-          sessionStorage.removeItem(`cloto-thinking-${agent.id}`);
+          sessionStorage.removeItem(thinkingStorageKey(agent.id));
         } else {
-          sessionStorage.setItem(`cloto-thinking-${agent.id}`, JSON.stringify(next.slice(-50)));
+          sessionStorage.setItem(thinkingStorageKey(agent.id), JSON.stringify(next.slice(-50)));
         }
       } catch {
         /* storage full */
@@ -221,6 +234,12 @@ export function AgentConsole({
     initialLoadDone.current = true;
 
     const loadMessages = async () => {
+      // A draft has no history, and asking without a conversation id would
+      // answer with every message this agent has ever been sent.
+      if (conversationId === null) {
+        setIsLoading(false);
+        return;
+      }
       try {
         // First, check for legacy localStorage data and migrate
         await migrateLegacyData(agent.id, api.postChatMessage);
@@ -319,7 +338,7 @@ export function AgentConsole({
   // 1. 30s timeout while typing
   // 2. Page becoming visible again (user navigated away and back)
   const recoverTypingState = useCallback(async () => {
-    if (!isTyping || retryParentIdRef.current) return;
+    if (!isTyping || retryParentIdRef.current || conversationId === null) return;
     try {
       const { messages: latest } = await api.getChatMessages(agent.id, undefined, 5, identity.id, conversationId);
       if (latest.length > 0 && latest[0].source === 'agent') {
@@ -351,7 +370,7 @@ export function AgentConsole({
   }, [isTyping, recoverTypingState]);
 
   const loadOlderMessages = useCallback(async () => {
-    if (isLoadingMore || !hasMore || messages.length === 0) return;
+    if (isLoadingMore || !hasMore || messages.length === 0 || conversationId === null) return;
     setIsLoadingMore(true);
 
     try {
@@ -590,6 +609,20 @@ export function AgentConsole({
         setPendingApprovals((prev) => prev.filter((a) => a.approval_id !== event.data.approval_id));
       }
 
+      // A reply stopped — here or from another window. No ThoughtResponse
+      // follows, so this is what ends the wait wherever it is still shown.
+      if (event.type === 'ResponseStopped' && event.data.agent_id === agent.id) {
+        const sourceId = event.data.source_message_id as string;
+        stoppedSourceIdsRef.current.delete(sourceId);
+        if (inflightSourceIdRef.current === sourceId) {
+          inflightSourceIdRef.current = null;
+          setIsTyping(false);
+          setThinkingSteps([]);
+          setPendingResponse(null);
+        }
+        return;
+      }
+
       if (event.type === 'ThoughtResponse' && event.data.agent_id === agent.id) {
         const sourceId = event.data.source_message_id as string;
         // The reply to a message the user stopped waiting for: it is in the
@@ -710,11 +743,18 @@ export function AgentConsole({
     inflightSourceIdRef.current = msgId;
 
     try {
+      // The first message of a draft is what makes it a conversation.
+      let target = conversationId;
+      if (target === null) {
+        if (!onFirstMessage) throw new Error('No conversation is open');
+        target = await onFirstMessage();
+        setConversationId(target);
+      }
       const hasMedia = contentBlocks.some((b) => b.type === 'image' || b.type === 'audio');
       const outgoing = buildOutgoingChat({
         messageId: msgId,
         agentId: agent.id,
-        conversationId,
+        conversationId: target,
         identity,
         contentBlocks,
         engineOverride,
@@ -748,11 +788,33 @@ export function AgentConsole({
     }
   };
 
+  // The new chat screen hands its first message over by mounting this console
+  // with it. A ref, not state: it must go out once even if this renders twice.
+  const initialSent = useRef(false);
+  // Once, on mount: `sendMessage` is a fresh function each render and is not a dependency.
+  useEffect(() => {
+    if (!initialSend || initialSent.current) return;
+    initialSent.current = true;
+    void sendMessage(initialSend.blocks, initialSend.rawText, initialSend.engineOverride);
+  }, []);
+
   /** Stop waiting for the reply: keep what was shown, say so, and ignore the rest. */
   const handleStop = () => {
     if (!isTyping && !pendingResponse) return;
     const sourceId = inflightSourceIdRef.current;
-    if (sourceId) stoppedSourceIdsRef.current.add(sourceId);
+    if (sourceId) {
+      stoppedSourceIdsRef.current.add(sourceId);
+      // Stop the reply where it is produced, so nothing of it is stored. When
+      // the kernel answers that there was nothing to stop, the reply had
+      // already finished and is stored: stop holding it back from this room.
+      // A failed call keeps it held back — nothing says whether it stopped.
+      api
+        .stopResponse(agent.id, sourceId)
+        .then(({ stopped }) => {
+          if (!stopped) stoppedSourceIdsRef.current.delete(sourceId);
+        })
+        .catch(() => {});
+    }
     inflightSourceIdRef.current = null;
     retryParentIdRef.current = null;
     setIsTyping(false);

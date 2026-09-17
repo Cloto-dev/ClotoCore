@@ -3,8 +3,10 @@ import { isTauri } from '../lib/tauri';
 import type {
   AccessControlEntry,
   AccessTreeResponse,
+  AgentInstructionsReport,
   AgentMetadata,
   ChatMessage,
+  ChatSearchResult,
   ClotoMessage,
   ContentBlock,
   Conversation,
@@ -377,6 +379,32 @@ export const api = {
   getRecallPrecision: (id: string, apiKey: string) =>
     fetchJson<RecallPrecisionInfo>(`/agents/${id}/recall-precision`, 'fetch recall precision', apiKey),
 
+  /** Which of an agent's always-loaded files exist, what each costs, and which
+   *  reach the prompt. The budget comes back with the answer. */
+  getAgentInstructionFiles: (agentId: string, apiKey?: string) =>
+    fetchJson<AgentInstructionsReport>(
+      `/agents/${encodeURIComponent(agentId)}/instruction-files`,
+      'fetch the always-loaded files',
+      apiKey,
+    ),
+
+  /**
+   * Set, change or remove the password that guards an agent's power switch and
+   * its deletion. An empty `newPassword` removes it. `currentPassword` is
+   * required once one is set — the admin key alone does not suffice, or the
+   * password would be trivially removable by whoever it guards against.
+   */
+  setAgentPowerPassword: (agentId: string, newPassword: string, currentPassword: string | undefined, apiKey: string) =>
+    mutate(
+      `/agents/${encodeURIComponent(agentId)}/power-password`,
+      'POST',
+      "set the agent's power password",
+      currentPassword === undefined
+        ? { new_password: newPassword }
+        : { current_password: currentPassword, new_password: newPassword },
+      { 'X-API-Key': apiKey },
+    ).then(() => {}),
+
   post: (path: string, payload: unknown, apiKey: string) =>
     mutate(path, 'POST', `post to ${path}`, payload, { 'X-API-Key': apiKey }).then(() => {}),
   approvePermission: (requestId: string, approvedBy: string, apiKey: string) =>
@@ -446,13 +474,18 @@ export const api = {
       password?: string;
     },
     apiKey: string,
-  ): Promise<void> {
+  ): Promise<{ id: string | null }> {
     const res = await fetch(`${API_BASE}/agents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
       body: JSON.stringify(payload),
     });
     await throwIfNotOk(res, 'create agent');
+    // The kernel answers with the id it gave the agent. A body that cannot be
+    // read does not undo the creation, so it is `null` rather than a throw.
+    const body = (await res.json().catch(() => null)) as { data?: { id?: unknown } } | null;
+    const id = body?.data?.id;
+    return { id: typeof id === 'string' && id ? id : null };
   },
   postChat: (message: ClotoMessage, apiKey: string) =>
     mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),
@@ -478,6 +511,17 @@ export const api = {
       .then((r) => r.json())
       .then((b) => b.data);
   },
+  /** Stop the reply to a message. `stopped: false` means it had already finished. */
+  stopResponse: (agentId: string, sourceMessageId: string, apiKey: string): Promise<{ stopped: boolean }> =>
+    mutate(
+      `/chat/${encodeURIComponent(agentId)}/stop`,
+      'POST',
+      'stop response',
+      { source_message_id: sourceMessageId },
+      { 'X-API-Key': apiKey },
+    )
+      .then((r) => r.json())
+      .then((b: { data: { stopped: boolean } }) => b.data),
   retryResponse: (agentId: string, messageId: string, apiKey: string): Promise<{ retry_id: string }> =>
     mutate(
       `/chat/${agentId}/messages/${encodeURIComponent(messageId)}/retry`,
@@ -544,6 +588,17 @@ export const api = {
       })) as ChatMessage[],
       has_more: data.has_more,
     };
+  },
+
+  /** Messages in every conversation that contain every term of `query`. */
+  searchChat: async (query: string, apiKey: string, limit?: number): Promise<ChatSearchResult> => {
+    const params = new URLSearchParams({ q: query });
+    if (limit !== undefined) params.set('limit', String(limit));
+    const res = await fetch(`${API_BASE}/chat/search?${params.toString()}`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    await throwIfNotOk(res, 'search conversations');
+    return res.json().then((b) => b.data as ChatSearchResult);
   },
 
   // Conversations (docs/CONVERSATIONS_DESIGN.md §3)
@@ -1218,6 +1273,9 @@ export function createAuthenticatedApi(apiKey: string) {
     updateAgent: (id: string, payload: Parameters<typeof api.updateAgent>[1]) => api.updateAgent(id, payload, k),
     setRecallPrecision: (id: string, precision: string) => api.setRecallPrecision(id, precision, k),
     getRecallPrecision: (id: string) => api.getRecallPrecision(id, k),
+    getAgentInstructionFiles: (agentId: string) => api.getAgentInstructionFiles(agentId, k),
+    setAgentPowerPassword: (agentId: string, newPassword: string, currentPassword?: string) =>
+      api.setAgentPowerPassword(agentId, newPassword, currentPassword, k),
     deleteAgent: (agentId: string, password?: string) => api.deleteAgent(agentId, k, password),
     toggleAgentPower: (agentId: string, enabled: boolean, password?: string) =>
       api.toggleAgentPower(agentId, enabled, k, password),
@@ -1227,6 +1285,7 @@ export function createAuthenticatedApi(apiKey: string) {
       api.postChatMessage(agentId, msg, k),
     getChatMessages: (agentId: string, before?: number, limit?: number, userId?: string, conversationId?: string) =>
       api.getChatMessages(agentId, k, before, limit, userId, conversationId),
+    searchChat: (query: string, limit?: number) => api.searchChat(query, k, limit),
     listConversations: (agentId: string, userId?: string, includeArchived?: boolean) =>
       api.listConversations(agentId, k, userId, includeArchived),
     createConversation: (agentId: string, userId?: string) => api.createConversation(agentId, k, userId),
@@ -1237,6 +1296,7 @@ export function createAuthenticatedApi(apiKey: string) {
     deleteAllConversations: (agentId: string, userId?: string) => api.deleteAllConversations(agentId, k, userId),
     deleteChatMessages: (agentId: string, userId?: string) => api.deleteChatMessages(agentId, k, userId),
     retryResponse: (agentId: string, messageId: string) => api.retryResponse(agentId, messageId, k),
+    stopResponse: (agentId: string, sourceMessageId: string) => api.stopResponse(agentId, sourceMessageId, k),
     // Permissions
     approvePermission: (requestId: string, approvedBy: string) => api.approvePermission(requestId, approvedBy, k),
     denyPermission: (requestId: string, approvedBy: string) => api.denyPermission(requestId, approvedBy, k),

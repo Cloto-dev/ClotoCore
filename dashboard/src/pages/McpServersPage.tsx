@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useSearchParams } from 'react-router-dom';
 import { Modal } from '../components/Modal';
 import { MarketplaceTab } from '../components/mcp/MarketplaceTab';
 import { McpServerDetail } from '../components/mcp/McpServerDetail';
@@ -37,6 +38,17 @@ export function McpServersPage() {
   // store has none; the list is drawn without it while it loads or if it fails.
   const { servers: catalog } = useMarketplace();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // ?server=<id> opens that server (search links here). The parameter is
+  // taken and removed, so Back does not reopen it and a later link still works.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const serverParam = searchParams.get('server');
+  useEffect(() => {
+    if (!serverParam) return;
+    setSelectedId(serverParam);
+    const next = new URLSearchParams(searchParams);
+    next.delete('server');
+    setSearchParams(next, { replace: true });
+  }, [serverParam, searchParams, setSearchParams]);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('installed');
   const [query, setQuery] = useState('');
