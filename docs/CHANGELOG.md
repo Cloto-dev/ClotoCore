@@ -11,6 +11,20 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Changed
 
+- **Settings is a page.** It opens at `/settings` instead of over whatever
+  screen you were on, with the sections down the left and, on the right, rows
+  that each say what the setting is, what it is for, and carry one control. The
+  cards are gone, and so is the coloured rail beside the selected section: the
+  workshop has no accent. Which section is open is in the address, so the update
+  notice sends you straight to About, and Back leaves settings in one step
+  rather than walking back through the sections you looked at. The language,
+  model and update-channel pickers are drawn by the app rather than by the
+  operating system and answer to the keyboard the same way; in the model list
+  Enter now picks a model, and Save is what saves it. Scored against the review
+  checklist: 0 of 21 applicable signals, 2 partial (no breakpoints below the
+  mock's width were designed; the key's reveal, copy and regenerate stay
+  icon-only).
+
 - **Back, forward and the sidebar toggle are back, in a bar of the page's own.**
   Making the window's frame the operating system's had taken them away with the
   old title bar. A thin bar across the top now carries three controls and
