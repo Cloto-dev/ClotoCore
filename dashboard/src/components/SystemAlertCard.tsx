@@ -22,7 +22,7 @@ export function SystemAlertCard({ icon, title, trailing, footer, children }: Sys
       </div>
       <div className="p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-sm max-w-[80%] space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold text-amber-500 uppercase tracking-widest">{title}</span>
+          <span className="text-xs font-bold text-amber-500">{title}</span>
           {trailing}
         </div>
         {children}

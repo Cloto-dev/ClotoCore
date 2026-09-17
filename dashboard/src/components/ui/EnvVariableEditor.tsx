@@ -59,7 +59,7 @@ export function EnvVariableEditor({
     <div className="space-y-2">
       {entries.map((entry) => (
         <div key={entry.key} className="flex items-center gap-2">
-          <span className="text-[10px] font-mono text-content-secondary w-40 truncate shrink-0" title={entry.key}>
+          <span className="text-xs font-mono text-content-secondary w-40 truncate shrink-0" title={entry.key}>
             {entry.key}
           </span>
           <div className="relative flex-1">
@@ -68,7 +68,7 @@ export function EnvVariableEditor({
               value={entry.value === '***' ? '' : entry.value}
               onChange={(e) => updateValue(entry.key, e.target.value || '***')}
               placeholder={entry.value === '***' ? '••••••• (saved)' : ''}
-              className="w-full text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 pr-7 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
+              className="w-full text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 pr-7 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-agent transition-colors"
             />
             <button
               type="button"
@@ -97,7 +97,7 @@ export function EnvVariableEditor({
           value={newKey}
           onChange={(e) => setNewKey(e.target.value.toUpperCase())}
           placeholder={placeholderKey}
-          className="w-40 text-[10px] font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors shrink-0"
+          className="w-40 text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-agent transition-colors shrink-0"
           onKeyDown={(e) => e.key === 'Enter' && addEntry()}
         />
         <input
@@ -105,13 +105,13 @@ export function EnvVariableEditor({
           value={newValue}
           onChange={(e) => setNewValue(e.target.value)}
           placeholder={placeholderValue}
-          className="flex-1 text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
+          className="flex-1 text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-agent transition-colors"
           onKeyDown={(e) => e.key === 'Enter' && addEntry()}
         />
         <button
           onClick={addEntry}
           disabled={!newKey.trim()}
-          className="p-1 rounded text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
+          className="p-1 rounded text-agent hover:bg-agent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
           title={addLabel}
           aria-label={addLabel}
         >
@@ -119,9 +119,7 @@ export function EnvVariableEditor({
         </button>
       </div>
 
-      {entries.length === 0 && emptyHint && (
-        <p className="text-[9px] font-mono text-content-tertiary py-2">{emptyHint}</p>
-      )}
+      {entries.length === 0 && emptyHint && <p className="text-xs font-mono text-content-tertiary py-2">{emptyHint}</p>}
     </div>
   );
 }

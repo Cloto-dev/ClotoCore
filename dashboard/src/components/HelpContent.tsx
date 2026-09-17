@@ -29,12 +29,10 @@ export function HelpContent({ onAskAgent }: HelpContentProps) {
     <>
       {/* Menu Guide */}
       <div className="px-5 py-4 space-y-3">
-        <p className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary mb-3">
-          {t('help.navigation')}
-        </p>
+        <p className="text-xs font-mono text-content-tertiary mb-3">{t('help.navigation')}</p>
         {menuGuide.map(({ icon: Icon, labelKey, label, descKey }) => (
           <div key={descKey} className="flex items-start gap-3">
-            <Icon size={14} className="text-brand mt-0.5 shrink-0" />
+            <Icon size={14} className="text-agent mt-0.5 shrink-0" />
             <div>
               <span className="text-xs font-mono font-bold text-content-primary">
                 {label ??
@@ -53,17 +51,17 @@ export function HelpContent({ onAskAgent }: HelpContentProps) {
       <div className="px-5 py-4">
         <button
           onClick={onAskAgent}
-          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand text-xs font-mono font-bold tracking-wide transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-agent/10 hover:bg-agent/20 border border-agent/30 text-agent text-xs font-mono font-bold transition-colors"
         >
           <MessageCircle size={14} />
           {t('help.ask_assistant')}
         </button>
-        <p className="text-[9px] text-content-tertiary text-center mt-2 font-mono">{t('help.ask_hint')}</p>
+        <p className="text-xs text-content-tertiary text-center mt-2 font-mono">{t('help.ask_hint')}</p>
       </div>
 
       {/* Footer */}
       <div className="border-t border-edge px-5 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3 text-[9px] font-mono text-content-tertiary">
+        <div className="flex items-center gap-3 text-xs font-mono text-content-tertiary">
           <a
             href={REPOSITORY_URL}
             target="_blank"
@@ -81,7 +79,7 @@ export function HelpContent({ onAskAgent }: HelpContentProps) {
             {t('help.github')} <ExternalLink size={8} />
           </a>
         </div>
-        <span className="text-[9px] font-mono text-content-tertiary">v{__APP_VERSION__}</span>
+        <span className="text-xs font-mono text-content-tertiary">v{__APP_VERSION__}</span>
       </div>
     </>
   );

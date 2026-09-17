@@ -92,10 +92,10 @@ export function ModulePage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-edge bg-glass">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-edge bg-surface-panel">
         <div className="min-w-0">
           <h1 className="text-sm font-mono font-bold text-content-primary truncate">{title}</h1>
-          {entry?.description && <p className="text-[10px] text-content-tertiary truncate">{entry.description}</p>}
+          {entry?.description && <p className="text-xs text-content-tertiary truncate">{entry.description}</p>}
         </div>
         <button
           type="button"
@@ -103,7 +103,7 @@ export function ModulePage() {
           disabled={isLoading}
           aria-label={t('module_reload')}
           title={t('module_reload')}
-          className="ml-auto p-2 rounded-lg border border-edge bg-glass text-content-secondary hover:text-brand hover:border-brand disabled:opacity-30"
+          className="ml-auto p-2 rounded-lg border border-edge bg-surface-panel text-content-secondary hover:text-agent hover:border-agent disabled:opacity-30"
         >
           <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
         </button>
@@ -143,7 +143,7 @@ export function ModulePage() {
             title={title}
             srcDoc={document}
             sandbox="allow-scripts"
-            className="w-full h-full rounded-lg border border-edge bg-glass"
+            className="w-full h-full rounded-lg border border-edge bg-surface-panel"
           />
         ) : null}
       </div>

@@ -355,13 +355,11 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
         <div className="px-6 pt-4 pb-2 md:px-12 space-y-2">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Brain className="text-brand" size={16} />
-              <h2 className="text-xs font-mono uppercase tracking-widest text-content-primary font-bold">
-                {t('title')}
-              </h2>
+              <Brain className="text-agent" size={16} />
+              <h2 className="text-xs font-mono text-content-primary font-bold">{t('title')}</h2>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-mono text-content-tertiary">
+              <span className="text-xs font-mono text-content-tertiary">
                 {metrics.ram_usage} / {metrics.total_memories} {t('objs')}
               </span>
               <button
@@ -369,7 +367,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 disabled={filteredMemories.length === 0 && filteredEpisodes.length === 0}
                 title={t('export_tooltip')}
                 aria-label={t('export')}
-                className="p-1 rounded text-content-tertiary hover:text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                className="p-1 rounded text-content-tertiary hover:text-agent hover:bg-agent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <Upload size={14} />
               </button>
@@ -378,7 +376,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 disabled={importing}
                 title={t('import_tooltip')}
                 aria-label={t('import')}
-                className="p-1 rounded text-content-tertiary hover:text-brand hover:bg-brand/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                className="p-1 rounded text-content-tertiary hover:text-agent hover:bg-agent/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
               >
                 <Download size={14} />
               </button>
@@ -398,10 +396,10 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
               <button
                 onClick={() => setSelectedAgent(null)}
                 aria-label={t('all')}
-                className={`px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider transition-colors whitespace-nowrap ${
+                className={`px-3 py-1 rounded-full text-xs font-mono font-bold transition-colors whitespace-nowrap ${
                   selectedAgent === null
-                    ? 'bg-brand text-white'
-                    : 'bg-glass-strong text-content-tertiary hover:text-content-secondary border border-edge'
+                    ? 'bg-agent text-agent-ink'
+                    : 'bg-surface-field text-content-tertiary hover:text-content-secondary border border-edge'
                 }`}
               >
                 {t('all')}
@@ -411,10 +409,10 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                   key={agentId}
                   onClick={() => setSelectedAgent(agentId)}
                   aria-label={agentDisplayName(agentId, agentMap)}
-                  className={`px-3 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider transition-colors whitespace-nowrap ${
+                  className={`px-3 py-1 rounded-full text-xs font-mono font-bold transition-colors whitespace-nowrap ${
                     selectedAgent === agentId
-                      ? 'bg-brand text-white'
-                      : 'bg-glass-strong text-content-tertiary hover:text-content-secondary border border-edge'
+                      ? 'bg-agent text-agent-ink'
+                      : 'bg-surface-field text-content-tertiary hover:text-content-secondary border border-edge'
                   }`}
                 >
                   {agentDisplayName(agentId, agentMap)}
@@ -443,11 +441,11 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                   return (
                     <div
                       key={mem.id}
-                      className={`card-solid p-4 rounded-xl border border-edge hover:border-brand group flex flex-col ${isEditing ? '' : 'max-h-48'}`}
+                      className={`card-solid p-4 rounded-xl border border-edge hover:border-agent group flex flex-col ${isEditing ? '' : 'max-h-48'}`}
                     >
                       <div className="flex items-center gap-3 mb-2">
-                        <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-brand/10 transition-colors">
-                          <User size={12} className="text-content-tertiary group-hover:text-brand" />
+                        <div className="w-6 h-6 bg-surface-secondary rounded flex items-center justify-center group-hover:bg-agent/10 transition-colors">
+                          <User size={12} className="text-content-tertiary group-hover:text-agent" />
                         </div>
                         <span className="text-[13px] font-mono text-content-tertiary flex-1 min-w-0 truncate">
                           {memorySpeakerName(mem.source as Record<string, unknown>, mem.agent_id, agentMap)}
@@ -463,10 +461,10 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                             isLocked
                               ? mem.lock_level === 'server'
                                 ? 'memory-lock-glow text-mgp-accent'
-                                : 'text-brand'
+                                : 'text-agent'
                               : capabilities.lock_memory
                                 ? 'text-content-tertiary hover:text-mgp-accent hover:bg-mgp/10 opacity-0 group-hover:opacity-100'
-                                : 'text-content-tertiary hover:text-brand hover:bg-brand/10 opacity-0 group-hover:opacity-100'
+                                : 'text-content-tertiary hover:text-agent hover:bg-agent/10 opacity-0 group-hover:opacity-100'
                           }`}
                           title={isLocked ? t('unlock_memory') : t('lock_memory')}
                           aria-label={isLocked ? t('unlock_memory') : t('lock_memory')}
@@ -477,7 +475,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                       {isEditing ? (
                         <div className="flex-1 min-h-0 flex flex-col gap-2">
                           <textarea
-                            className="w-full flex-1 min-h-[6rem] text-xs font-mono leading-relaxed bg-surface-secondary/50 text-content-primary rounded-lg p-2 border border-edge focus:border-brand focus:outline-none resize-y"
+                            className="w-full flex-1 min-h-[6rem] text-xs font-mono leading-relaxed bg-surface-secondary/50 text-content-primary rounded-lg p-2 border border-edge focus:border-agent focus:outline-none resize-y"
                             value={editContent}
                             onChange={(e) => setEditContent(e.target.value)}
                           />
@@ -506,9 +504,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                         </div>
                       )}
                       <div className="mt-2 pt-2 border-t border-edge-subtle flex justify-between items-center">
-                        <span className="text-[11px] text-content-tertiary font-bold uppercase tracking-widest">
-                          {mem.created_at}
-                        </span>
+                        <span className="text-xs text-content-tertiary font-bold">{mem.created_at}</span>
                         <div className="flex items-center gap-2">
                           {/* Edit button: only if server supports it and memory is unlocked */}
                           {capabilities.update_memory && !isLocked && !isEditing && (
@@ -518,7 +514,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                                 e.stopPropagation();
                                 handleStartEdit(mem);
                               }}
-                              className="p-1 rounded text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all opacity-0 group-hover:opacity-100"
+                              className="p-1 rounded text-content-tertiary hover:text-agent hover:bg-agent/10 transition-all opacity-0 group-hover:opacity-100"
                               title={t('edit_memory')}
                               aria-label={t('edit_memory')}
                             >
@@ -549,7 +545,7 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                   );
                 })
               ) : (
-                <div className="col-span-full py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
+                <div className="col-span-full py-8 text-center text-content-tertiary bg-surface-panel rounded-lg border border-edge border-dashed font-mono text-xs">
                   {t('no_memories')}
                 </div>
               )}
@@ -564,10 +560,10 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                 filteredEpisodes.map((epi) => (
                   <div
                     key={epi.id}
-                    className="card-solid p-3 rounded-xl border-l-2 border-brand hover:translate-x-1 transition-transform group"
+                    className="card-solid p-3 rounded-xl border-l-2 border-agent hover:translate-x-1 transition-transform group"
                   >
-                    <div className="text-[10px] font-black text-brand mb-1 uppercase tracking-wider flex justify-between items-center">
-                      <span className="text-[12px]">{epi.created_at || 'LOG: RECENT'}</span>
+                    <div className="text-xs font-black text-agent mb-1 flex justify-between items-center">
+                      <span className="text-xs">{epi.created_at || 'LOG: RECENT'}</span>
                       <div className="flex items-center gap-1.5">
                         <span className="text-content-tertiary font-mono">
                           {agentDisplayName(epi.agent_id, agentMap)}
@@ -585,16 +581,14 @@ export const MemoryCore = memo(function MemoryCore({ isWindowMode = false }: { i
                         </button>
                       </div>
                     </div>
-                    {epi.keywords && (
-                      <div className="text-[10px] font-mono text-content-tertiary mb-1">{epi.keywords}</div>
-                    )}
+                    {epi.keywords && <div className="text-xs font-mono text-content-tertiary mb-1">{epi.keywords}</div>}
                     <p className="text-xs text-content-secondary line-clamp-3 font-mono leading-relaxed group-hover:text-content-primary">
                       {epi.summary}
                     </p>
                   </div>
                 ))
               ) : (
-                <div className="py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
+                <div className="py-8 text-center text-content-tertiary bg-surface-panel rounded-lg border border-edge border-dashed font-mono text-xs">
                   {t('no_episodes')}
                 </div>
               )}

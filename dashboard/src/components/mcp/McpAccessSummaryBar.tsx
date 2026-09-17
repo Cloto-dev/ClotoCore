@@ -37,12 +37,10 @@ export function McpAccessSummaryBar({ tools, entries, serverGrantCount, onToolCl
   }
 
   return (
-    <div className="border border-edge rounded bg-glass p-2">
-      <div className="text-[9px] font-mono uppercase tracking-widest text-content-tertiary mb-1.5">
-        {t('access.summary')}
-      </div>
+    <div className="border border-edge rounded bg-surface-panel p-2">
+      <div className="text-xs font-mono text-content-tertiary mb-1.5">{t('access.summary')}</div>
       <div className="space-y-1">
-        <div className="grid grid-cols-4 gap-2 text-[9px] font-mono text-content-tertiary border-b border-edge-subtle pb-1">
+        <div className="grid grid-cols-4 gap-2 text-xs font-mono text-content-tertiary border-b border-edge-subtle pb-1">
           <span>{t('access.tool')}</span>
           <span className="text-center">{t('access.allowed')}</span>
           <span className="text-center">{t('access.denied')}</span>
@@ -52,7 +50,7 @@ export function McpAccessSummaryBar({ tools, entries, serverGrantCount, onToolCl
           <button
             key={item.tool}
             onClick={() => onToolClick?.(item.tool)}
-            className="grid grid-cols-4 gap-2 w-full text-left text-[10px] font-mono hover:bg-glass-strong rounded px-0.5 py-0.5 transition-colors"
+            className="grid grid-cols-4 gap-2 w-full text-left text-xs font-mono hover:bg-surface-field rounded px-0.5 py-0.5 transition-colors"
           >
             <span className="text-content-secondary truncate">{item.tool}</span>
             <span className="text-center text-green-500">

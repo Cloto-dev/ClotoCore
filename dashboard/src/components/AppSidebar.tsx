@@ -80,7 +80,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
 
   return (
     <div
-      className={`${collapsed ? 'w-14' : 'w-48'} h-full flex flex-col py-3 bg-glass backdrop-blur-sm border-r border-edge transition-[width] duration-200`}
+      className={`${collapsed ? 'w-14' : 'w-48'} h-full flex flex-col py-3 bg-surface-panel border-r border-edge transition-[width] duration-200`}
     >
       {/* System / Kernel */}
       <button
@@ -89,15 +89,15 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
         aria-label={t('system')}
         className={`relative mx-2 flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 ${
           systemActive && isAgentPageActive
-            ? 'bg-surface-primary text-brand'
-            : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
+            ? 'bg-surface-primary text-agent'
+            : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-field'
         }`}
       >
         {!collapsed && systemActive && isAgentPageActive && (
-          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-brand rounded-r-full" />
+          <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-agent rounded-r-full" />
         )}
         <Cpu size={24} className="shrink-0" />
-        {!collapsed && <span className="text-[11px] font-bold tracking-wide uppercase">{t('system')}</span>}
+        {!collapsed && <span className="text-xs font-bold">{t('system')}</span>}
       </button>
 
       <div className={`${collapsed ? 'mx-2' : 'mx-3'} my-2 h-px bg-edge`} />
@@ -114,12 +114,12 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
               aria-label={agent.name}
               className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-left w-full ${
                 isActive
-                  ? 'bg-surface-primary text-brand'
-                  : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
+                  ? 'bg-surface-primary text-agent'
+                  : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-field'
               }`}
             >
               {!collapsed && isActive && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-brand rounded-r-full" />
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 bg-agent rounded-r-full" />
               )}
               <div
                 className={`relative flex-shrink-0 w-7 h-7 overflow-hidden rounded-md flex items-center justify-center ${processingAgentIds.has(agent.id) ? 'agent-processing-glow' : ''}`}
@@ -161,14 +161,14 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
               }}
               title={collapsed ? label : undefined}
               aria-label={label}
-              className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-xs font-bold uppercase tracking-wide ${
+              className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-xs font-bold ${
                 isActive
-                  ? 'bg-surface-primary text-brand'
-                  : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
+                  ? 'bg-surface-primary text-agent'
+                  : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-field'
               }`}
             >
               {!collapsed && isActive && (
-                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-brand rounded-r-full" />
+                <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-agent rounded-r-full" />
               )}
               <Icon size={24} className="shrink-0" />
               {!collapsed && label}
@@ -195,14 +195,14 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
                   onClick={() => handleNavClick(path)}
                   title={collapsed ? label : undefined}
                   aria-label={label}
-                  className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-xs font-bold uppercase tracking-wide ${
+                  className={`relative flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-xs font-bold ${
                     isActive
-                      ? 'bg-surface-primary text-brand'
-                      : 'text-content-tertiary hover:text-content-secondary hover:bg-glass-strong'
+                      ? 'bg-surface-primary text-agent'
+                      : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-field'
                   }`}
                 >
                   {!collapsed && isActive && (
-                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-brand rounded-r-full" />
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-4 bg-agent rounded-r-full" />
                   )}
                   <LayoutDashboard size={24} className="shrink-0" />
                   {!collapsed && label}
@@ -224,7 +224,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
             className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-1.5 px-3'} py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-500`}
           >
             <FlaskConical size={collapsed ? 16 : 12} className="shrink-0" />
-            {!collapsed && <span className="text-[9px] font-bold uppercase tracking-widest">{t('experimental')}</span>}
+            {!collapsed && <span className="text-xs font-bold">{t('experimental')}</span>}
           </div>
         </div>
       )}
@@ -235,14 +235,14 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
           onClick={onToggleCollapse}
           title={collapsed ? t('expand_sidebar') : t('collapse_sidebar')}
           aria-label={collapsed ? t('expand_sidebar') : t('collapse_sidebar')}
-          className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-content-tertiary hover:text-content-secondary hover:bg-glass-strong w-full`}
+          className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-content-tertiary hover:text-content-secondary hover:bg-surface-field w-full`}
         >
           {collapsed ? (
             <PanelLeftOpen size={24} className="shrink-0" />
           ) : (
             <PanelLeftClose size={24} className="shrink-0" />
           )}
-          {!collapsed && <span className="text-xs font-bold uppercase tracking-wide">{t('collapse')}</span>}
+          {!collapsed && <span className="text-xs font-bold">{t('collapse')}</span>}
         </button>
 
         {/* Safe shutdown — same sequence as the tray Quit */}
@@ -253,7 +253,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, collaps
           className={`flex items-center ${collapsed ? 'justify-center px-0' : 'gap-2.5 px-3'} py-2 rounded-lg transition-all duration-200 text-content-tertiary hover:text-red-400 hover:bg-red-500/10 w-full`}
         >
           <Power size={24} className="shrink-0" />
-          {!collapsed && <span className="text-xs font-bold uppercase tracking-wide">{t('shutdown')}</span>}
+          {!collapsed && <span className="text-xs font-bold">{t('shutdown')}</span>}
         </button>
       </div>
 

@@ -73,7 +73,7 @@ export function CommandApprovalCard({
             onClick={() => handle('approve')}
             disabled={busy}
             aria-label="Approve command"
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50 transition-colors"
           >
             <Check size={12} /> Yes
           </button>
@@ -81,7 +81,7 @@ export function CommandApprovalCard({
             onClick={() => handle('trust')}
             disabled={busy}
             aria-label={trustLabel}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-amber-500 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-500 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
           >
             <Shield size={12} /> {trustLabel}
           </button>
@@ -89,7 +89,7 @@ export function CommandApprovalCard({
             onClick={() => handle('deny')}
             disabled={busy}
             aria-label="Deny command"
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-wider text-content-secondary hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-content-secondary hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
           >
             <X size={12} /> No
           </button>
@@ -100,7 +100,7 @@ export function CommandApprovalCard({
           at the window level there is none, and "approve this command" without
           a name attached is a question nobody can answer responsibly. */}
       {agentId && (
-        <div data-testid="approval-agent" className="font-mono text-[10px] text-content-tertiary break-all">
+        <div data-testid="approval-agent" className="font-mono text-xs text-content-tertiary break-all">
           {agentId}
         </div>
       )}

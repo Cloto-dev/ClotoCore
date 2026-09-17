@@ -84,6 +84,7 @@
     "theme_light": "Light",
     "theme_dark": "Dark",
     "theme_system": "System",
+    "theme_legacy": "Legacy",
     "language": "Language",
     "export_template": "Export Template",
     "import_pack": "Import",

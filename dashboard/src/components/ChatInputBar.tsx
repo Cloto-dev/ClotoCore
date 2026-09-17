@@ -164,7 +164,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
   };
 
   return (
-    <div className="p-4 bg-glass-strong border-t border-edge-subtle">
+    <div className="p-4 bg-surface-field border-t border-edge-subtle">
       {/* Attachment preview */}
       {attachment && (
         <div className="mb-2 flex items-center gap-2">
@@ -173,10 +173,10 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
             alt="preview"
             className="w-16 h-16 object-cover rounded-lg border border-edge"
           />
-          <div className="flex-1 text-[10px] font-mono text-content-secondary truncate">{attachment.file.name}</div>
+          <div className="flex-1 text-xs font-mono text-content-secondary truncate">{attachment.file.name}</div>
           <button
             onClick={() => setAttachment(null)}
-            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-red-400 transition-colors"
+            className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-red-400 transition-colors"
           >
             <X size={14} />
           </button>
@@ -189,7 +189,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
         <button
           onClick={handleFileSelect}
           disabled={disabled}
-          className="p-2.5 rounded-lg text-content-tertiary hover:text-brand hover:bg-glass transition-colors disabled:opacity-30"
+          className="p-2.5 rounded-lg text-content-tertiary hover:text-agent hover:bg-surface-panel transition-colors disabled:opacity-30"
           title={t('chat_input.attach_image')}
         >
           <Plus size={20} />
@@ -202,7 +202,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
           className={`p-2.5 rounded-lg transition-colors disabled:opacity-30 ${
             isRecording
               ? 'text-red-500 bg-red-500/10 animate-pulse'
-              : 'text-content-tertiary hover:text-brand hover:bg-glass'
+              : 'text-content-tertiary hover:text-agent hover:bg-surface-panel'
           }`}
           title={isRecording ? t('chat_input.stop_recording') : t('chat_input.record_audio')}
         >
@@ -244,7 +244,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
                 ? t('chat_input.placeholder_processing')
                 : t('chat_input.placeholder')
           }
-          className="flex-1 bg-surface-primary border rounded-lg py-3 px-4 pr-12 text-xs font-mono focus:outline-none transition-colors placeholder:text-content-tertiary disabled:opacity-50 shadow-inner border-edge focus:border-brand"
+          className="flex-1 bg-surface-primary border rounded-lg py-3 px-4 pr-12 text-xs font-mono focus:outline-none transition-colors placeholder:text-content-tertiary disabled:opacity-50 shadow-inner border-edge focus:border-agent"
           style={editMode ? { borderColor: '#fbbf24' } : undefined}
         />
 
@@ -263,7 +263,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
         <button
           onClick={handleSend}
           disabled={disabled || (!input.trim() && !attachment)}
-          className="absolute right-2 p-2.5 text-brand hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:text-content-tertiary disabled:scale-100"
+          className="absolute right-2 p-2.5 text-agent hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:text-content-tertiary disabled:scale-100"
         >
           <Send size={20} />
         </button>

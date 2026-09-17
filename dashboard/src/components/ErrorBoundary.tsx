@@ -60,16 +60,14 @@ export class ErrorBoundary extends Component<Props, State> {
             <div className="mx-auto w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center border-2 border-red-500/30">
               <AlertTriangle className="text-red-500" size={28} />
             </div>
-            <div className="text-xs font-black tracking-[0.3em] text-content-primary uppercase">
-              {i18n.t('common:error_boundary_title')}
-            </div>
-            <p className="text-[10px] font-mono text-content-tertiary px-4 break-all">
+            <div className="text-xs font-black text-content-primary">{i18n.t('common:error_boundary_title')}</div>
+            <p className="text-xs font-mono text-content-tertiary px-4 break-all">
               {isDev
                 ? this.state.error?.message || i18n.t('common:error_boundary_message')
                 : i18n.t('common:error_boundary_message')}
             </p>
             {isDev && isViteDown && (
-              <p className="text-[10px] font-mono text-amber-500 px-4">
+              <p className="text-xs font-mono text-amber-500 px-4">
                 Dev server (Vite) may have stopped. Run{' '}
                 <code className="bg-surface-secondary px-1 rounded">npx tauri dev</code> in the terminal.
               </p>
@@ -77,14 +75,14 @@ export class ErrorBoundary extends Component<Props, State> {
             <div className="flex items-center justify-center gap-2">
               <button
                 onClick={() => this.handleRestart()}
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-widest text-white bg-brand rounded hover:bg-[#1e3dd6] transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-agent-ink bg-agent rounded hover:bg-[#1e3dd6] transition-colors"
               >
                 <RotateCcw size={12} />
                 {i18n.t('common:error_boundary_restart')}
               </button>
               <button
                 onClick={() => this.setState({ showReport: true })}
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-widest text-content-tertiary border border-edge rounded hover:border-brand hover:text-content-primary transition-colors"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-content-tertiary border border-edge rounded hover:border-agent hover:text-content-primary transition-colors"
               >
                 <FileText size={12} />
                 {i18n.t('common:error_boundary_report')}

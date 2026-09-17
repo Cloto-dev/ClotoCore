@@ -8,7 +8,6 @@ import { useLocalStorage } from '../hooks/useStorage';
 import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
 import { CommandApprovalDeck } from './CommandApprovalDeck';
-import { FadingGrid } from './FadingGrid';
 import { HelpContent } from './HelpContent';
 import { Modal } from './Modal';
 import { NotificationBell } from './NotificationBell';
@@ -93,7 +92,7 @@ export function AppLayout() {
             canGoBack={canGoBack}
             canGoForward={canGoForward}
             right={
-              <span className="text-[10px] font-mono text-content-tertiary">
+              <span className="text-xs font-mono text-content-tertiary">
                 {activeCount} / {agents.length} Active
               </span>
             }
@@ -102,7 +101,6 @@ export function AppLayout() {
 
         {/* 2. Body — second child, sidebar + content */}
         <div className="flex flex-1 overflow-hidden relative">
-          <FadingGrid />
           {!immersive && (
             <div className="relative z-10">
               <AppSidebar

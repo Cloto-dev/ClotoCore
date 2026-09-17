@@ -11,6 +11,13 @@ import { restoreBrowserSession } from './services/session';
 
 import './i18n';
 import { loadExternalLanguages } from './i18n';
+// Bundled typefaces (docs/DESIGN_PHILOSOPHY.md §4.3), split by unicode-range so a
+// page loads only the subsets it draws. License: public/fonts/LICENSE-IBM-Plex.txt
+import '@fontsource/ibm-plex-sans-jp/400.css';
+import '@fontsource/ibm-plex-sans-jp/500.css';
+import '@fontsource/ibm-plex-sans-jp/600.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
 import './compiled-tailwind.css';
 
 async function bootstrap() {

@@ -30,7 +30,7 @@ function Flag({ label, tone }: { label: string; tone: 'danger' | 'warn' }) {
     tone === 'danger'
       ? 'bg-red-500/10 border-red-500/30 text-red-400'
       : 'bg-amber-500/10 border-amber-500/30 text-amber-400';
-  return <span className={`px-1.5 py-px rounded border text-[9px] font-mono ${classes}`}>{label}</span>;
+  return <span className={`px-1.5 py-px rounded border text-xs font-mono ${classes}`}>{label}</span>;
 }
 
 function EntryRow({ entry }: { entry: PurgeEntry }) {
@@ -45,22 +45,20 @@ function EntryRow({ entry }: { entry: PurgeEntry }) {
 
   return (
     <div className="flex items-start gap-2 py-1.5 border-b border-edge last:border-b-0">
-      <span className="w-12 shrink-0 pt-px text-[9px] font-mono uppercase tracking-wider text-content-tertiary">
-        {entry.kind}
-      </span>
+      <span className="w-12 shrink-0 pt-px text-xs font-mono text-content-tertiary">{entry.kind}</span>
       <div className="min-w-0 flex-1">
-        <p className="text-[11px] font-mono text-content-primary break-all">{entry.path ?? entry.name ?? entry.id}</p>
+        <p className="text-xs font-mono text-content-primary break-all">{entry.path ?? entry.name ?? entry.id}</p>
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
-          <span className="text-[9px] font-mono text-content-tertiary">
+          <span className="text-xs font-mono text-content-tertiary">
             {t('health.danger.tier_short', { level: TIER_LEVEL[entry.tier] })}
           </span>
-          <span className="text-[9px] text-content-tertiary">{t(`health.danger.source_${entry.source}`)}</span>
+          <span className="text-xs text-content-tertiary">{t(`health.danger.source_${entry.source}`)}</span>
           {entry.secret && <Flag tone="danger" label={t('health.danger.flag_secret')} />}
           {entry.covers_secret && <Flag tone="danger" label={t('health.danger.flag_covers_secret')} />}
           {entry.unreadable && <Flag tone="warn" label={t('health.danger.flag_unreadable')} />}
         </div>
       </div>
-      <span className="shrink-0 pt-px text-[10px] font-mono text-content-tertiary">{size}</span>
+      <span className="shrink-0 pt-px text-xs font-mono text-content-tertiary">{size}</span>
     </div>
   );
 }
@@ -168,10 +166,10 @@ export function DangerZone() {
 
   return (
     <div className="mt-6 pt-5 border-t border-edge">
-      <div className="bg-glass backdrop-blur-sm border border-red-500/30 rounded-lg p-4">
+      <div className="bg-surface-panel border border-red-500/30 rounded-lg p-4">
         <div className="flex items-center gap-2 mb-2">
           <ShieldAlert size={14} className="text-red-400 shrink-0" />
-          <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-red-400">{t('health.danger.title')}</h4>
+          <h4 className="text-xs font-black text-red-400">{t('health.danger.title')}</h4>
         </div>
 
         {handoff ? (
@@ -183,12 +181,10 @@ export function DangerZone() {
             </div>
             <p className="text-xs text-content-secondary">{t('health.danger.running_desc')}</p>
             <div>
-              <span className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary">
-                {t('health.danger.report_path')}
-              </span>
-              <p className="text-[11px] font-mono text-content-primary break-all select-all">{handoff.report_path}</p>
+              <span className="text-xs font-bold text-content-tertiary">{t('health.danger.report_path')}</span>
+              <p className="text-xs font-mono text-content-primary break-all select-all">{handoff.report_path}</p>
             </div>
-            <p className="text-[10px] font-mono text-content-tertiary leading-relaxed">
+            <p className="text-xs font-mono text-content-tertiary leading-relaxed">
               {t('health.danger.running_resume_hint')}
             </p>
           </div>
@@ -200,7 +196,7 @@ export function DangerZone() {
               <button
                 type="button"
                 onClick={handleOpen}
-                className="px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg bg-glass-subtle backdrop-blur-sm border border-edge hover:border-red-500 text-red-400 transition-colors"
+                className="px-4 py-2 text-xs font-bold rounded-lg bg-surface-control border border-edge hover:border-red-500 text-red-400 transition-colors"
               >
                 {t('health.danger.review')}
               </button>
@@ -208,10 +204,8 @@ export function DangerZone() {
               <div className="space-y-4">
                 {/* ── Gate 2: scope (cumulative tiers, default = narrowest) ── */}
                 <div>
-                  <p className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary mb-1">
-                    {t('health.danger.scope_title')}
-                  </p>
-                  <p className="text-[10px] text-content-tertiary mb-2">{t('health.danger.scope_hint')}</p>
+                  <p className="text-xs font-bold text-content-tertiary mb-1">{t('health.danger.scope_title')}</p>
+                  <p className="text-xs text-content-tertiary mb-2">{t('health.danger.scope_hint')}</p>
                   <div className="space-y-1">
                     {TIER_LEVELS.map((level) => {
                       const included = level <= tier;
@@ -230,7 +224,7 @@ export function DangerZone() {
                             className="mt-0.5 accent-red-500"
                           />
                           <span className="min-w-0">
-                            <span className="block text-[11px] font-bold text-content-primary">
+                            <span className="block text-xs font-bold text-content-primary">
                               {t(`health.danger.tier${level}`)}
                               {level === 1 && (
                                 <span className="ml-1 font-normal text-content-tertiary">
@@ -238,7 +232,7 @@ export function DangerZone() {
                                 </span>
                               )}
                             </span>
-                            <span className="block text-[10px] text-content-tertiary">
+                            <span className="block text-xs text-content-tertiary">
                               {t(`health.danger.tier${level}_hint`)}
                             </span>
                           </span>
@@ -259,26 +253,24 @@ export function DangerZone() {
                 ) : plan ? (
                   <div className={planAction.isLoading ? 'opacity-50' : undefined}>
                     <div className="flex items-center gap-2 mb-1">
-                      <p className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary">
-                        {t('health.danger.plan_title')}
-                      </p>
+                      <p className="text-xs font-bold text-content-tertiary">{t('health.danger.plan_title')}</p>
                       {planAction.isLoading && <Loader2 size={10} className="animate-spin text-content-tertiary" />}
                     </div>
-                    <p className="text-[9px] font-mono text-content-tertiary">
+                    <p className="text-xs font-mono text-content-tertiary">
                       {t('health.danger.plan_meta', {
                         planVersion: plan.plan.plan_version,
                         appVersion: plan.plan.app_version,
                         generatedAt: new Date(plan.plan.generated_at).toLocaleString(),
                       })}
                     </p>
-                    <p className="text-[9px] font-mono text-content-tertiary break-all mb-2">
+                    <p className="text-xs font-mono text-content-tertiary break-all mb-2">
                       {t('health.danger.data_dir')}: {plan.plan.data_dir}
                     </p>
 
                     {/* Summary the kernel derived (totals skip size-less entries,
                         elevation is the executor's own rule). */}
                     <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className="text-[10px] font-mono text-content-secondary">
+                      <span className="text-xs font-mono text-content-secondary">
                         {t('health.danger.summary_items', { count: plan.summary.entries })} · {totalSize}
                       </span>
                       {plan.summary.contains_secret && <Flag tone="danger" label={t('health.danger.summary_secret')} />}
@@ -287,11 +279,11 @@ export function DangerZone() {
                       )}
                     </div>
                     {plan.summary.total_truncated && (
-                      <p className="text-[10px] text-amber-400 mb-2">{t('health.danger.summary_truncated')}</p>
+                      <p className="text-xs text-amber-400 mb-2">{t('health.danger.summary_truncated')}</p>
                     )}
 
                     {plan.plan.entries.length === 0 ? (
-                      <p className="text-[11px] text-amber-400 py-2">{t('health.danger.empty')}</p>
+                      <p className="text-xs text-amber-400 py-2">{t('health.danger.empty')}</p>
                     ) : (
                       <div className="max-h-64 overflow-y-auto pr-1">
                         {plan.plan.entries.map((entry) => (
@@ -307,18 +299,18 @@ export function DangerZone() {
                         <button
                           type="button"
                           onClick={() => setShowSkipped((v) => !v)}
-                          className="flex items-center gap-1 text-[10px] text-content-tertiary hover:text-content-secondary transition-colors"
+                          className="flex items-center gap-1 text-xs text-content-tertiary hover:text-content-secondary transition-colors"
                         >
                           {showSkipped ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                           {t('health.danger.skipped_show', { count: plan.plan.skipped.length })}
                         </button>
                         {showSkipped && (
                           <div className="mt-1 pl-3 border-l border-edge">
-                            <p className="text-[9px] text-content-tertiary mb-1">{t('health.danger.skipped_hint')}</p>
+                            <p className="text-xs text-content-tertiary mb-1">{t('health.danger.skipped_hint')}</p>
                             {plan.plan.skipped.map((s) => (
                               <div
                                 key={`${s.id}:${s.path ?? ''}`}
-                                className="flex items-start gap-2 py-0.5 text-[10px] font-mono text-content-tertiary"
+                                className="flex items-start gap-2 py-0.5 text-xs font-mono text-content-tertiary"
                               >
                                 <span className="break-all flex-1">{s.path ?? s.id}</span>
                                 <span className="shrink-0">{t(`health.danger.skip_${s.reason}`)}</span>
@@ -332,12 +324,10 @@ export function DangerZone() {
                     {/* Verbatim, every surface (§7 "Boundaries"). */}
                     {plan.plan.notes.length > 0 && (
                       <div className="mt-3">
-                        <p className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary mb-1">
-                          {t('health.danger.notes_title')}
-                        </p>
+                        <p className="text-xs font-bold text-content-tertiary mb-1">{t('health.danger.notes_title')}</p>
                         <ul className="list-disc pl-4 space-y-0.5">
                           {plan.plan.notes.map((note) => (
-                            <li key={note} className="text-[10px] text-content-tertiary leading-relaxed">
+                            <li key={note} className="text-xs text-content-tertiary leading-relaxed">
                               {note}
                             </li>
                           ))}
@@ -356,11 +346,9 @@ export function DangerZone() {
                 {/* ── Gate 3: sudo mode ── */}
                 {summary && summary.entries > 0 && scopeMatchesPlan && (
                   <div className="pt-3 border-t border-edge space-y-2">
-                    <p className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary">
-                      {t('health.danger.sudo_title')}
-                    </p>
-                    <p className="text-[10px] text-content-tertiary leading-relaxed">{t('health.danger.sudo_desc')}</p>
-                    <p className="text-[10px] text-content-tertiary">{t('health.danger.sudo_where')}</p>
+                    <p className="text-xs font-bold text-content-tertiary">{t('health.danger.sudo_title')}</p>
+                    <p className="text-xs text-content-tertiary leading-relaxed">{t('health.danger.sudo_desc')}</p>
+                    <p className="text-xs text-content-tertiary">{t('health.danger.sudo_where')}</p>
                     <div className="flex gap-2">
                       <SecretInput
                         value={sudoKey}
@@ -369,7 +357,7 @@ export function DangerZone() {
                           execAction.clearError();
                         }}
                         placeholder={t('health.danger.sudo_placeholder')}
-                        className="w-full bg-glass-strong backdrop-blur-sm border border-edge rounded-lg px-3 py-2 pr-8 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-red-500 transition-colors"
+                        className="w-full bg-surface-field border border-edge rounded-lg px-3 py-2 pr-8 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-red-500 transition-colors"
                       />
                     </div>
                     {execAction.error && (
@@ -386,7 +374,7 @@ export function DangerZone() {
                     type="button"
                     onClick={handleClose}
                     disabled={execAction.isLoading}
-                    className="px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand text-content-secondary transition-colors disabled:opacity-40"
+                    className="px-4 py-2 text-xs font-bold rounded-lg bg-surface-control border border-edge hover:border-agent text-content-secondary transition-colors disabled:opacity-40"
                   >
                     {t('health.danger.close')}
                   </button>
@@ -394,7 +382,7 @@ export function DangerZone() {
                     type="button"
                     onClick={() => loadPlan(tier)}
                     disabled={busy}
-                    className="px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand text-content-secondary transition-colors disabled:opacity-40"
+                    className="px-4 py-2 text-xs font-bold rounded-lg bg-surface-control border border-edge hover:border-agent text-content-secondary transition-colors disabled:opacity-40"
                   >
                     {t('health.danger.refresh')}
                   </button>
@@ -402,7 +390,7 @@ export function DangerZone() {
                     type="button"
                     onClick={() => setConfirming(true)}
                     disabled={!canExecute}
-                    className="px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg bg-red-500/10 border border-red-500/30 hover:border-red-500 text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                    className="px-4 py-2 text-xs font-bold rounded-lg bg-red-500/10 border border-red-500/30 hover:border-red-500 text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
                     {execAction.isLoading ? (
                       <span className="flex items-center gap-2">

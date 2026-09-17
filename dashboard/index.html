@@ -7,8 +7,12 @@
     <script>
       (function(){
         var p=localStorage.getItem('cloto-theme');
-        if(p==='dark'||(!p&&window.matchMedia('(prefers-color-scheme:dark)').matches))
+        // Mirrors useThemeProvider: dark unless the user chose otherwise; `system`
+        // and `legacy` follow the OS, and `legacy` swaps in the old palette.
+        var os=window.matchMedia('(prefers-color-scheme:dark)').matches;
+        if(p==='dark'||!p||((p==='system'||p==='legacy')&&os))
           document.documentElement.classList.add('dark');
+        if(p==='legacy') document.documentElement.classList.add('theme-legacy');
       })();
     </script>
   </head>

@@ -190,14 +190,14 @@ export function NotificationBell() {
         aria-label={t('notifications.open', { defaultValue: 'Notifications' })}
         aria-expanded={open}
         title={t('notifications.open', { defaultValue: 'Notifications' })}
-        className="relative p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+        className="relative p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
       >
         <Bell size={14} />
         {summary.waiting > 0 && (
           <span
             data-testid="notification-badge"
-            className={`absolute -top-0.5 -right-0.5 min-w-[13px] h-[13px] px-[3px] rounded-full text-[9px] font-mono leading-[13px] text-center ${
-              summary.blocking > 0 ? 'bg-red-500 text-white' : 'bg-brand text-white'
+            className={`absolute -top-0.5 -right-0.5 min-w-[13px] h-[13px] px-[3px] rounded-full text-xs font-mono leading-[13px] text-center ${
+              summary.blocking > 0 ? 'bg-red-500 text-agent-ink' : 'bg-agent text-agent-ink'
             }`}
           >
             {summary.waiting > 99 ? '99+' : summary.waiting}
@@ -228,11 +228,11 @@ export function NotificationBell() {
             className="fixed w-[340px] max-h-[420px] overflow-y-auto rounded-lg border border-edge bg-surface-primary shadow-lg z-[9999] select-text"
           >
             <div className="flex items-center justify-between px-3 py-2 border-b border-edge">
-              <span className="text-[10px] font-mono uppercase tracking-widest text-content-secondary">
+              <span className="text-xs font-mono text-content-secondary">
                 {t('notifications.title', { defaultValue: 'Notifications' })}
               </span>
               {summary.blocking > 0 && (
-                <span className="text-[9px] font-mono text-red-500">
+                <span className="text-xs font-mono text-red-500">
                   {t('notifications.blocking_count', {
                     count: summary.blocking,
                     defaultValue: '{{count}} holding an agent',
@@ -242,7 +242,7 @@ export function NotificationBell() {
             </div>
 
             <div className="px-3 py-2 border-b border-edge">
-              <div className="text-[9px] font-mono text-content-tertiary mb-1">
+              <div className="text-xs font-mono text-content-tertiary mb-1">
                 {t('notifications.threshold_label', { defaultValue: 'Interrupt me with a card at' })}
               </div>
               <div className="flex items-center gap-1">
@@ -251,17 +251,17 @@ export function NotificationBell() {
                     key={level}
                     type="button"
                     onClick={() => chooseThreshold(level)}
-                    className={`px-2 py-0.5 rounded text-[9px] font-mono border transition-colors ${
+                    className={`px-2 py-0.5 rounded text-xs font-mono border transition-colors ${
                       threshold === level
-                        ? 'border-brand text-content-primary bg-glass-strong'
-                        : 'border-edge text-content-tertiary hover:border-brand'
+                        ? 'border-agent text-content-primary bg-surface-field'
+                        : 'border-edge text-content-tertiary hover:border-agent'
                     }`}
                   >
                     {t(`notifications.threshold_${level}`, { defaultValue: level })}
                   </button>
                 ))}
               </div>
-              <div className="text-[9px] font-mono text-content-tertiary mt-1">
+              <div className="text-xs font-mono text-content-tertiary mt-1">
                 {t('notifications.threshold_note', {
                   defaultValue: 'Everything waiting is listed here whatever you pick.',
                 })}
@@ -269,7 +269,7 @@ export function NotificationBell() {
             </div>
 
             {items.length === 0 ? (
-              <div className="px-3 py-6 text-center text-[10px] font-mono text-content-tertiary">
+              <div className="px-3 py-6 text-center text-xs font-mono text-content-tertiary">
                 {t('notifications.empty', { defaultValue: 'Nothing is waiting' })}
               </div>
             ) : (
@@ -283,17 +283,17 @@ export function NotificationBell() {
                       className="px-3 py-2 border-b border-edge last:border-b-0"
                     >
                       <div className="flex items-start gap-2">
-                        <span className={`shrink-0 px-1.5 py-0.5 rounded text-[9px] font-mono ${LEVEL_STYLE[level]}`}>
+                        <span className={`shrink-0 px-1.5 py-0.5 rounded text-xs font-mono ${LEVEL_STYLE[level]}`}>
                           {t(`notifications.level_${level}`, { defaultValue: level })}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <div className="text-[11px] text-content-primary break-words">{item.title}</div>
+                          <div className="text-xs text-content-primary break-words">{item.title}</div>
                           {item.body && (
-                            <div className="mt-0.5 text-[9px] font-mono text-content-tertiary break-words whitespace-pre-wrap">
+                            <div className="mt-0.5 text-xs font-mono text-content-tertiary break-words whitespace-pre-wrap">
                               {item.body}
                             </div>
                           )}
-                          <div className="mt-1 flex items-center gap-2 text-[9px] font-mono text-content-tertiary">
+                          <div className="mt-1 flex items-center gap-2 text-xs font-mono text-content-tertiary">
                             {item.blocking && (
                               <span className="text-red-500">
                                 {t('notifications.blocking', { defaultValue: 'holding an agent' })}
@@ -326,7 +326,7 @@ export function NotificationBell() {
                                 type="button"
                                 data-testid="raise-approval"
                                 onClick={() => raise(item.item_id)}
-                                className="text-content-primary hover:text-brand transition-colors"
+                                className="text-content-primary hover:text-agent transition-colors"
                               >
                                 {t('notifications.answer', { defaultValue: 'Answer' })}
                               </button>

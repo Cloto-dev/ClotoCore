@@ -13,7 +13,7 @@ export function AgentPowerButton({
 
   return (
     <button
-      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all ${
+      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-bold transition-all ${
         isOn
           ? 'border-emerald-500/30 text-emerald-500 bg-emerald-500/10 hover:bg-emerald-500/20'
           : 'border-edge text-content-tertiary hover:bg-surface-secondary'

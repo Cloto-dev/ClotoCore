@@ -101,12 +101,9 @@ export function App() {
   if (!connected && !isVrmRoute) {
     return (
       <div className="min-h-screen bg-surface-base flex flex-col items-center justify-center select-none">
-        <h1 className="text-4xl font-black tracking-[0.2em] text-content-primary">{t('boot.title')}</h1>
+        <h1 className="text-4xl font-black text-content-primary">{t('boot.title')}</h1>
         <div className="mt-6 h-6 flex items-center justify-center">
-          <p
-            key={lineIdx}
-            className="text-[11px] font-mono text-brand/70 uppercase tracking-[0.15em] animate-boot-line"
-          >
+          <p key={lineIdx} className="text-xs font-mono text-agent/70 animate-boot-line">
             {BOOT_LINES[lineIdx]}
           </p>
         </div>

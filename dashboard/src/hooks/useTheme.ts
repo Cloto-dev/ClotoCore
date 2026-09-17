@@ -1,22 +1,15 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 
 type Theme = 'light' | 'dark';
-type ThemePreference = 'light' | 'dark' | 'system';
+/** `legacy` is the palette from before the redesign; like `system`, it follows the
+ * OS between light and dark (see `.theme-legacy` in index.css). */
+export type ThemePreference = 'light' | 'dark' | 'system' | 'legacy';
 
 interface ThemeContextValue {
   theme: Theme;
   preference: ThemePreference;
   setPreference: (pref: ThemePreference) => void;
   toggle: () => void;
-  colors: {
-    brandHex: string;
-    canvasBg: string;
-    canvasGrid: string;
-    canvasNodeFill: string;
-    canvasText: string;
-    canvasNodeTool: string;
-    canvasNodeEndpoint: string;
-  };
 }
 
 const STORAGE_KEY = 'cloto-theme';
@@ -25,30 +18,12 @@ function getSystemTheme(): Theme {
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-function resolveTheme(pref: ThemePreference): Theme {
-  return pref === 'system' ? getSystemTheme() : pref;
+function followsSystem(pref: ThemePreference): boolean {
+  return pref === 'system' || pref === 'legacy';
 }
 
-function getCanvasColors(theme: Theme) {
-  return theme === 'dark'
-    ? {
-        brandHex: '#5b7aff',
-        canvasBg: '#0f172a',
-        canvasGrid: '#334155',
-        canvasNodeFill: '#1e293b',
-        canvasText: 'rgba(226,232,240,0.8)',
-        canvasNodeTool: '#5b8aff',
-        canvasNodeEndpoint: '#5bb8ff',
-      }
-    : {
-        brandHex: '#2e4de6',
-        canvasBg: '#f8fafc',
-        canvasGrid: '#cbd5e1',
-        canvasNodeFill: '#ffffff',
-        canvasText: 'rgba(15,23,42,0.8)',
-        canvasNodeTool: '#2e6be6',
-        canvasNodeEndpoint: '#2ea8e6',
-      };
+function resolveTheme(pref: ThemePreference): Theme {
+  return followsSystem(pref) ? getSystemTheme() : (pref as Theme);
 }
 
 export const ThemeContext = createContext<ThemeContextValue | null>(null);
@@ -61,11 +36,13 @@ export function useTheme(): ThemeContextValue {
 
 export function useThemeProvider() {
   const stored = localStorage.getItem(STORAGE_KEY) as ThemePreference | null;
-  const [preference, setPreferenceState] = useState<ThemePreference>(stored || 'system');
-  const [theme, setTheme] = useState<Theme>(() => resolveTheme(stored || 'system'));
+  // Dark unless the user chose otherwise (docs/DESIGN_PHILOSOPHY.md §4.1).
+  const [preference, setPreferenceState] = useState<ThemePreference>(stored || 'dark');
+  const [theme, setTheme] = useState<Theme>(() => resolveTheme(stored || 'dark'));
 
-  const applyTheme = useCallback((t: Theme) => {
+  const applyTheme = useCallback((t: Theme, pref: ThemePreference) => {
     document.documentElement.classList.toggle('dark', t === 'dark');
+    document.documentElement.classList.toggle('theme-legacy', pref === 'legacy');
     setTheme(t);
   }, []);
 
@@ -73,7 +50,7 @@ export function useThemeProvider() {
     (pref: ThemePreference) => {
       setPreferenceState(pref);
       localStorage.setItem(STORAGE_KEY, pref);
-      applyTheme(resolveTheme(pref));
+      applyTheme(resolveTheme(pref), pref);
     },
     [applyTheme],
   );
@@ -83,13 +60,13 @@ export function useThemeProvider() {
   }, [theme, setPreference]);
 
   useEffect(() => {
-    applyTheme(resolveTheme(preference));
+    applyTheme(resolveTheme(preference), preference);
   }, [preference, applyTheme]);
 
   useEffect(() => {
-    if (preference !== 'system') return;
+    if (!followsSystem(preference)) return;
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = () => applyTheme(getSystemTheme());
+    const handler = () => applyTheme(getSystemTheme(), preference);
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [preference, applyTheme]);
@@ -99,6 +76,5 @@ export function useThemeProvider() {
     preference,
     setPreference,
     toggle,
-    colors: getCanvasColors(theme),
   };
 }

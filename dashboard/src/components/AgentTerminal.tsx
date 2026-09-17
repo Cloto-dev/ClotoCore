@@ -325,7 +325,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
       {/* Delete Confirmation Modal */}
       {deleteTarget && (
         <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm"
+          className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)]"
           role="dialog"
           aria-modal="true"
           aria-label={t('delete.title')}
@@ -337,12 +337,12 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
               </div>
               <div>
                 <h3 className="font-bold text-content-primary text-sm">{t('delete.title')}</h3>
-                <p className="text-[10px] text-content-tertiary font-mono mt-0.5">{t('delete.irreversible')}</p>
+                <p className="text-xs text-content-tertiary font-mono mt-0.5">{t('delete.irreversible')}</p>
               </div>
             </div>
             <div className="bg-surface-secondary rounded-xl p-3 space-y-1">
               <p className="text-xs font-bold text-content-primary">{deleteTarget.name}</p>
-              <p className="text-[10px] text-content-tertiary font-mono">{deleteTarget.id}</p>
+              <p className="text-xs text-content-tertiary font-mono">{deleteTarget.id}</p>
             </div>
             <p className="text-xs text-content-secondary">{t('delete.warning')}</p>
             {deleteTarget.metadata?.has_power_password === 'true' && (
@@ -387,8 +387,8 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
         <div className="flex-1 overflow-y-auto no-scrollbar p-6 md:p-8">
           {/* Section: Agents */}
           <div className="flex items-center gap-3 mb-4 border-b border-edge pb-2">
-            <Users className="text-brand" size={16} />
-            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest flex-1">{t('title')}</h2>
+            <Users className="text-agent" size={16} />
+            <h2 className="font-bold text-xs text-content-secondary flex-1">{t('title')}</h2>
             <input
               ref={importRef}
               type="file"
@@ -403,7 +403,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
             <button
               onClick={() => setCliAgentOpen(true)}
               aria-label={t('cli_agent.open')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-agent hover:bg-agent/10 transition-all"
             >
               <Terminal size={14} /> {t('cli_agent.open')}
             </button>
@@ -411,7 +411,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
               onClick={() => importRef.current?.click()}
               disabled={pendingImport !== null || isImporting}
               aria-label={t('import_config')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-agent hover:bg-agent/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Upload size={14} /> {t('import_config')}
             </button>
@@ -419,19 +419,17 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
 
           {/* Import preview (pending state — Save commits, Cancel discards) */}
           {pendingImport && (
-            <div className="mb-4 p-4 rounded-xl bg-brand/5 border border-brand/40 space-y-3">
+            <div className="mb-4 p-4 rounded-xl bg-agent/5 border border-agent/40 space-y-3">
               <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-brand/10 text-brand">
+                <div className="p-2 rounded-lg bg-agent/10 text-agent">
                   <Upload size={14} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <h3 className="font-bold text-xs text-content-primary uppercase tracking-widest">
-                    {t('import_preview.title')}
-                  </h3>
-                  <p className="text-[10px] text-content-tertiary font-mono mt-0.5">{t('import_preview.hint')}</p>
+                  <h3 className="font-bold text-xs text-content-primary">{t('import_preview.title')}</h3>
+                  <p className="text-xs text-content-tertiary font-mono mt-0.5">{t('import_preview.hint')}</p>
                 </div>
               </div>
-              <div className="bg-surface-secondary rounded-lg p-3 space-y-1.5 font-mono text-[11px]">
+              <div className="bg-surface-secondary rounded-lg p-3 space-y-1.5 font-mono text-xs">
                 <div className="flex items-baseline gap-2">
                   <span className="text-content-tertiary">name:</span>
                   <span className="text-content-primary font-bold truncate">{pendingImport.agentData.name}</span>
@@ -454,7 +452,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
               {pendingImport.warnings.length > 0 && (
                 <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-1">
                   {pendingImport.warnings.map((w) => (
-                    <p key={w} className="text-[10px] text-amber-400 font-mono">
+                    <p key={w} className="text-xs text-amber-400 font-mono">
                       {w}
                     </p>
                   ))}
@@ -474,7 +472,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                   onClick={handleSaveImport}
                   disabled={isImporting}
                   aria-label={t('import_preview.save')}
-                  className="flex-1 py-2 rounded-lg bg-brand text-white text-xs font-bold hover:bg-brand/90 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
+                  className="flex-1 py-2 rounded-lg bg-agent text-agent-ink text-xs font-bold hover:bg-agent/90 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
                 >
                   {isImporting ? <Activity size={12} className="animate-spin" /> : <Upload size={12} />}
                   {t('import_preview.save')}
@@ -487,14 +485,14 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
           {importWarnings.length > 0 && (
             <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-1">
               {importWarnings.map((w) => (
-                <p key={w} className="text-[10px] text-amber-400 font-mono">
+                <p key={w} className="text-xs text-amber-400 font-mono">
                   {w}
                 </p>
               ))}
               <button
                 onClick={() => setImportWarnings([])}
                 aria-label={tc('close')}
-                className="text-[10px] text-content-tertiary hover:text-brand mt-1"
+                className="text-xs text-content-tertiary hover:text-agent mt-1"
               >
                 &times; {tc('close')}
               </button>
@@ -503,7 +501,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
 
           {/* Agent Cards Grid */}
           {agents.length === 0 ? (
-            <div className="py-12 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
+            <div className="py-12 text-center text-content-tertiary bg-surface-panel rounded-lg border border-edge border-dashed font-mono text-xs">
               {t('no_agents')}
             </div>
           ) : (
@@ -513,7 +511,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                 return (
                   <div
                     key={agent.id}
-                    className="relative card-solid p-4 rounded-xl border border-edge hover:border-brand group cursor-pointer overflow-hidden"
+                    className="relative card-solid p-4 rounded-xl border border-edge hover:border-agent group cursor-pointer overflow-hidden"
                     onClick={() => onSelectAgent(agent)}
                   >
                     {agent.metadata?.has_avatar === 'true' && (
@@ -545,7 +543,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                     <div className="mt-2 pt-2 border-t border-edge-subtle flex items-center gap-x-3 gap-y-2 flex-wrap">
                       <div className="flex items-center gap-1 flex-wrap ml-auto justify-end">
                         <button
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-brand hover:bg-brand/10 transition-all"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-agent hover:bg-agent/10 transition-all"
                           aria-label={t('chat')}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -556,7 +554,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                         </button>
                         {agent.id !== DEFAULT_AGENT_ID && (
                           <button
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-agent hover:bg-agent/10 transition-all"
                             aria-label={t('export_config')}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -567,7 +565,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                           </button>
                         )}
                         <button
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-brand hover:bg-brand/10 transition-all"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-agent hover:bg-agent/10 transition-all"
                           aria-label={t('config')}
                           onClick={(e) => {
                             e.stopPropagation();
@@ -605,45 +603,39 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
         <div className="p-6">
           {/* Section header */}
           <div className="flex items-center gap-3 mb-6 border-b border-edge pb-2">
-            <Zap className="text-brand" size={16} />
-            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">{t('create_agent')}</h2>
+            <Zap className="text-agent" size={16} />
+            <h2 className="font-bold text-xs text-content-secondary">{t('create_agent')}</h2>
           </div>
 
           <div className="space-y-4">
             <div>
-              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
-                {t('form.name')}
-              </label>
+              <label className="block text-xs font-bold text-content-tertiary mb-1">{t('form.name')}</label>
               <input
                 type="text"
                 value={newAgent.name}
                 onChange={(e) => updateField('name', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
+                className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary"
                 placeholder={t('form.name_placeholder')}
               />
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
-                {t('form.description')}
-              </label>
+              <label className="block text-xs font-bold text-content-tertiary mb-1">{t('form.description')}</label>
               <textarea
                 value={newAgent.desc}
                 onChange={(e) => updateField('desc', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary h-16 resize-none"
+                className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary h-16 resize-none"
                 placeholder={t('form.desc_placeholder')}
               />
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
-                {t('form.llm_engine')}
-              </label>
+              <label className="block text-xs font-bold text-content-tertiary mb-1">{t('form.llm_engine')}</label>
               {mcpEngines.length > 0 ? (
                 <select
                   value={newAgent.engine}
                   onChange={(e) => updateField('engine', e.target.value)}
-                  className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
+                  className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary"
                 >
                   <option value="">{t('form.select')}</option>
                   {mcpEngines.map((s) => (
@@ -653,20 +645,18 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                   ))}
                 </select>
               ) : (
-                <div className="w-full px-2 py-1.5 rounded-lg border border-dashed border-content-muted text-[10px] text-content-tertiary font-mono text-center">
+                <div className="w-full px-2 py-1.5 rounded-lg border border-dashed border-content-muted text-xs text-content-tertiary font-mono text-center">
                   {t('form.no_engines')}
                 </div>
               )}
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
-                {t('form.memory')}
-              </label>
+              <label className="block text-xs font-bold text-content-tertiary mb-1">{t('form.memory')}</label>
               <select
                 value={newAgent.memory}
                 onChange={(e) => updateField('memory', e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
+                className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary"
               >
                 <option value="">{t('form.memory_none')}</option>
                 {mcpMemories.map((s) => (
@@ -678,7 +668,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
             </div>
 
             <div>
-              <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
+              <label className="block text-xs font-bold text-content-tertiary mb-1">
                 {t('form.password')}{' '}
                 <span className="text-content-tertiary font-normal normal-case">({t('form.password_optional')})</span>
               </label>
@@ -688,7 +678,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                   type="password"
                   value={newAgent.password}
                   onChange={(e) => updateField('password', e.target.value)}
-                  className="w-full pl-8 pr-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary"
+                  className="w-full pl-8 pr-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary"
                   placeholder={t('form.password_placeholder')}
                 />
               </div>
@@ -697,27 +687,27 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
             {/* Engine Routing Rules */}
             {mcpEngines.length > 1 && (
               <div>
-                <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-2">
+                <label className="block text-xs font-bold text-content-tertiary mb-2">
                   <Route size={10} className="inline mr-1" />
                   {t('routing.title')}
                   <span className="text-content-tertiary font-normal normal-case ml-1">({t('routing.optional')})</span>
                 </label>
                 <div className="space-y-2">
                   {newAgent.routingRules.map((rule, i) => (
-                    <div key={i} className="space-y-1 bg-glass rounded-lg p-2 border border-edge">
+                    <div key={i} className="space-y-1 bg-surface-panel rounded-lg p-2 border border-edge">
                       <div className="flex items-center gap-1.5">
                         <input
                           type="text"
                           value={rule.match}
                           onChange={(e) => updateRoutingRule(i, 'match', e.target.value)}
                           placeholder="contains:keyword"
-                          className="flex-1 px-2 py-1 rounded border border-edge text-[10px] font-mono bg-surface-primary focus:outline-none focus:border-brand min-w-0"
+                          className="flex-1 px-2 py-1 rounded border border-edge text-xs font-mono bg-surface-primary focus:outline-none focus:border-agent min-w-0"
                         />
-                        <span className="text-[10px] text-content-tertiary shrink-0">&rarr;</span>
+                        <span className="text-xs text-content-tertiary shrink-0">&rarr;</span>
                         <select
                           value={rule.engine}
                           onChange={(e) => updateRoutingRule(i, 'engine', e.target.value)}
-                          className="w-28 px-1 py-1 rounded border border-edge text-[10px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
+                          className="w-28 px-1 py-1 rounded border border-edge text-xs font-mono bg-surface-primary focus:outline-none focus:border-agent"
                         >
                           <option value="">{t('routing.select_engine')}</option>
                           {mcpEngines.map((s) => (
@@ -737,7 +727,7 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                       </div>
                       {/* CFR + Fallback options */}
                       <div className="flex items-center gap-2 pl-1">
-                        <label className="flex items-center gap-1 text-[9px] text-content-tertiary cursor-pointer">
+                        <label className="flex items-center gap-1 text-xs text-content-tertiary cursor-pointer">
                           <input
                             type="checkbox"
                             checked={rule.cfr || false}
@@ -748,11 +738,11 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                         </label>
                         {rule.cfr && (
                           <>
-                            <span className="text-[9px] text-content-tertiary">&rarr;</span>
+                            <span className="text-xs text-content-tertiary">&rarr;</span>
                             <select
                               value={rule.escalate_to || ''}
                               onChange={(e) => updateRoutingRule(i, 'escalate_to', e.target.value || undefined)}
-                              className="w-24 px-1 py-0.5 rounded border border-edge text-[9px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
+                              className="w-24 px-1 py-0.5 rounded border border-edge text-xs font-mono bg-surface-primary focus:outline-none focus:border-agent"
                             >
                               <option value="">{t('routing.escalate_to')}</option>
                               {mcpEngines
@@ -765,11 +755,11 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                             </select>
                           </>
                         )}
-                        <span className="text-[9px] text-content-tertiary ml-1">{t('routing.fallback')}</span>
+                        <span className="text-xs text-content-tertiary ml-1">{t('routing.fallback')}</span>
                         <select
                           value={rule.fallback || ''}
                           onChange={(e) => updateRoutingRule(i, 'fallback', e.target.value || undefined)}
-                          className="w-24 px-1 py-0.5 rounded border border-edge text-[9px] font-mono bg-surface-primary focus:outline-none focus:border-brand"
+                          className="w-24 px-1 py-0.5 rounded border border-edge text-xs font-mono bg-surface-primary focus:outline-none focus:border-agent"
                         >
                           <option value="">{t('routing.fallback_none')}</option>
                           {mcpEngines
@@ -787,21 +777,21 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
                     type="button"
                     onClick={addRoutingRule}
                     aria-label={t('routing.add_rule')}
-                    className="w-full py-1 rounded border border-dashed border-edge text-[10px] font-bold text-content-tertiary hover:text-brand hover:border-brand transition-all flex items-center justify-center gap-1"
+                    className="w-full py-1 rounded border border-dashed border-edge text-xs font-bold text-content-tertiary hover:text-agent hover:border-agent transition-all flex items-center justify-center gap-1"
                   >
                     <Plus size={10} /> {t('routing.add_rule')}
                   </button>
                 </div>
-                <p className="text-[10px] text-content-tertiary mt-1 font-mono">{t('routing.help')}</p>
+                <p className="text-xs text-content-tertiary mt-1 font-mono">{t('routing.help')}</p>
               </div>
             )}
 
-            {createError && <p className="text-[10px] text-red-400 text-center">{createError}</p>}
+            {createError && <p className="text-xs text-red-400 text-center">{createError}</p>}
             <button
               onClick={handleCreate}
               disabled={!newAgent.name || !newAgent.desc || !newAgent.engine || isCreating}
               aria-label={t('create_agent')}
-              className="w-full text-white py-2 rounded-lg text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 bg-brand"
+              className="w-full text-agent-ink py-2 rounded-lg text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 bg-agent"
             >
               {isCreating ? <Activity size={14} className="animate-spin" /> : <Plus size={14} />}
               {t('create_agent')}

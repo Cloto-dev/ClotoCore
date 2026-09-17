@@ -126,10 +126,10 @@ export function PillSelect<T extends string>({
             open();
           }
         }}
-        className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+        className={`flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-xs font-mono font-bold border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
           accented && !disabled
-            ? 'border-brand/40 bg-brand/10 text-brand'
-            : 'border-edge bg-glass text-content-secondary hover:text-brand hover:border-brand/30'
+            ? 'border-agent/40 bg-agent/10 text-agent'
+            : 'border-edge bg-surface-panel text-content-secondary hover:text-agent hover:border-agent/30'
         }`}
         style={{ outline: 'none' }}
       >
@@ -144,7 +144,7 @@ export function PillSelect<T extends string>({
         createPortal(
           <div
             ref={menuRef}
-            className="fixed w-60 bg-surface-primary/95 backdrop-blur-xl border border-edge rounded-xl shadow-2xl shadow-black/40 overflow-y-auto py-1 z-[9998]"
+            className="fixed w-60 bg-surface-primary/95 border border-edge rounded-xl shadow-2xl shadow-black/40 overflow-y-auto py-1 z-[9998]"
             style={{ left: pos.left, top: pos.top, bottom: pos.bottom, maxHeight: pos.maxHeight }}
           >
             {options.map((opt) => {
@@ -160,13 +160,13 @@ export function PillSelect<T extends string>({
                   }}
                   className={`no-focus-ring w-full flex flex-col items-start gap-0.5 px-3 py-2 text-left transition-colors ${
                     isSelected
-                      ? 'bg-brand/10 text-brand'
-                      : 'text-content-secondary hover:bg-glass hover:text-content-primary'
+                      ? 'bg-agent/10 text-agent'
+                      : 'text-content-secondary hover:bg-surface-panel hover:text-content-primary'
                   }`}
                 >
-                  <span className="text-[11px] font-mono font-bold uppercase tracking-wider">{opt.label}</span>
+                  <span className="text-xs font-mono font-bold">{opt.label}</span>
                   {opt.hint && (
-                    <span className="text-[10px] text-content-tertiary normal-case font-normal">{opt.hint}</span>
+                    <span className="text-xs text-content-tertiary normal-case font-normal">{opt.hint}</span>
                   )}
                 </button>
               );

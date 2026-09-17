@@ -131,28 +131,28 @@ export const CronJobs = memo(function CronJobs() {
         {/* Inline header with New Job button */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Clock className="text-brand" size={16} />
-            <h2 className="text-xs font-mono uppercase tracking-widest text-content-primary font-bold">{t('title')}</h2>
+            <Clock className="text-agent" size={16} />
+            <h2 className="text-xs font-mono text-content-primary font-bold">{t('title')}</h2>
           </div>
           <button
             onClick={() => setShowForm(!showForm)}
             aria-label={t('new_job')}
-            className="flex items-center gap-1.5 px-3 py-1 rounded bg-brand/10 text-brand hover:bg-brand/20 text-[10px] font-mono uppercase tracking-wider transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1 rounded bg-agent/10 text-agent hover:bg-agent/20 text-xs font-mono transition-colors"
           >
             <Plus size={12} /> {t('new_job')}
           </button>
         </div>
         {/* Create Form */}
         {showForm && (
-          <div className="bg-glass-strong backdrop-blur-sm p-6 rounded-lg border border-edge space-y-4">
-            <h3 className="text-xs font-bold text-content-secondary uppercase tracking-widest">{t('new_cron_job')}</h3>
+          <div className="bg-surface-field p-6 rounded-lg border border-edge space-y-4">
+            <h3 className="text-xs font-bold text-content-secondary">{t('new_cron_job')}</h3>
             <div className="flex items-start gap-2 p-3 rounded border border-amber-500/30 bg-amber-500/5">
               <AlertTriangle size={14} className="text-amber-400 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-content-secondary leading-relaxed">{t('hitl_bypass_notice')}</p>
+              <p className="text-xs text-content-secondary leading-relaxed">{t('hitl_bypass_notice')}</p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">{t('agent')}</label>
+                <label className="block text-xs font-mono text-content-tertiary mb-1">{t('agent')}</label>
                 <select
                   value={form.agent_id}
                   onChange={(e) => setForm({ ...form, agent_id: e.target.value })}
@@ -169,7 +169,7 @@ export const CronJobs = memo(function CronJobs() {
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">{t('name')}</label>
+                <label className="block text-xs font-mono text-content-tertiary mb-1">{t('name')}</label>
                 <input
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -178,9 +178,7 @@ export const CronJobs = memo(function CronJobs() {
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">
-                  {t('schedule_type')}
-                </label>
+                <label className="block text-xs font-mono text-content-tertiary mb-1">{t('schedule_type')}</label>
                 <select
                   value={form.schedule_type}
                   onChange={(e) => setForm({ ...form, schedule_type: e.target.value })}
@@ -192,7 +190,7 @@ export const CronJobs = memo(function CronJobs() {
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">
+                <label className="block text-xs font-mono text-content-tertiary mb-1">
                   {form.schedule_type === 'interval'
                     ? t('label_interval')
                     : form.schedule_type === 'cron'
@@ -213,9 +211,7 @@ export const CronJobs = memo(function CronJobs() {
                 />
               </div>
               <div className="md:col-span-2">
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">
-                  {t('message')}
-                </label>
+                <label className="block text-xs font-mono text-content-tertiary mb-1">{t('message')}</label>
                 <textarea
                   value={form.message}
                   onChange={(e) => setForm({ ...form, message: e.target.value })}
@@ -225,9 +221,7 @@ export const CronJobs = memo(function CronJobs() {
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">
-                  {t('source_type')}
-                </label>
+                <label className="block text-xs font-mono text-content-tertiary mb-1">{t('source_type')}</label>
                 <select
                   value={form.source_type}
                   onChange={(e) => setForm({ ...form, source_type: e.target.value as 'user' | 'system' })}
@@ -238,7 +232,7 @@ export const CronJobs = memo(function CronJobs() {
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-mono text-content-tertiary uppercase mb-1">
+                <label className="block text-xs font-mono text-content-tertiary mb-1">
                   {t('engine', { defaultValue: 'Engine' })}
                 </label>
                 <select
@@ -262,7 +256,7 @@ export const CronJobs = memo(function CronJobs() {
                     onChange={(e) => setForm({ ...form, hide_prompt: e.target.checked })}
                     className="rounded border-edge bg-surface-secondary"
                   />
-                  <span className="text-[10px] font-mono text-content-tertiary uppercase">{t('hide_prompt')}</span>
+                  <span className="text-xs font-mono text-content-tertiary">{t('hide_prompt')}</span>
                 </label>
               </div>
             </div>
@@ -271,14 +265,14 @@ export const CronJobs = memo(function CronJobs() {
                 onClick={handleCreate}
                 disabled={!form.agent_id || !form.name || !form.message}
                 aria-label={t('create_job')}
-                className="px-4 py-2 bg-brand text-white rounded text-xs font-mono uppercase tracking-wider hover:bg-brand/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                className="px-4 py-2 bg-agent text-agent-ink rounded text-xs font-mono hover:bg-agent/80 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
               >
                 {t('create_job')}
               </button>
               <button
                 onClick={() => setShowForm(false)}
                 aria-label={tc('cancel')}
-                className="px-4 py-2 bg-surface-secondary border border-edge text-content-secondary rounded text-xs font-mono uppercase tracking-wider hover:bg-surface-secondary/80 transition-colors"
+                className="px-4 py-2 bg-surface-secondary border border-edge text-content-secondary rounded text-xs font-mono hover:bg-surface-secondary/80 transition-colors"
               >
                 {tc('cancel')}
               </button>
@@ -293,7 +287,7 @@ export const CronJobs = memo(function CronJobs() {
               <div
                 key={job.id}
                 className={`card-solid p-4 rounded-lg border ${
-                  job.enabled ? 'border-edge hover:border-brand' : 'border-edge-subtle opacity-60'
+                  job.enabled ? 'border-edge hover:border-agent' : 'border-edge-subtle opacity-60'
                 }`}
               >
                 <div className="flex items-center justify-between gap-4">
@@ -305,21 +299,19 @@ export const CronJobs = memo(function CronJobs() {
                         aria-label={job.enabled ? 'Enabled' : 'Disabled'}
                       />
                       <span className="text-sm font-medium text-content-primary truncate">{job.name}</span>
-                      <span className="text-[10px] font-mono text-content-tertiary px-1.5 py-0.5 bg-surface-secondary rounded">
+                      <span className="text-xs font-mono text-content-tertiary px-1.5 py-0.5 bg-surface-secondary rounded">
                         {job.schedule_type}
                       </span>
                       {job.hide_prompt && (
-                        <span className="text-[10px] font-mono text-brand px-1.5 py-0.5 bg-brand/10 rounded">
-                          agent
-                        </span>
+                        <span className="text-xs font-mono text-agent px-1.5 py-0.5 bg-agent/10 rounded">agent</span>
                       )}
                       {(job.cron_generation ?? 0) > 0 && (
-                        <span className="text-[10px] font-mono text-amber-400 px-1.5 py-0.5 bg-amber-500/10 rounded">
+                        <span className="text-xs font-mono text-amber-400 px-1.5 py-0.5 bg-amber-500/10 rounded">
                           gen:{job.cron_generation}
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] font-mono text-content-tertiary space-y-0.5">
+                    <div className="text-xs font-mono text-content-tertiary space-y-0.5">
                       <div>
                         {t('agent_label')} <span className="text-content-secondary">{job.agent_id}</span>
                       </div>
@@ -347,7 +339,7 @@ export const CronJobs = memo(function CronJobs() {
                           <span className="text-content-secondary">{formatTimestamp(job.last_run_at)}</span>
                           {job.last_status && (
                             <span
-                              className={`ml-2 px-1 py-0.5 rounded text-[9px] ${
+                              className={`ml-2 px-1 py-0.5 rounded text-xs ${
                                 job.last_status === 'success'
                                   ? 'bg-green-500/20 text-green-400'
                                   : job.last_status === 'skipped'
@@ -363,10 +355,10 @@ export const CronJobs = memo(function CronJobs() {
                         </div>
                       )}
                     </div>
-                    <div className="mt-1 text-[10px] font-mono text-content-tertiary truncate" title={job.message}>
+                    <div className="mt-1 text-xs font-mono text-content-tertiary truncate" title={job.message}>
                       {t('prompt_label')} {job.message}
                     </div>
-                    <div className="mt-0.5 text-[10px] font-mono text-content-tertiary">
+                    <div className="mt-0.5 text-xs font-mono text-content-tertiary">
                       {t('source_label')}{' '}
                       <span
                         className={`px-1 py-0.5 rounded ${
@@ -384,7 +376,7 @@ export const CronJobs = memo(function CronJobs() {
                       onClick={() => handleRunNow(job.id)}
                       title={t('run_now')}
                       aria-label={t('run_now')}
-                      className="p-1.5 rounded hover:bg-brand/10 text-content-tertiary hover:text-brand transition-colors"
+                      className="p-1.5 rounded hover:bg-agent/10 text-content-tertiary hover:text-agent transition-colors"
                     >
                       <Play size={14} />
                     </button>
@@ -392,7 +384,7 @@ export const CronJobs = memo(function CronJobs() {
                       onClick={() => handleToggle(job)}
                       title={job.enabled ? t('disable') : t('enable')}
                       aria-label={job.enabled ? t('disable') : t('enable')}
-                      className="p-1.5 rounded hover:bg-brand/10 text-content-tertiary hover:text-brand transition-colors"
+                      className="p-1.5 rounded hover:bg-agent/10 text-content-tertiary hover:text-agent transition-colors"
                     >
                       <Power size={14} className={job.enabled ? 'text-green-500' : 'text-gray-500'} />
                     </button>
@@ -409,7 +401,7 @@ export const CronJobs = memo(function CronJobs() {
               </div>
             ))
           ) : (
-            <div className="py-12 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
+            <div className="py-12 text-center text-content-tertiary bg-surface-panel rounded-lg border border-edge border-dashed font-mono text-xs">
               {t('no_jobs')}
             </div>
           )}

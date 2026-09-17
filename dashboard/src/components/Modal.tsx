@@ -48,11 +48,11 @@ export function Modal({ title, icon: Icon, size = 'sm', onClose, children }: Mod
 
   // Portal to <body>: `fixed` is resolved against the nearest ancestor with a
   // backdrop-filter/transform (it becomes the containing block), so a modal
-  // opened from inside e.g. the backdrop-blurred sidebar would be trapped in
+  // opened from inside such an ancestor (e.g. a transformed panel) would be trapped in
   // and clipped to that ancestor instead of covering the viewport.
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/[0.35] backdrop-blur-[2px] animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/[0.35] animate-in fade-in duration-200"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -68,12 +68,12 @@ export function Modal({ title, icon: Icon, size = 'sm', onClose, children }: Mod
       >
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-2.5 border-b border-edge bg-surface-primary shrink-0">
-          {Icon && <Icon size={14} className="text-brand" />}
-          <span className="text-xs font-mono uppercase tracking-widest text-content-primary">{title}</span>
+          {Icon && <Icon size={14} className="text-agent" />}
+          <span className="text-xs font-mono text-content-primary">{title}</span>
           <button
             onClick={onClose}
             aria-label={t('close')}
-            className="ml-auto p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+            className="ml-auto p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
           >
             <X size={16} />
           </button>

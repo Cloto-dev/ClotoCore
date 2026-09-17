@@ -109,12 +109,10 @@ export function DiagnosticsModal({ context, message, componentStack, onClose }: 
   }, [text]);
 
   return (
-    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm p-6">
-      <div className="w-full max-w-3xl max-h-full flex flex-col bg-glass backdrop-blur-md border border-edge rounded-lg overflow-hidden">
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] p-6">
+      <div className="w-full max-w-3xl max-h-full flex flex-col bg-surface-panel border border-edge rounded-lg overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-edge">
-          <div className="text-[10px] font-black tracking-[0.2em] text-content-primary uppercase">
-            {t('diagnostics_title')}
-          </div>
+          <div className="text-xs font-black text-content-primary">{t('diagnostics_title')}</div>
           <button
             type="button"
             onClick={onClose}
@@ -126,7 +124,7 @@ export function DiagnosticsModal({ context, message, componentStack, onClose }: 
         </div>
 
         <div className="px-4 py-3 space-y-3 overflow-y-auto">
-          <p className="text-[10px] text-content-tertiary leading-relaxed">{t('diagnostics_description')}</p>
+          <p className="text-xs text-content-tertiary leading-relaxed">{t('diagnostics_description')}</p>
 
           <div className="flex items-center gap-2">
             {(['safe', 'full'] as const).map((level) => (
@@ -134,10 +132,10 @@ export function DiagnosticsModal({ context, message, componentStack, onClose }: 
                 key={level}
                 type="button"
                 onClick={() => setMode(level)}
-                className={`px-3 py-1 text-[9px] font-bold uppercase tracking-widest rounded border transition-colors ${
+                className={`px-3 py-1 text-xs font-bold rounded border transition-colors ${
                   mode === level
-                    ? 'border-brand text-content-primary bg-glass-strong'
-                    : 'border-edge text-content-tertiary hover:border-brand'
+                    ? 'border-agent text-content-primary bg-surface-field'
+                    : 'border-edge text-content-tertiary hover:border-agent'
                 }`}
               >
                 {t(level === 'safe' ? 'diagnostics_level_safe' : 'diagnostics_level_full')}
@@ -146,14 +144,14 @@ export function DiagnosticsModal({ context, message, componentStack, onClose }: 
           </div>
 
           {mode === 'full' && (
-            <div className="flex items-start gap-2 text-[10px] text-amber-500">
+            <div className="flex items-start gap-2 text-xs text-amber-500">
               <ShieldAlert size={12} className="shrink-0 mt-px" />
               <span>{t('diagnostics_full_warning')}</span>
             </div>
           )}
 
           {!fromKernel && !loading && (
-            <div className="flex items-start gap-2 text-[10px] text-amber-500">
+            <div className="flex items-start gap-2 text-xs text-amber-500">
               <ShieldAlert size={12} className="shrink-0 mt-px" />
               <span>{t('diagnostics_kernel_unreachable')}</span>
             </div>
@@ -162,29 +160,27 @@ export function DiagnosticsModal({ context, message, componentStack, onClose }: 
           {loading ? (
             <div className="flex items-center gap-2 py-8 justify-center text-content-tertiary">
               <Loader2 size={14} className="animate-spin" />
-              <span className="text-[10px]">{t('diagnostics_loading')}</span>
+              <span className="text-xs">{t('diagnostics_loading')}</span>
             </div>
           ) : (
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
               spellCheck={false}
-              className="w-full h-72 p-3 text-[10px] font-mono leading-relaxed bg-glass-strong border border-edge rounded text-content-secondary resize-none focus:outline-none focus:border-brand"
+              className="w-full h-72 p-3 text-xs font-mono leading-relaxed bg-surface-field border border-edge rounded text-content-secondary resize-none focus:outline-none focus:border-agent"
             />
           )}
 
           {/* `n`, not `count`: i18next reads `count` as a plural selector and
               would look for `_one` / `_other` keys this pack does not carry. */}
-          {masked !== null && (
-            <p className="text-[9px] text-content-tertiary">{t('diagnostics_masked', { n: masked })}</p>
-          )}
+          {masked !== null && <p className="text-xs text-content-tertiary">{t('diagnostics_masked', { n: masked })}</p>}
         </div>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t border-edge">
           <button
             type="button"
             onClick={onClose}
-            className="px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-content-tertiary hover:text-content-primary transition-colors"
+            className="px-3 py-2 text-xs font-bold text-content-tertiary hover:text-content-primary transition-colors"
           >
             {t('diagnostics_close')}
           </button>
@@ -192,7 +188,7 @@ export function DiagnosticsModal({ context, message, componentStack, onClose }: 
             type="button"
             onClick={handleCopy}
             disabled={loading}
-            className="inline-flex items-center gap-2 px-4 py-2 text-[9px] font-bold uppercase tracking-widest text-white bg-brand rounded hover:bg-[#1e3dd6] transition-colors disabled:opacity-50"
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-agent-ink bg-agent rounded hover:bg-[#1e3dd6] transition-colors disabled:opacity-50"
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
             {t(copied ? 'diagnostics_copied' : 'diagnostics_copy')}

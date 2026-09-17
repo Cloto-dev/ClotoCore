@@ -62,7 +62,7 @@ export function CodeBlock({ code, language, showHeader = true, maxHeight = 'none
     <div className={`rounded-lg overflow-hidden my-2 ${className}`} style={{ backgroundColor: '#0d1117' }}>
       {showHeader && (
         <div className="flex items-center justify-between px-3 py-1.5" style={{ backgroundColor: '#161b22' }}>
-          <span className="text-[9px] font-mono uppercase tracking-wider text-gray-400">{language}</span>
+          <span className="text-xs font-mono text-gray-400">{language}</span>
           <div className="flex items-center gap-1">
             <button
               onClick={handleCopy}
@@ -82,7 +82,7 @@ export function CodeBlock({ code, language, showHeader = true, maxHeight = 'none
         </div>
       )}
       <div className="overflow-x-auto" style={{ maxHeight }}>
-        <pre className="p-3 m-0 text-[11px] leading-relaxed font-mono">
+        <pre className="p-3 m-0 text-xs leading-relaxed font-mono">
           <code
             className={`hljs language-${language}`}
             dangerouslySetInnerHTML={{

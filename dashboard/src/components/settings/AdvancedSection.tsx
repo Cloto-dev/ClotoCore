@@ -58,9 +58,7 @@ export function AdvancedSection() {
             <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
               <AlertTriangle size={14} className="text-amber-400 mt-0.5 shrink-0" />
               <div className="space-y-1">
-                <p className="text-xs font-bold text-amber-400 uppercase tracking-widest">
-                  {t('advanced.yolo_warning')}
-                </p>
+                <p className="text-xs font-bold text-amber-400">{t('advanced.yolo_warning')}</p>
               </div>
             </div>
           )}

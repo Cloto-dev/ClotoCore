@@ -97,9 +97,7 @@ export function SecuritySection() {
               docs/ONBOARDING_MODERNIZATION_DESIGN.md §2.2) */}
           {authApi.apiKey && (
             <div className="space-y-1.5">
-              <span className="text-[10px] font-bold text-content-tertiary uppercase tracking-wider">
-                {t('security.current_key')}
-              </span>
+              <span className="text-xs font-bold text-content-tertiary">{t('security.current_key')}</span>
               <div className="flex items-center gap-2">
                 <code className="flex-1 truncate bg-surface-secondary border border-edge rounded-lg px-3 py-2 text-xs font-mono text-content-primary select-all">
                   {revealed ? authApi.apiKey : '••••••••••••••••'}
@@ -130,7 +128,7 @@ export function SecuritySection() {
                   <RefreshCw size={14} className={regenerateAction.isLoading ? 'animate-spin' : ''} />
                 </button>
               </div>
-              <p className="text-[11px] text-content-tertiary">{t('security.current_key_hint')}</p>
+              <p className="text-xs text-content-tertiary">{t('security.current_key_hint')}</p>
             </div>
           )}
 
@@ -142,13 +140,13 @@ export function SecuritySection() {
                 clearErrors();
               }}
               placeholder={authApi.apiKey ? t('security.placeholder_replace') : t('security.placeholder_new')}
-              className="w-full bg-surface-secondary border border-edge rounded-lg px-3 py-2 pr-8 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors"
+              className="w-full bg-surface-secondary border border-edge rounded-lg px-3 py-2 pr-8 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-agent transition-colors"
             />
             <button
               onClick={handleSave}
               disabled={!newKey.trim() || saveAction.isLoading}
               aria-label={tc('save')}
-              className="px-4 py-2 bg-brand text-white text-xs font-bold rounded-lg disabled:opacity-40 hover:bg-brand/90 transition-colors"
+              className="px-4 py-2 bg-agent text-agent-ink text-xs font-bold rounded-lg disabled:opacity-40 hover:bg-agent/90 transition-colors"
             >
               {saveAction.isLoading ? '...' : tc('save')}
             </button>
@@ -162,7 +160,7 @@ export function SecuritySection() {
               <button
                 onClick={() => setConfirmInvalidate(true)}
                 aria-label={t('security.invalidate_label')}
-                className="text-xs text-red-400 hover:text-red-300 font-bold uppercase tracking-widest transition-colors"
+                className="text-xs text-red-400 hover:text-red-300 font-bold transition-colors"
               >
                 {t('security.invalidate_label')}
               </button>

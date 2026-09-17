@@ -1396,9 +1396,10 @@
       "commit": "b60f329",
       "file": "dashboard/src/lib/agentIdentity.tsx",
       "pattern": "function agentColor\\(_agent",
-      "expected": "present",
-      "status": "wontfix",
-      "github_issue": 34
+      "expected": "absent",
+      "status": "fixed",
+      "github_issue": 34,
+      "notes": "Fixed by the design-token foundation: the accent is now the present agent's own colour, so agentColor(agent) derives a hue from the agent's id (lightness corrected per hue to hold 4.5:1) instead of returning the brand constant. Under the Legacy theme it deliberately resolves the stylesheet accent, which is the old brand blue for every agent."
     },
     {
       "id": "bug-264",

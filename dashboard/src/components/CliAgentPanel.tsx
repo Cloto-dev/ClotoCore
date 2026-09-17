@@ -187,7 +187,7 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
           <AlertCard variant="info">{t('cli_agent.not_installed')}</AlertCard>
         ) : (
           <>
-            <div className="flex items-center gap-2 text-[11px] font-mono">
+            <div className="flex items-center gap-2 text-xs font-mono">
               <span className="text-content-tertiary">{t('cli_agent.connector_label')}:</span>
               <span className="text-content-primary font-bold">{displayServerId(harnessServer.id)}</span>
               <span className={isConnected ? 'text-emerald-400' : 'text-content-tertiary'}>
@@ -199,7 +199,7 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
                 disabled={isProbing || !isConnected}
                 aria-label={t('cli_agent.rescan')}
                 title={t('cli_agent.rescan')}
-                className="ml-auto p-1.5 rounded-lg border border-edge bg-glass text-content-secondary hover:text-brand hover:border-brand disabled:opacity-30"
+                className="ml-auto p-1.5 rounded-lg border border-edge bg-surface-panel text-content-secondary hover:text-agent hover:border-agent disabled:opacity-30"
               >
                 <RefreshCw size={12} className={isProbing ? 'animate-spin' : ''} />
               </button>
@@ -210,9 +210,7 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
 
             {probe && (
               <div className="space-y-2">
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-content-secondary">
-                  {t('cli_agent.detected')}
-                </h3>
+                <h3 className="text-xs font-bold text-content-secondary">{t('cli_agent.detected')}</h3>
                 {probe.harnesses.length === 0 ? (
                   <AlertCard variant="warning">{t('cli_agent.none_found')}</AlertCard>
                 ) : (
@@ -222,7 +220,7 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
                       return (
                         <div
                           key={h.id}
-                          className="p-2.5 rounded-lg border border-edge bg-glass font-mono text-[11px] space-y-1"
+                          className="p-2.5 rounded-lg border border-edge bg-surface-panel font-mono text-xs space-y-1"
                         >
                           <div className="flex items-center gap-2">
                             <span
@@ -235,12 +233,12 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
                               }`}
                             />
                             <span className="font-bold text-content-primary">{h.id}</span>
-                            {active && <span className="text-brand text-[9px] uppercase">{t('cli_agent.active')}</span>}
+                            {active && <span className="text-agent text-xs">{t('cli_agent.active')}</span>}
                             <span className="ml-auto text-content-tertiary">
                               {h.version || (h.installed === false ? t('cli_agent.not_found') : tc('unknown'))}
                             </span>
                           </div>
-                          <div className="flex items-center gap-3 text-[10px] text-content-tertiary">
+                          <div className="flex items-center gap-3 text-xs text-content-tertiary">
                             <span>
                               {t('cli_agent.plan_label')}: {h.plan || tc('unknown')}
                             </span>
@@ -249,14 +247,14 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
                             </span>
                           </div>
                           {isMeteredPlan(h.plan) && (
-                            <p className="text-[10px] text-amber-400">{t('cli_agent.metered_warning')}</p>
+                            <p className="text-xs text-amber-400">{t('cli_agent.metered_warning')}</p>
                           )}
                         </div>
                       );
                     })}
                   </div>
                 )}
-                <p className="text-[10px] text-content-tertiary font-mono">
+                <p className="text-xs text-content-tertiary font-mono">
                   {t('cli_agent.working_directory')}: {probe.working_directory || tc('unknown')}
                 </p>
               </div>
@@ -264,22 +262,20 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
 
             {agentSchema && (
               <div className="space-y-2">
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-content-secondary">
-                  {t('cli_agent.agent_binding')}
-                </h3>
+                <h3 className="text-xs font-bold text-content-secondary">{t('cli_agent.agent_binding')}</h3>
                 {eligibleAgents.length === 0 ? (
                   <AlertCard variant="info">{t('cli_agent.no_bound_agents')}</AlertCard>
                 ) : (
                   <div className="space-y-2">
                     <label className="block space-y-1">
-                      <span className="font-mono text-[10px] text-content-secondary">{t('cli_agent.agent_label')}</span>
+                      <span className="font-mono text-xs text-content-secondary">{t('cli_agent.agent_label')}</span>
                       <select
                         value={selectedAgentId}
                         onChange={(event) => {
                           setSelectedAgentId(event.target.value);
                           setAgentEdits({});
                         }}
-                        className="w-full px-2 py-1.5 rounded-lg bg-glass-strong border border-edge text-[11px] text-content-primary focus:border-brand focus:outline-none"
+                        className="w-full px-2 py-1.5 rounded-lg bg-surface-field border border-edge text-xs text-content-primary focus:border-agent focus:outline-none"
                       >
                         {eligibleAgents.map((agent) => (
                           <option key={agent.id} value={agent.id}>
@@ -296,9 +292,9 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
                         const value = agentEdits[field.key] ?? storedAgentConfig.values[field.key] ?? '';
                         return (
                           <label key={field.key} className="block space-y-1">
-                            <span className="font-mono text-[10px] text-content-secondary">{field.label}</span>
+                            <span className="font-mono text-xs text-content-secondary">{field.label}</span>
                             {field.description && (
-                              <span className="block text-[10px] text-content-tertiary">{field.description}</span>
+                              <span className="block text-xs text-content-tertiary">{field.description}</span>
                             )}
                             {field.input === 'select' ? (
                               <select
@@ -306,7 +302,7 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
                                 onChange={(event) =>
                                   setAgentEdits((prev) => ({ ...prev, [field.key]: event.target.value }))
                                 }
-                                className="w-full px-2 py-1.5 rounded-lg bg-glass-strong border border-edge text-[11px] text-content-primary focus:border-brand focus:outline-none"
+                                className="w-full px-2 py-1.5 rounded-lg bg-surface-field border border-edge text-xs text-content-primary focus:border-agent focus:outline-none"
                               >
                                 <option value="">{t('cli_agent.inherit_default')}</option>
                                 {(field.options ?? []).map((option) => (
@@ -323,13 +319,13 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
                                 onChange={(event) =>
                                   setAgentEdits((prev) => ({ ...prev, [field.key]: event.target.value }))
                                 }
-                                className="w-full px-2 py-1.5 rounded-lg bg-glass-strong border border-edge text-[11px] font-mono text-content-primary focus:border-brand focus:outline-none"
+                                className="w-full px-2 py-1.5 rounded-lg bg-surface-field border border-edge text-xs font-mono text-content-primary focus:border-agent focus:outline-none"
                               />
                             )}
                           </label>
                         );
                       })}
-                    <p className="text-[10px] text-content-tertiary font-mono">{t('cli_agent.binding_note')}</p>
+                    <p className="text-xs text-content-tertiary font-mono">{t('cli_agent.binding_note')}</p>
                   </div>
                 )}
               </div>
@@ -337,22 +333,20 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
 
             {options.length > 0 && (
               <div className="space-y-2">
-                <h3 className="text-[10px] font-bold uppercase tracking-widest text-content-secondary">
-                  {t('cli_agent.options')}
-                </h3>
+                <h3 className="text-xs font-bold text-content-secondary">{t('cli_agent.options')}</h3>
                 <div className="space-y-2">
                   {options.map((opt) => (
                     <label key={opt.name} className="block space-y-1">
-                      <span className="font-mono text-[10px] text-content-secondary">{opt.name}</span>
+                      <span className="font-mono text-xs text-content-secondary">{opt.name}</span>
                       {opt.description && (
-                        <span className="block text-[10px] text-content-tertiary">{opt.description}</span>
+                        <span className="block text-xs text-content-tertiary">{opt.description}</span>
                       )}
                       <input
                         type="text"
                         value={edits[opt.name] ?? storedEnv[opt.name] ?? ''}
                         placeholder={opt.default || tc('unknown')}
                         onChange={(e) => setEdits((prev) => ({ ...prev, [opt.name]: e.target.value }))}
-                        className="w-full px-2 py-1.5 rounded-lg bg-glass-strong border border-edge text-[11px] font-mono text-content-primary focus:border-brand focus:outline-none"
+                        className="w-full px-2 py-1.5 rounded-lg bg-surface-field border border-edge text-xs font-mono text-content-primary focus:border-agent focus:outline-none"
                       />
                     </label>
                   ))}
@@ -380,14 +374,14 @@ export function CliAgentPanel({ agents, onAgentsChanged, onClose }: CliAgentPane
                 onClick={handleSave}
                 disabled={!dirty || save.isLoading}
                 aria-label={tc('save')}
-                className="flex-1 py-2 rounded-lg bg-brand text-white text-xs font-bold hover:bg-brand/90 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
+                className="flex-1 py-2 rounded-lg bg-agent text-agent-ink text-xs font-bold hover:bg-agent/90 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
               >
                 {save.isLoading && <Activity size={12} className="animate-spin" />}
                 {tc('save')}
               </button>
             </div>
             {connectionDirty && (
-              <p className="text-[10px] text-content-tertiary font-mono">{t('cli_agent.restart_note')}</p>
+              <p className="text-xs text-content-tertiary font-mono">{t('cli_agent.restart_note')}</p>
             )}
           </>
         )}

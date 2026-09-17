@@ -431,31 +431,31 @@ export function VrmViewerPage() {
 
           {/* VRMA drag & drop overlay */}
           {isDragOver && (
-            <div className="absolute inset-0 flex items-center justify-center bg-brand/20 border-2 border-dashed border-brand rounded-lg z-20 pointer-events-none">
-              <p className="text-white font-mono text-sm tracking-wider">Drop .vrma file</p>
+            <div className="absolute inset-0 flex items-center justify-center bg-agent/20 border-2 border-dashed border-agent rounded-lg z-20 pointer-events-none">
+              <p className="text-white font-mono text-sm">Drop .vrma file</p>
             </div>
           )}
 
           {loading && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60">
               <Activity size={24} className="animate-pulse" />
-              <p className="text-[10px] font-mono tracking-[0.2em] uppercase mt-2">Loading VRM...</p>
+              <p className="text-xs font-mono mt-2">Loading VRM...</p>
             </div>
           )}
 
           {error && (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60 p-4">
               <AlertTriangle size={20} className="text-amber-500/60 mb-2" />
-              <p className="text-[10px] font-mono text-center leading-relaxed">{error}</p>
+              <p className="text-xs font-mono text-center leading-relaxed">{error}</p>
             </div>
           )}
 
           {/* Agent state indicator */}
           {!loading && !error && agentState !== 'idle' && (
-            <div className="absolute bottom-2 left-3 px-2.5 py-1 rounded-full text-[10px] font-mono uppercase tracking-widest bg-black/50 border border-white/10 text-white/80 backdrop-blur-sm">
+            <div className="absolute bottom-2 left-3 px-2.5 py-1 rounded-full text-xs font-mono bg-black/50 border border-white/10 text-white/80">
               <span
                 className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${
-                  agentState === 'thinking' ? 'bg-blue-400 animate-pulse' : 'bg-brand animate-pulse'
+                  agentState === 'thinking' ? 'bg-blue-400 animate-pulse' : 'bg-agent animate-pulse'
                 }`}
               />
               {agentState}
@@ -465,7 +465,7 @@ export function VrmViewerPage() {
           {/* Floating settings panel overlay */}
           {showSettings && showFooter && !loading && !error && (
             <div
-              className="absolute top-0 left-0 bottom-0 w-56 bg-black/80 backdrop-blur-xl border-r border-white/10 overflow-y-auto z-10"
+              className="absolute top-0 left-0 bottom-0 w-56 bg-black/80 border-r border-white/10 overflow-y-auto z-10"
               onMouseMove={handleFooterInteraction}
               onClick={(e) => {
                 e.stopPropagation();
@@ -475,7 +475,7 @@ export function VrmViewerPage() {
               <div className="p-2 space-y-3">
                 <button
                   onClick={handleCopyValues}
-                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors"
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1 rounded text-xs font-mono bg-white/10 hover:bg-white/20 text-white/70 hover:text-white transition-colors"
                 >
                   <Copy size={10} />
                   {copied ? 'Copied!' : 'Copy Values'}
@@ -483,12 +483,12 @@ export function VrmViewerPage() {
 
                 {SLIDER_GROUPS.map(({ group, sliders }) => (
                   <div key={group}>
-                    <div className="text-[9px] font-mono uppercase tracking-widest text-brand mb-1.5">{group}</div>
+                    <div className="text-xs font-mono text-agent mb-1.5">{group}</div>
                     {sliders.map(({ key, label, min, max, step }) => (
                       <div key={key} className="mb-1">
                         <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-[9px] font-mono text-white/50">{label}</span>
-                          <span className="text-[9px] font-mono text-white/80 tabular-nums w-10 text-right">
+                          <span className="text-xs font-mono text-white/50">{label}</span>
+                          <span className="text-xs font-mono text-white/80 tabular-nums w-10 text-right">
                             {poseValues[key].toFixed(2)}
                           </span>
                         </div>
@@ -501,8 +501,8 @@ export function VrmViewerPage() {
                           onChange={(e) => handleSliderChange(key, parseFloat(e.target.value))}
                           className="w-full h-1 appearance-none bg-white/10 rounded-full outline-none
                             [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5
-                            [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand [&::-webkit-slider-thumb]:cursor-pointer
-                            [&::-webkit-slider-thumb]:shadow-[0_0_4px_rgba(var(--brand-primary)/0.5)]"
+                            [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-agent [&::-webkit-slider-thumb]:cursor-pointer
+                            [&::-webkit-slider-thumb]:shadow-[0_0_4px_hsl(var(--agent)/0.5)]"
                         />
                       </div>
                     ))}
@@ -514,7 +514,7 @@ export function VrmViewerPage() {
         </div>
       </div>
 
-      {/* Bottom control bar + brand line — hidden by default, shown on lower-half click */}
+      {/* Bottom control bar + agent-colour line — hidden by default, shown on lower-half click */}
       <div
         className={`flex-shrink-0 transition-all duration-300 ${
           showFooter && !loading && !error ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0 overflow-hidden'
@@ -522,11 +522,11 @@ export function VrmViewerPage() {
         onMouseMove={handleFooterInteraction}
         onClick={handleFooterInteraction}
       >
-        <div className="bg-black/40 backdrop-blur-md border-t border-white/5 px-3 py-1.5 flex items-center justify-center gap-1.5">
+        <div className="bg-black/40 border-t border-white/5 px-3 py-1.5 flex items-center justify-center gap-1.5">
           <button
             onClick={() => toggleSettings()}
             className={`p-1 rounded transition-colors mr-2 ${
-              showSettings ? 'text-brand' : 'text-white/40 hover:text-white/70'
+              showSettings ? 'text-agent' : 'text-white/40 hover:text-white/70'
             }`}
             title="Pose Editor"
           >
@@ -536,9 +536,9 @@ export function VrmViewerPage() {
             <button
               key={name}
               onClick={() => handlePoseClick(name)}
-              className={`px-2.5 py-0.5 rounded-full text-[10px] font-mono tracking-wider transition-all duration-200 ${
+              className={`px-2.5 py-0.5 rounded-full text-xs font-mono transition-all duration-200 ${
                 activePose === name
-                  ? 'bg-brand text-white shadow-[0_0_8px_rgba(var(--brand-primary)/0.4)]'
+                  ? 'bg-agent text-agent-ink shadow-[0_0_8px_hsl(var(--agent)/0.4)]'
                   : 'text-white/50 hover:text-white/80 hover:bg-white/10'
               }`}
             >
@@ -559,14 +559,14 @@ export function VrmViewerPage() {
           {vrmaName && (
             <button
               onClick={handleStopVrma}
-              className="px-2 py-0.5 rounded-full text-[10px] font-mono tracking-wider bg-brand/30 text-brand hover:bg-brand/50 transition-colors"
+              className="px-2 py-0.5 rounded-full text-xs font-mono bg-agent/30 text-agent hover:bg-agent/50 transition-colors"
               title="Stop VRMA, return to preset pose"
             >
               {vrmaName} ✕
             </button>
           )}
         </div>
-        <div className="h-[2px] bg-brand" />
+        <div className="h-[2px] bg-agent" />
       </div>
     </div>
   );

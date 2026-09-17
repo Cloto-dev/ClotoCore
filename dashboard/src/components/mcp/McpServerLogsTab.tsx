@@ -41,8 +41,8 @@ interface Props {
 // below are used, so they stay in the pre-compiled Tailwind bundle.
 const LEVEL_COLOR: Record<string, string> = {
   debug: 'text-content-tertiary',
-  info: 'text-brand',
-  notice: 'text-brand',
+  info: 'text-agent',
+  notice: 'text-agent',
   warning: 'text-amber-500',
   error: 'text-red-500',
   critical: 'text-red-500',
@@ -150,12 +150,12 @@ export function McpServerLogsTab({ server }: Props) {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2 border-b border-edge">
-        <span className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary">
+        <span className="text-xs font-mono text-content-tertiary">
           {t('logs.event_log')} — {displayServerId(server.id)}
         </span>
         <button
           onClick={() => setLogs([])}
-          className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+          className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
           title={t('logs.clear')}
           aria-label={t('logs.clear')}
         >
@@ -164,27 +164,25 @@ export function McpServerLogsTab({ server }: Props) {
       </div>
 
       {/* Log entries */}
-      <div className="flex-1 overflow-y-auto p-2 font-mono text-[10px] bg-black/5 dark:bg-white/5">
+      <div className="flex-1 overflow-y-auto p-2 font-mono text-xs bg-black/5 dark:bg-white/5">
         {logs.length === 0 && <div className="text-content-tertiary text-center py-8">{t('logs.waiting')}</div>}
         {logs.map((log, i) => (
           <div
             key={`${log.timestamp}-${log.label}-${i}`}
-            className="flex items-baseline gap-2 py-0.5 hover:bg-glass rounded px-1"
+            className="flex items-baseline gap-2 py-0.5 hover:bg-surface-panel rounded px-1"
           >
             <span className="text-content-tertiary flex-shrink-0">{log.timestamp}</span>
             {/* Source badge — the required stderr vs MCP-logging distinction. */}
             <span
-              className={`flex-shrink-0 px-1 rounded bg-glass ${
-                log.source === 'mcp_logging' ? 'text-brand' : 'text-content-tertiary'
+              className={`flex-shrink-0 px-1 rounded bg-surface-panel ${
+                log.source === 'mcp_logging' ? 'text-agent' : 'text-content-tertiary'
               }`}
             >
               {log.label}
             </span>
             {/* Level badge — MCP-logging lines only. */}
             {log.level && (
-              <span
-                className={`flex-shrink-0 uppercase text-[9px] ${LEVEL_COLOR[log.level] ?? 'text-content-tertiary'}`}
-              >
+              <span className={`flex-shrink-0 text-xs ${LEVEL_COLOR[log.level] ?? 'text-content-tertiary'}`}>
                 {log.level}
               </span>
             )}

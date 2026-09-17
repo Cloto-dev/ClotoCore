@@ -36,36 +36,30 @@ export function ExternalActionCard({ action }: ExternalActionCardProps) {
   return (
     <div
       className={`rounded-lg border p-3 transition-colors ${
-        isError ? 'border-red-500/40 bg-red-500/5' : 'border-edge bg-glass-subtle'
+        isError ? 'border-red-500/40 bg-red-500/5' : 'border-edge bg-surface-control'
       }`}
     >
       {/* Header: source badge + sender → target + engine */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span
-            className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${sourceBadgeClass(action.source)}`}
-          >
+          <span className={`text-xs font-bold px-1.5 py-0.5 rounded shrink-0 ${sourceBadgeClass(action.source)}`}>
             {action.source_label || action.source}
           </span>
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-content-secondary truncate">
-            {action.sender_name}
-          </span>
+          <span className="text-xs font-mono font-bold text-content-secondary truncate">{action.sender_name}</span>
           <ArrowRight size={10} className="text-content-tertiary shrink-0" />
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-content-secondary truncate">
+          <span className="text-xs font-mono font-bold text-content-secondary truncate">
             {action.target_agent_name}
           </span>
         </div>
-        <span className="text-[9px] font-mono text-content-tertiary bg-surface-secondary px-1.5 py-0.5 rounded shrink-0">
+        <span className="text-xs font-mono text-content-tertiary bg-surface-secondary px-1.5 py-0.5 rounded shrink-0">
           {displayServerId(action.engine_id)}
         </span>
       </div>
 
       {/* Prompt */}
       <div className="mb-2">
-        <div className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary mb-0.5">
-          {action.sender_name}
-        </div>
-        <div className="text-[11px] text-content-primary whitespace-pre-wrap break-words leading-relaxed">
+        <div className="text-xs font-bold text-content-tertiary mb-0.5">{action.sender_name}</div>
+        <div className="text-xs text-content-primary whitespace-pre-wrap break-words leading-relaxed">
           {promptPreview.truncated}
           {!expanded && promptPreview.isTruncated && <span className="text-content-tertiary">...</span>}
         </div>
@@ -74,17 +68,17 @@ export function ExternalActionCard({ action }: ExternalActionCardProps) {
       {/* Response or pending */}
       {isPending ? (
         <div className="flex items-center gap-1.5">
-          <Loader2 size={10} className="text-brand animate-spin" />
-          <span className="text-[10px] text-content-tertiary animate-pulse">Processing...</span>
+          <Loader2 size={10} className="text-agent animate-spin" />
+          <span className="text-xs text-content-tertiary animate-pulse">Processing...</span>
         </div>
       ) : (
         responsePreview && (
           <div>
-            <div className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary mb-0.5">
+            <div className="text-xs font-bold text-content-tertiary mb-0.5">
               {isError ? 'Error' : action.target_agent_name}
             </div>
             <div
-              className={`text-[11px] whitespace-pre-wrap break-words leading-relaxed ${
+              className={`text-xs whitespace-pre-wrap break-words leading-relaxed ${
                 isError ? 'text-red-400' : 'text-content-primary'
               }`}
             >
@@ -101,7 +95,7 @@ export function ExternalActionCard({ action }: ExternalActionCardProps) {
           <button
             type="button"
             onClick={() => setExpanded(!expanded)}
-            className="flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider text-content-tertiary hover:text-content-secondary transition-colors"
+            className="flex items-center gap-1 text-xs font-bold text-content-tertiary hover:text-content-secondary transition-colors"
           >
             {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
             {expanded ? 'Collapse' : 'Expand'}
@@ -110,7 +104,7 @@ export function ExternalActionCard({ action }: ExternalActionCardProps) {
           <span />
         )}
         {!isPending && (
-          <span className="text-[10px] font-mono text-content-tertiary">
+          <span className="text-xs font-mono text-content-tertiary">
             {new Date(action.timestamp).toLocaleTimeString()}
           </span>
         )}

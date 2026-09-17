@@ -13,14 +13,12 @@ export function ProfileSection({ name, description, onNameChange, onDescriptionC
   return (
     <section>
       <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
-        <Pencil className="text-brand" size={16} />
-        <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">
-          {t('plugin_workspace.profile')}
-        </h2>
+        <Pencil className="text-agent" size={16} />
+        <h2 className="font-bold text-xs text-content-secondary">{t('plugin_workspace.profile')}</h2>
       </div>
       <div className="space-y-3">
         <div>
-          <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
+          <label className="block text-xs font-bold text-content-tertiary mb-1">
             {t('plugin_workspace.profile_name')}
           </label>
           <input
@@ -28,18 +26,18 @@ export function ProfileSection({ name, description, onNameChange, onDescriptionC
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
             maxLength={200}
-            className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary font-mono"
+            className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary font-mono"
           />
         </div>
         <div>
-          <label className="block text-[10px] font-bold text-content-tertiary uppercase tracking-wider mb-1">
+          <label className="block text-xs font-bold text-content-tertiary mb-1">
             {t('plugin_workspace.profile_description')}
           </label>
           <textarea
             value={description}
             onChange={(e) => onDescriptionChange(e.target.value)}
             maxLength={5000}
-            className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-brand bg-surface-primary font-mono min-h-[240px] resize-y"
+            className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary font-mono min-h-[240px] resize-y"
           />
         </div>
       </div>

@@ -12,9 +12,9 @@ interface Props {
  * not carry an "Enable YOLO" shortcut, see plan §5 / woolly-herding-eagle.md).
  * The operator flips settings manually via Settings → Security.
  *
- * Styling policy: functional UI surface → `bg-glass-strong` with a red
+ * Styling policy: functional UI surface → `bg-surface-field` with a red
  * accent for the alert indicator. Hover on the dismiss button uses
- * `hover:border-brand` since dismissing is non-destructive.
+ * `hover:border-agent` since dismissing is non-destructive.
  */
 export function ToolRejectionCard({ rejection, onDismiss }: Props) {
   return (
@@ -22,34 +22,34 @@ export function ToolRejectionCard({ rejection, onDismiss }: Props) {
       <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 shadow-sm bg-red-500/20 text-red-400">
         <AlertOctagon size={14} />
       </div>
-      <div className="p-4 rounded-xl border border-edge bg-glass-strong text-sm max-w-[80%] space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-300 relative">
+      <div className="p-4 rounded-xl border border-edge bg-surface-field text-sm max-w-[80%] space-y-2 animate-in fade-in slide-in-from-bottom-2 duration-300 relative">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-red-400 uppercase tracking-widest">Tool Rejected</span>
-            <code className="text-[9px] font-mono text-content-tertiary">{rejection.code}</code>
+            <span className="text-xs font-bold text-red-400">Tool Rejected</span>
+            <code className="text-xs font-mono text-content-tertiary">{rejection.code}</code>
           </div>
           <button
             type="button"
             onClick={() => onDismiss(rejection.local_id)}
             aria-label="Dismiss rejection"
-            className="p-1 rounded-md text-content-tertiary hover:text-content-primary hover:bg-glass transition-colors"
+            className="p-1 rounded-md text-content-tertiary hover:text-content-primary hover:bg-surface-panel transition-colors"
           >
             <X size={12} />
           </button>
         </div>
-        <div className="text-[11px] text-content-secondary">
+        <div className="text-xs text-content-secondary">
           <span className="font-mono text-content-tertiary">tool: </span>
           <span className="font-mono">{rejection.tool_name}</span>
         </div>
-        <p className="text-[11px] text-content-secondary leading-relaxed whitespace-pre-wrap">{rejection.reason}</p>
+        <p className="text-xs text-content-secondary leading-relaxed whitespace-pre-wrap">{rejection.reason}</p>
         {rejection.remediation_hint && (
-          <p className="text-[10px] text-content-tertiary border-t border-edge pt-2">
-            <span className="font-bold uppercase tracking-wider">Remediation: </span>
+          <p className="text-xs text-content-tertiary border-t border-edge pt-2">
+            <span className="font-bold">Remediation: </span>
             {rejection.remediation_hint}
           </p>
         )}
         {!rejection.retryable && (
-          <p className="text-[9px] text-red-400/70 italic">Hard rejection — operator action cannot resolve this.</p>
+          <p className="text-xs text-red-400/70 italic">Hard rejection — operator action cannot resolve this.</p>
         )}
       </div>
     </div>
