@@ -289,8 +289,11 @@ mod tests {
 
     #[test]
     fn a_snippet_starts_at_the_earliest_of_several_terms_and_ignores_case() {
-        let body = format!("{} Beta then alpha", "x ".repeat(40));
+        // The prefix is longer than a snippet, so a match that is not found
+        // leaves the snippet at the start of the text, without either term.
+        let body = format!("{} Beta then alpha", "x ".repeat(100));
         let s = snippet(&body, &["ALPHA".to_string(), "beta".to_string()]);
+        assert!(s.starts_with('…'), "the snippet moved to the match: {s}");
         let beta = s.find("Beta").expect("the earlier term is in the snippet");
         assert!(s[..beta].ends_with("x "), "{s}");
     }
