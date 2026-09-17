@@ -1,3 +1,4 @@
+import type { NotificationSeverity } from './services/api';
 export type ClotoId = string;
 
 export interface ClotoMessage {
@@ -135,6 +136,8 @@ export interface CommandApprovalRequest {
   approval_id: string;
   agent_id: string;
   commands: Array<{ command: string; command_name: string }>;
+  /** The kernel's derivation of what the commands could do, for "影響: 小/中/大". */
+  severity?: NotificationSeverity;
 }
 
 /**

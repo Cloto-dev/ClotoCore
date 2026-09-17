@@ -27,6 +27,16 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   used, or waiting and when you last spoke) and the conversation's title.
   Agent settings and the 3D avatar window are behind the header's tools.
 
+- **An agent's question is asked in the agent's words.** A command approval,
+  a refused tool call, one agent asking another and a message from outside
+  are all drawn the same way: the agent's colour on the left edge, the
+  question, the command in a mono box, the consequence as a sentence, and the
+  answers — go ahead (from now on), just this once, not now — with the impact
+  the kernel derived at the right. The question is asked inside the
+  conversation while that conversation is open; the window-level deck asks it
+  only for an agent you are not looking at, never twice on one screen. A
+  refusal carries nothing to answer.
+
 - **The MCP page is the workshop of the design mocks.** One column with a
   band per kind — reasoning, memory, tools, senses, output — and the servers
   that need a hand first, whatever their kind. Every row carries the server's
@@ -58,7 +68,8 @@ The chat: 0 of 21 applicable signals present, 5 partly (a rounded "latest"
 button, the greeting in the empty room, the blinking cursor, the reading column
 below 800px, the monospace context meter) — all five drawn as the mock draws
 them. The MCP list and page: 0 of 21 present, 2 partly (the fixed 200px section
-rail below 900px, the monospace ids under names).
+rail below 900px, the monospace ids under names). The agent's question: 0 of
+21 present, 0 partly.
 
 ## [0.6.9a1] — 2026-09-08
 <!-- release-title: an agent gets files it always reads, and skills it loads when it needs them -->

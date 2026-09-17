@@ -9,6 +9,10 @@ const denyCommand = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../hooks/useApi', () => ({
   useApi: () => ({ approveCommand, trustCommand, denyCommand }),
 }));
+// Echo i18n keys so the assertions do not depend on copy.
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({ t: (k: string) => k }),
+}));
 
 const COMMANDS = [{ command: 'rm -rf /tmp/scratch', command_name: 'rm' }];
 
@@ -38,7 +42,7 @@ describe('CommandApprovalCard', () => {
     expect(onResolved).not.toHaveBeenCalled();
     expect(screen.getByText('rm -rf /tmp/scratch')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByLabelText('Approve command'));
+    fireEvent.click(screen.getByRole('button', { name: 'ask.just_once' }));
     expect(approveCommand).toHaveBeenCalledWith('a-1');
   });
 
@@ -48,11 +52,27 @@ describe('CommandApprovalCard', () => {
     expect(screen.queryByText(/^\d+s$/)).not.toBeInTheDocument();
   });
 
+  it("'go ahead' trusts the command from now on; 'just this once' approves only this request", () => {
+    render(<CommandApprovalCard approvalId="a-4" commands={COMMANDS} onResolved={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'ask.go_ahead' }));
+    expect(trustCommand).toHaveBeenCalledWith('a-4');
+    expect(approveCommand).not.toHaveBeenCalled();
+  });
+
+  it('names the impact the kernel derived, and nothing when it did not', () => {
+    const { rerender } = render(
+      <CommandApprovalCard approvalId="a-5" commands={COMMANDS} severity="error" onResolved={() => {}} />,
+    );
+    expect(screen.getByText('ask.risk')).toBeInTheDocument();
+    rerender(<CommandApprovalCard approvalId="a-6" commands={COMMANDS} onResolved={() => {}} />);
+    expect(screen.queryByText('ask.risk')).not.toBeInTheDocument();
+  });
+
   it('answering resolves the card exactly once', async () => {
     const onResolved = vi.fn();
     render(<CommandApprovalCard approvalId="a-3" commands={COMMANDS} onResolved={onResolved} />);
 
-    fireEvent.click(screen.getByLabelText('Deny command'));
+    fireEvent.click(screen.getByRole('button', { name: 'ask.not_now' }));
     await act(async () => {
       await vi.runAllTimersAsync();
     });

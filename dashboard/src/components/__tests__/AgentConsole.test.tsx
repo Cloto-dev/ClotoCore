@@ -16,6 +16,10 @@ const api = vi.hoisted(() => ({
   retryResponse: vi.fn(),
   getAgentLastUsage: vi.fn(),
   getAvatarUrl: vi.fn(() => ''),
+  getNotifications: vi.fn(),
+  approveCommand: vi.fn(),
+  trustCommand: vi.fn(),
+  denyCommand: vi.fn(),
 }));
 const stream = vi.hoisted(() => ({ handler: null as null | ((event: Record<string, unknown>) => void) }));
 const conversations = vi.hoisted(() => ({ open: vi.fn(), refresh: vi.fn() }));
@@ -80,6 +84,7 @@ vi.mock('../ContentBlockView', () => ({
   ),
 }));
 
+import { inlineSnapshot, resetInline } from '../../lib/inlineApprovals';
 import { AgentConsole } from '../AgentConsole';
 
 const agent: AgentMetadata = {
@@ -127,6 +132,9 @@ beforeEach(() => {
   api.postChatMessage.mockReset().mockResolvedValue({ id: 'x', created_at: 0 });
   api.retryResponse.mockReset().mockResolvedValue({ retry_id: 'r' });
   api.getAgentLastUsage.mockReset().mockResolvedValue({ usage: null });
+  api.getNotifications.mockReset().mockResolvedValue([]);
+  api.approveCommand.mockReset().mockResolvedValue(undefined);
+  resetInline();
   conversations.open.mockReset();
   conversations.refresh.mockReset();
   sessionStorage.clear();
@@ -159,6 +167,43 @@ describe('the living room', () => {
     expect(screen.queryByText('console.remark')).toBeNull();
     reply(id, 'hi there');
     expect(await screen.findByText('hi there')).toBeTruthy();
+  });
+
+  it("asks the agent's question inside the room, keeps the deck off it, and answers it here", async () => {
+    draw();
+    await screen.findByText('console.remark');
+    act(() => {
+      stream.handler?.({
+        type: 'CommandApprovalRequested',
+        data: {
+          approval_id: 'ap-1',
+          agent_id: 'agent.a',
+          commands: [{ command: 'systemctl --user restart cloto-cron.service', command_name: 'systemctl' }],
+        },
+      });
+    });
+    expect(screen.getByText('systemctl --user restart cloto-cron.service')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'ask.go_ahead' })).toBeTruthy();
+    // The room said so, so the deck will not ask the same question over it.
+    expect(inlineSnapshot().has('ap-1')).toBe(true);
+
+    fireEvent.click(screen.getByRole('button', { name: 'ask.just_once' }));
+    await vi.waitFor(() => expect(api.approveCommand).toHaveBeenCalledWith('ap-1'));
+    await vi.waitFor(() => expect(screen.queryByText('systemctl --user restart cloto-cron.service')).toBeNull());
+    expect(inlineSnapshot().has('ap-1')).toBe(false);
+  });
+
+  it("does not ask another agent's question in this room", async () => {
+    draw();
+    await screen.findByText('console.remark');
+    act(() => {
+      stream.handler?.({
+        type: 'CommandApprovalRequested',
+        data: { approval_id: 'ap-2', agent_id: 'agent.b', commands: [{ command: 'ls', command_name: 'ls' }] },
+      });
+    });
+    expect(screen.queryByText('ls')).toBeNull();
+    expect(inlineSnapshot().has('ap-2')).toBe(false);
   });
 
   it('stop keeps what was shown, says so, and does not draw the reply that still arrives', async () => {

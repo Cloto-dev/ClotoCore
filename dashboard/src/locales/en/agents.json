@@ -187,5 +187,25 @@
     "restart_note": "Saving restarts the connector: these options are read when its process starts.",
     "probe_failed": "Could not read the harnesses on this host",
     "save_failed": "Could not save the connection options"
+  },
+  "ask": {
+    "run_this": "May I run this?",
+    "run_these": "May I run these {{count}} commands?",
+    "run_why": "\"Go ahead\" lets me run {{name}} from now on without asking. \"Just this once\" is for this request only.",
+    "run_why_several": "\"Go ahead\" lets me run these {{count}} commands from now on without asking. \"Just this once\" is for this request only.",
+    "go_ahead": "Go ahead",
+    "just_once": "Just this once",
+    "not_now": "Not now",
+    "risk": "Impact: {{level}}",
+    "risk_low": "low",
+    "risk_medium": "medium",
+    "risk_high": "high",
+    "rejected": "I tried to use {{tool}}, and it was refused.",
+    "rejected_hard": "This cannot be changed from the settings.",
+    "close": "Close",
+    "dialogue_who": "{{from}} asks {{to}}",
+    "external_who": "{{from}} on {{source}} asks {{to}}",
+    "awaiting": "Waiting for {{name}} to answer.",
+    "failed": "{{name}} could not answer: {{error}}"
   }
 }

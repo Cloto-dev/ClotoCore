@@ -14,6 +14,8 @@ import { buildOutgoingChat } from '../lib/chatSend';
 import { type DayLabel, dayBreaks, dayLabel, relativeTime, timeOfDay } from '../lib/chatTime';
 import { displayTitle } from '../lib/conversations';
 import { findBranchPoints, flattenConversation } from '../lib/conversationTree';
+import { markInline, unmarkInline } from '../lib/inlineApprovals';
+import { mostSevere } from '../lib/notificationSeverity';
 import { sendNativeNotification } from '../lib/notifications';
 import { isEngineServer } from '../lib/serverCategory';
 import { openVrmWindow } from '../lib/tauri';
@@ -35,6 +37,7 @@ import { ActionsPanel } from './ActionsPanel';
 import { BranchNavigator } from './BranchNavigator';
 import { ChatInputBar } from './ChatInputBar';
 import './ChatRoom.css';
+import { CommandApprovalCard } from './CommandApprovalCard';
 import { MessageContent } from './ContentBlockView';
 import { ContextUsageBadge } from './ContextUsageBadge';
 import { SystemAlertCard } from './SystemAlertCard';
@@ -251,6 +254,49 @@ export function AgentConsole({
   useEffect(() => {
     if (!isTyping) refreshConversations();
   }, [isTyping, refreshConversations]);
+
+  // The questions this agent was already blocked on when the room opened. The
+  // stream only carries arrivals; without this a reload would show the agent
+  // waiting with nothing to answer.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getNotifications(true)
+      .then((items) => {
+        if (cancelled) return;
+        const mine = items.filter((i) => i.kind === 'approval' && i.blocking && i.agent_id === agent.id);
+        if (mine.length === 0) return;
+        setPendingApprovals((prev) => {
+          const known = new Set(prev.map((a) => a.approval_id));
+          const added = mine
+            .filter((i) => !known.has(i.item_id))
+            .map((i) => ({
+              approval_id: i.item_id,
+              agent_id: agent.id,
+              commands: (Array.isArray(i.metadata?.commands)
+                ? i.metadata.commands
+                : []) as CommandApprovalRequest['commands'],
+              severity: i.severity,
+            }));
+          return added.length > 0 ? [...prev, ...added] : prev;
+        });
+      })
+      .catch(() => {
+        /* the stream still delivers what arrives from now on */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, agent.id]);
+
+  // This room is asking these; the deck must not ask them again over it.
+  useEffect(() => {
+    const ids = pendingApprovals.map((a) => a.approval_id);
+    for (const id of ids) markInline(id);
+    return () => {
+      for (const id of ids) unmarkInline(id);
+    };
+  }, [pendingApprovals]);
 
   useEffect(() => {
     if (!moreOpen) return;
@@ -521,7 +567,7 @@ export function AgentConsole({
         const approvalData = event.data as {
           approval_id: string;
           agent_id: string;
-          commands?: Array<{ command: string; command_name: string }>;
+          commands?: Array<{ command: string; command_name: string; severity?: unknown }>;
         };
         setPendingApprovals((prev) => {
           if (prev.some((a) => a.approval_id === approvalData.approval_id)) return prev;
@@ -531,6 +577,7 @@ export function AgentConsole({
               approval_id: approvalData.approval_id,
               agent_id: approvalData.agent_id,
               commands: approvalData.commands || [],
+              severity: mostSevere((approvalData.commands ?? []).map((c) => c.severity)),
             },
           ];
         });
@@ -874,7 +921,14 @@ export function AgentConsole({
   const generating = isTyping || !!pendingResponse;
   const toolsUsed = thinkingSteps.filter((s) => s.status === 'ok' || s.status === 'fail' || s.status === 'running');
   const lastTurnAt = displayMessages.length > 0 ? displayMessages[displayMessages.length - 1].created_at : null;
-  const empty = !isLoading && displayMessages.length === 0 && !generating;
+  // A question the agent is asking, or a refusal it met, is drawn in the
+  // conversation — so a room with one is not empty even before anyone spoke.
+  const empty =
+    !isLoading &&
+    displayMessages.length === 0 &&
+    !generating &&
+    pendingApprovals.length === 0 &&
+    pendingRejections.length === 0;
 
   const dayText = (label: DayLabel) =>
     label.kind === 'today'
@@ -1172,14 +1226,36 @@ export function AgentConsole({
                 </div>
               )}
 
-              {/* Tool Rejection Cards (kernel-issued, dismissable) */}
-              {pendingRejections.map((rejection) => (
-                <ToolRejectionCard
-                  key={rejection.local_id}
-                  rejection={rejection}
-                  onDismiss={(localId) => setPendingRejections((prev) => prev.filter((r) => r.local_id !== localId))}
-                />
-              ))}
+              {/* The agent's questions and the refusals it met, in its own
+                  words, at the end of the conversation. The deck leaves these
+                  to this room while it is open. */}
+              {(pendingApprovals.length > 0 || pendingRejections.length > 0) && (
+                <div className="msg">
+                  <span className="mark" />
+                  <div className="b">
+                    {pendingApprovals.map((a, i) => (
+                      <CommandApprovalCard
+                        key={a.approval_id}
+                        approvalId={a.approval_id}
+                        commands={a.commands}
+                        severity={a.severity}
+                        first={i === 0}
+                        onResolved={(id) => setPendingApprovals((prev) => prev.filter((x) => x.approval_id !== id))}
+                      />
+                    ))}
+                    {pendingRejections.map((rejection, i) => (
+                      <ToolRejectionCard
+                        key={rejection.local_id}
+                        rejection={rejection}
+                        first={pendingApprovals.length === 0 && i === 0}
+                        onDismiss={(localId) =>
+                          setPendingRejections((prev) => prev.filter((r) => r.local_id !== localId))
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

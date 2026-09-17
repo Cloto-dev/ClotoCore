@@ -285,6 +285,26 @@
       "restart_note": "保存するとコネクタを再起動します。これらのオプションはプロセス起動時に読まれます。",
       "probe_failed": "このホストのハーネスを読み取れませんでした",
       "save_failed": "接続オプションを保存できませんでした"
+    },
+    "ask": {
+      "run_this": "実行してもいいですか。",
+      "run_these": "この {{count}} 件を実行してもいいですか。",
+      "run_why": "「いいですよ」にすると、{{name}} は今後も聞かずに実行します。「今回だけ」は今回の分だけです。",
+      "run_why_several": "「いいですよ」にすると、この {{count}} つのコマンドは今後も聞かずに実行します。「今回だけ」は今回の分だけです。",
+      "go_ahead": "いいですよ",
+      "just_once": "今回だけ",
+      "not_now": "やめておく",
+      "risk": "影響: {{level}}",
+      "risk_low": "小",
+      "risk_medium": "中",
+      "risk_high": "大",
+      "rejected": "{{tool}} を使おうとしましたが、断られました。",
+      "rejected_hard": "これは設定からは変えられません。",
+      "close": "閉じる",
+      "dialogue_who": "{{from}} から {{to}} への問いかけ",
+      "external_who": "{{source}} の {{from}} から {{to}} への問いかけ",
+      "awaiting": "{{name}} の返事を待っています。",
+      "failed": "{{name}} は答えられませんでした: {{error}}"
     }
   },
   "settings": {

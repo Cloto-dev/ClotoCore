@@ -159,9 +159,15 @@ describe('the legacy palette', () => {
   // resolves to an empty module under vitest.
   const css = readFileSync('src/index.css', 'utf8');
 
-  it.each(['light', 'dark'] as const)('draws every %s token in the colour it had before the redesign', (mode) => {
-    const tokens = block(css, mode === 'light' ? '.theme-legacy' : '.theme-legacy.dark');
-    expect(tokens).toEqual(EXPECTED[mode]);
+  // Two plain cases rather than `it.each`: the docs gate counts test cases
+  // statically, and a table it cannot expand makes the count disagree with
+  // the run.
+  it('draws every light token in the colour it had before the redesign', () => {
+    expect(block(css, '.theme-legacy')).toEqual(EXPECTED.light);
+  });
+
+  it('draws every dark token in the colour it had before the redesign', () => {
+    expect(block(css, '.theme-legacy.dark')).toEqual(EXPECTED.dark);
   });
 
   it('holds the accent against the per-agent value written inline', () => {
