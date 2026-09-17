@@ -1,9 +1,9 @@
-import { ArrowLeft, ArrowRight, ArrowUp, HelpCircle, type LucideIcon, Minus, Square, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, ArrowUp, HelpCircle, type LucideIcon } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 import { useConnection } from '../contexts/ConnectionContext';
-import { closeWindow, isTauri, minimizeWindow, toggleMaximizeWindow } from '../lib/tauri';
+import { hasOverlayTitleBar } from '../lib/tauri';
 import { StatusDot } from './ui/StatusDot';
 
 interface ViewHeaderProps {
@@ -52,7 +52,9 @@ export function ViewHeader({
 
   return (
     <header
-      className="relative z-10 flex items-center gap-3 px-4 py-2 border-b border-edge bg-surface-primary select-none"
+      // Where the OS lays its window buttons over the page, they sit at this
+      // bar's left end: the bar starts after them.
+      className={`relative z-10 flex items-center gap-3 px-4 py-2 border-b border-edge bg-surface-primary select-none${hasOverlayTitleBar ? ' pl-20' : ''}`}
       data-tauri-drag-region=""
     >
       {typeof onBack === 'string' ? (
@@ -97,7 +99,7 @@ export function ViewHeader({
       {afterTitle}
       {right && <div className="ml-auto flex items-center gap-3">{right}</div>}
 
-      {/* Help + Connection indicator + Window Controls */}
+      {/* Help + connection indicator. The window buttons are the OS's. */}
       <div className={`flex items-center gap-2 pr-1 ${right ? '' : 'ml-auto'}`}>
         {/* Update available indicator (Discord-style green arrow) */}
         {updateVersion && (
@@ -135,33 +137,6 @@ export function ViewHeader({
               {connected ? 'Connected' : 'Backend unreachable'}
             </div>
           </div>
-        )}
-
-        {/* Window Controls (Tauri only) */}
-        {isTauri && (
-          <>
-            <button
-              onClick={minimizeWindow}
-              aria-label={t('minimize_window')}
-              className="p-1.5 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
-            >
-              <Minus size={14} />
-            </button>
-            <button
-              onClick={toggleMaximizeWindow}
-              aria-label={t('maximize_window')}
-              className="p-1.5 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
-            >
-              <Square size={13} />
-            </button>
-            <button
-              onClick={closeWindow}
-              aria-label={t('close_window')}
-              className="p-1.5 ml-1 rounded hover:bg-red-500/20 text-content-tertiary hover:text-red-500 transition-colors"
-            >
-              <X size={14} />
-            </button>
-          </>
         )}
       </div>
     </header>

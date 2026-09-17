@@ -58,6 +58,18 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   version and registration time, and `GET /api/mcp/servers/:name/tools`
   answers with the tools and their descriptions.
 
+- **The window's frame is the operating system's.** The bar the dashboard drew
+  across the top of the window — back and forward, the product name, "N / N
+  active", help, a connection dot and its own minimise / maximise / close
+  buttons — is gone, and so is the line under it. On macOS the window buttons
+  sit over the top-left of the page and the two surfaces run up to the top
+  edge; elsewhere the OS draws its own title bar, in the app's theme rather
+  than the system's. What the bar carried has moved to where it belongs: help
+  is a link in the navigation, a newer build turns the version number in the
+  sidebar's foot into the way to it, and that foot now says when the kernel
+  cannot be reached instead of always saying it is running. Back and forward
+  are not replaced. A window-state file written by an older build no longer
+  takes the frame away again: whether the window has one is no longer restored.
 - **The agents screen is the roster of the design mocks.** The card grid and
   the always-open create form are gone. On the left, everyone who exists in two
   groups — answering now, and idle — each row a face, a name, one line of state

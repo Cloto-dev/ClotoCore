@@ -1,18 +1,17 @@
-import { Cpu, HelpCircle, Settings } from 'lucide-react';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { HelpCircle, Settings } from 'lucide-react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ActionsProvider } from '../contexts/ActionsContext';
 import { useAgentContext } from '../contexts/AgentContext';
 import { ConversationProvider } from '../contexts/ConversationContext';
-import { isExperimentalBuild } from '../lib/tauri';
+import { hasOverlayTitleBar, isExperimentalBuild, OVERLAY_TITLE_BAR_PX } from '../lib/tauri';
 import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
 import { CommandApprovalDeck } from './CommandApprovalDeck';
 import { HelpContent } from './HelpContent';
 import { Modal } from './Modal';
 import { SecurityGuard } from './SecurityGuard';
-import { ViewHeader } from './ViewHeader';
 
 const SettingsView = lazy(() => import('./SettingsView').then((m) => ({ default: m.SettingsView })));
 
@@ -31,20 +30,6 @@ export function AppLayout() {
   const location = useLocation();
   const { agents, setSelectedAgentId } = useAgentContext();
   const isAgentRoute = location.pathname === '/';
-
-  const activeCount = agents.filter((a) => a.enabled).length;
-
-  // Track navigation history for back/forward button states
-  const maxIdxRef = useRef(0);
-  const [canGoBack, setCanGoBack] = useState(false);
-  const [canGoForward, setCanGoForward] = useState(false);
-
-  useEffect(() => {
-    const idx = ((window.history.state as Record<string, unknown>)?.idx as number) ?? 0;
-    maxIdxRef.current = Math.max(maxIdxRef.current, idx);
-    setCanGoBack(idx > 0);
-    setCanGoForward(idx < maxIdxRef.current);
-  }, []);
 
   // Close settings and navigate home when quick setup completes
   useEffect(() => {
@@ -78,29 +63,25 @@ export function AppLayout() {
     <ConversationProvider>
       <ActionsProvider>
         <div className="h-screen bg-surface-base flex flex-col overflow-hidden relative font-sans text-content-primary select-none">
-          {/* 1. ViewHeader — first child, full width */}
-          {!immersive && (
-            <ViewHeader
-              icon={Cpu}
-              title="ClotoCore"
-              onHelp={() => setHelpOpen(true)}
-              navBack={() => navigate(-1)}
-              navForward={() => navigate(1)}
-              canGoBack={canGoBack}
-              canGoForward={canGoForward}
-              right={
-                <span className="text-xs font-mono text-content-tertiary">
-                  {activeCount} / {agents.length} Active
-                </span>
-              }
-            />
+          {/* The window's frame is the OS's. Where the OS lays its title bar over
+              the page (macOS), the page leaves a strip for the window buttons and
+              to take hold of the window by: the two surfaces carried up to the
+              top edge, nothing drawn on them, no line under them. */}
+          {hasOverlayTitleBar && (
+            <div className="flex shrink-0" style={{ height: OVERLAY_TITLE_BAR_PX }} data-testid="window-strip">
+              {!immersive && (
+                // HARDCODED(dashboard/src/components/AppSidebar.css::.side width): the strip continues the sidebar's surface upward, so it is as wide as the sidebar.
+                <div className="shrink-0 bg-surface-secondary" style={{ width: 264 }} data-tauri-drag-region="" />
+              )}
+              <div className="flex-1" data-tauri-drag-region="" />
+            </div>
           )}
 
-          {/* 2. Body — second child, sidebar + content */}
+          {/* Body — sidebar + content */}
           <div className="flex flex-1 overflow-hidden relative">
             {!immersive && (
               <div className="relative z-10">
-                <AppSidebar onSettingsClick={() => setSettingsOpen(true)} />
+                <AppSidebar onSettingsClick={() => setSettingsOpen(true)} onHelpClick={() => setHelpOpen(true)} />
               </div>
             )}
             <main className="flex-1 h-full overflow-hidden relative z-10">

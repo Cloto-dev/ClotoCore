@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation } from '../../types';
 
@@ -15,6 +15,8 @@ vi.mock('../../hooks/useApi', () => ({ useApi: () => ({ post: vi.fn() }) }));
 vi.mock('../../hooks/useModules', () => ({ useModules: () => ({ modules: [] }) }));
 vi.mock('../../lib/tauri', () => ({ isExperimentalBuild: false }));
 vi.mock('../NotificationBell', () => ({ NotificationBell: () => null }));
+const connection = vi.hoisted(() => ({ connected: true, checking: false }));
+vi.mock('../../contexts/ConnectionContext', () => ({ useConnection: () => connection }));
 vi.mock('../ShutdownOverlay', () => ({ requestShutdown: vi.fn() }));
 
 const conversations = vi.hoisted(() => ({
@@ -142,5 +144,45 @@ describe("the sidebar's conversations", () => {
     render(<AppSidebar onSettingsClick={vi.fn()} />);
     expect(screen.getByText('kernel_running')).toBeTruthy();
     expect(screen.getByText('agents_count')).toBeTruthy();
+  });
+});
+
+describe('what the window header used to carry', () => {
+  it('opens the help from the navigation, and draws no link when there is no help to open', () => {
+    const onHelp = vi.fn();
+    const { unmount } = render(<AppSidebar onSettingsClick={vi.fn()} onHelpClick={onHelp} />);
+    fireEvent.click(screen.getByText('help'));
+    expect(onHelp).toHaveBeenCalledTimes(1);
+    unmount();
+
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.queryByText('help')).toBeNull();
+  });
+
+  it('says so when the kernel cannot be reached, instead of "running"', () => {
+    connection.connected = false;
+    try {
+      render(<AppSidebar onSettingsClick={vi.fn()} />);
+      expect(screen.getByText('kernel_unreachable')).toBeTruthy();
+      expect(screen.queryByText('kernel_running')).toBeNull();
+    } finally {
+      connection.connected = true;
+    }
+  });
+
+  it('turns the version into the way to the update once one is announced', () => {
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /update_available_banner/ })).toBeNull();
+
+    const opened = vi.fn();
+    window.addEventListener('cloto-open-settings', opened);
+    act(() => {
+      window.dispatchEvent(new CustomEvent('cloto-update-available', { detail: { version: '9.9.9' } }));
+    });
+    fireEvent.click(screen.getByRole('button', { name: /update_available_banner/ }));
+    window.removeEventListener('cloto-open-settings', opened);
+
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({ section: 'about' });
   });
 });

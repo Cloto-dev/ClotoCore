@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAgentContext } from '../contexts/AgentContext';
+import { useConnection } from '../contexts/ConnectionContext';
 import { useConversations } from '../contexts/ConversationContext';
 import { useApi } from '../hooks/useApi';
 import { useModules } from '../hooks/useModules';
@@ -79,6 +80,13 @@ const ICONS = {
       <rect x="13" y="13" width="8" height="8" rx="1.5" />
     </svg>
   ),
+  help: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7" />
+      <path d="M12 17h.01" />
+    </svg>
+  ),
   power: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
       <path d="M12 3v9" />
@@ -99,14 +107,26 @@ const VISIBLE_GROUPS = new Set(['today', 'yesterday', 'previous_7_days']);
 
 interface AppSidebarProps {
   onSettingsClick: () => void;
+  /** Open the help. Optional: a caller with no help to show gets no link. */
+  onHelpClick?: () => void;
 }
 
-export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
+export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpClick }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const { t } = useTranslation('nav');
   const { t: tSettings } = useTranslation('settings');
   const { t: tCommon } = useTranslation('common');
+  const { connected } = useConnection();
+
+  // The updater announces a newer build with this event; the foot's version
+  // number turns into the way to it.
+  const [updateVersion, setUpdateVersion] = useState<string | null>(null);
+  useEffect(() => {
+    const handler = (e: Event) => setUpdateVersion((e as CustomEvent).detail?.version ?? 'new');
+    window.addEventListener('cloto-update-available', handler);
+    return () => window.removeEventListener('cloto-update-available', handler);
+  }, []);
   const api = useApi();
   const { agents, selectedAgentId, setSelectedAgentId, systemActive, setSystemActive, processingAgentIds } =
     useAgentContext();
@@ -348,12 +368,33 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
             </button>
           );
         })}
+        {onHelpClick && (
+          <button type="button" className="navlink" onClick={onHelpClick}>
+            {ICONS.help}
+            {t('help')}
+          </button>
+        )}
       </nav>
 
       <div className="side-foot">
-        <span className="ok">{t('kernel_running')}</span>
+        <span className={connected ? 'ok' : 'bad'}>{connected ? t('kernel_running') : t('kernel_unreachable')}</span>
         <span>{t('agents_count', { count: agents.length })}</span>
-        <span className="num">{__APP_VERSION__}</span>
+        {updateVersion ? (
+          // A newer build exists: the version itself is the way to it.
+          <button
+            type="button"
+            className="num update"
+            title={tCommon('update_available_banner', { version: updateVersion })}
+            aria-label={tCommon('update_available_banner', { version: updateVersion })}
+            onClick={() =>
+              window.dispatchEvent(new CustomEvent('cloto-open-settings', { detail: { section: 'about' } }))
+            }
+          >
+            {__APP_VERSION__} ↑
+          </button>
+        ) : (
+          <span className="num">{__APP_VERSION__}</span>
+        )}
         <button
           type="button"
           className="power"

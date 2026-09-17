@@ -835,7 +835,9 @@
     "show_less": "たたむ",
     "responding": "応答中",
     "kernel_running": "カーネル稼働中",
-    "agents_count": "{{count}} 体"
+    "agents_count": "{{count}} 体",
+    "help": "ヘルプ",
+    "kernel_unreachable": "カーネルに接続できません"
   },
   "cron": {
     "title": "Cron ジョブ",

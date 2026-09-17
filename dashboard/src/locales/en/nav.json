@@ -36,5 +36,7 @@
   "show_less": "Show less",
   "responding": "Responding",
   "kernel_running": "Kernel running",
-  "agents_count": "{{count}} agents"
+  "agents_count": "{{count}} agents",
+  "help": "Help",
+  "kernel_unreachable": "Kernel unreachable"
 }
