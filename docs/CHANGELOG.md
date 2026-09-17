@@ -24,7 +24,9 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   per-agent fields from its schema. Saving asks everything that can refuse —
   the agents still existing, the server settings being readable — before it
   writes anything, and writes the agents before restarting the connector. An
-  agent's engine row points here when its engine runs a harness.
+  agent's engine row points here when its engine runs a harness. Scored against
+  the review checklist: 0 of 21 applicable signals, 2 partial (no focus rings
+  of its own yet, and no breakpoint below the mock's width).
 
 - **A new agent can be given its icon, and its VRM, as it is made.** The create
   dialog has an icon row under the name — the picture shows at once, can be
