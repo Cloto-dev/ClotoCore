@@ -19,6 +19,7 @@ import { mostSevere } from '../lib/notificationSeverity';
 import { sendNativeNotification } from '../lib/notifications';
 import { isEngineServer } from '../lib/serverCategory';
 import { openVrmWindow } from '../lib/tauri';
+import { thinkingStorageKey } from '../lib/thinkingSteps';
 import { EVENTS_URL } from '../services/api';
 import type {
   AgentMetadata,
@@ -134,7 +135,7 @@ export function AgentConsole({
   } | null>(null);
   const [thinkingSteps, setThinkingStepsRaw] = useState<ThinkingStep[]>(() => {
     try {
-      const saved = sessionStorage.getItem(`cloto-thinking-${agent.id}`);
+      const saved = sessionStorage.getItem(thinkingStorageKey(agent.id));
       return saved ? JSON.parse(saved) : [];
     } catch {
       return [];
@@ -146,9 +147,9 @@ export function AgentConsole({
       const next = typeof action === 'function' ? action(prev) : action;
       try {
         if (next.length === 0) {
-          sessionStorage.removeItem(`cloto-thinking-${agent.id}`);
+          sessionStorage.removeItem(thinkingStorageKey(agent.id));
         } else {
-          sessionStorage.setItem(`cloto-thinking-${agent.id}`, JSON.stringify(next.slice(-50)));
+          sessionStorage.setItem(thinkingStorageKey(agent.id), JSON.stringify(next.slice(-50)));
         }
       } catch {
         /* storage full */

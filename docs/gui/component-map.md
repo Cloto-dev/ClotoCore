@@ -31,19 +31,18 @@ System views (non-route):
 ### `components/` — Core UI components
 
 #### Agent Interaction
-- `AgentTerminal.tsx` — **Main agent UI**. Agent card grid (create, select, power toggle), conversation area, chat history, plugin workspace toggle.
+- `AgentTerminal.tsx` — The agent route: the roster when nobody is selected, the conversation when somebody is. Reads an agent's waiting questions once its conversation is on screen.
+- `agents/AgentRoster.tsx` — The roster: everyone on the left (answering now / idle, state line, last conversation, unread mark), one agent in full on the right. Import preview, export, power, delete.
+- `agents/CreateAgentModal.tsx` — Create an agent (name, description, engine, memory; password and routing under Advanced).
+- `agents/DeleteAgentModal.tsx` — Delete confirmation with the password gate; shared by the roster and the settings page.
+- `../pages/AgentSettingsPage.tsx` — One agent's settings at `/agents/:id/settings`: basics, engine, memory, appearance, tool permissions, danger zone. All edits use the **deferred save pattern** (pending state → apply on Save, Discard and Back make no call).
 - `AgentConsole.tsx` — Chat message display. Renders messages, thinking steps, tool calls, streaming responses. Handles SSE events (AgentThinking, ToolExecuted, etc).
 - `ChatInputBar.tsx` — Message input field with send button. Supports multiline input.
-- `AgentPowerButton.tsx` — Green/gray power button for toggling agent on/off.
 - `PowerToggleModal.tsx` — Confirmation modal when toggling agent power (with optional password).
-- `AgentPluginWorkspace.tsx` — Agent configuration screen: avatar/VRM management, profile editing, MCP server access control. All operations use **deferred save pattern** (pending state → apply on Save, cancel discards all).
 - `EngineSelector.tsx` — LLM engine dropdown selector. Shows available MCP engine servers.
-- `ServerAccessSection.tsx` — Displays and manages MCP server access grants for an agent.
 
 #### Agent Creation & Identity
-- `AvatarSection.tsx` — Agent avatar display, upload, and deletion. VRM 3D model upload/delete.
 - `VrmThumbnailDialog.tsx` — Modal dialog offering to apply VRM embedded thumbnail as agent avatar. "Don't show again" option (sessionStorage).
-- `ProfileSection.tsx` — Agent name/description editing.
 - `SetupWizard.tsx` — First-run setup flow (7 steps): welcome, API key, language, presets, server installation, quick guide, completion.
 
 #### Memory & Episodes

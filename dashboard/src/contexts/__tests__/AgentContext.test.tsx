@@ -7,6 +7,7 @@ vi.mock('../../hooks/useAgents', () => ({
     agents: [
       { id: 'agent.sapphy', name: 'Sapphy' },
       { id: 'agent.ks22', name: 'KS22' },
+      { id: 'agent.painted', name: 'Painted', metadata: { accent: '300 60% 70%' } },
     ],
     isLoading: false,
     refetch: async () => {},
@@ -57,5 +58,22 @@ describe('the agent provider', () => {
 
     act(() => select?.(null));
     expect(root.getPropertyValue('--agent')).toBe('');
+  });
+
+  it('uses the colour the agent was given in settings, not the one its id would give it', () => {
+    let select: ((id: string | null) => void) | null = null;
+    function Probe() {
+      select = useAgentContext().setSelectedAgentId;
+      return null;
+    }
+    render(
+      <AgentProvider>
+        <Probe />
+      </AgentProvider>,
+    );
+    act(() => select?.('agent.painted'));
+    const accent = document.documentElement.style.getPropertyValue('--agent');
+    expect(accent).toBe('300 60% 70%');
+    expect(accent).not.toBe(agentAccentTriplet({ id: 'agent.painted' }));
   });
 });

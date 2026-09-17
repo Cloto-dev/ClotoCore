@@ -58,6 +58,57 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   version and registration time, and `GET /api/mcp/servers/:name/tools`
   answers with the tools and their descriptions.
 
+- **The agents screen is the roster of the design mocks.** The card grid and
+  the always-open create form are gone. On the left, everyone who exists in two
+  groups — answering now, and idle — each row a face, a name, one line of state
+  and when you last spoke. An agent that is off says so and is dimmed. On the
+  right, the one you picked, read out a line at a time: role, engine (with the
+  engine its routing switches to), memory server and how many long-term
+  memories it holds, how many servers and tools it may call, its cron jobs with
+  their times, whether it has an avatar, and its colour. The list is monochrome
+  except the row you picked, whose face wears that agent's colour — and the
+  colour is written onto this screen only, so opening the workshop no longer
+  recolours the app around it.
+- **A mark on the row when an agent is waiting on you.** It counts the
+  questions an agent cannot proceed without — approvals and proposals — and
+  deliberately not notices, which an agent raises whenever a tool call is
+  refused and which would put a mark beside every busy agent. Opening the
+  conversation reads them and the mark goes; the bell's count does not move,
+  because reading is not answering.
+- **Making an agent is a question asked over the roster**, not a panel that is
+  always open: name, description, engine and memory, with the password and the
+  routing rules folded away. Escape and the backdrop close it, the name has the
+  focus when it opens, and it closes when the agent exists.
+- **An agent's settings is its own page** (`/agents/:id/settings`), replacing
+  the MCP-access workspace. Six sections on the left — basics, engine, memory,
+  appearance, tool permissions, danger zone — rows of item, explanation and
+  control on the right, and a save bar below: nothing reaches the kernel until
+  save is pressed, and discard and back make no call at all. Basics also shows
+  the files this agent always reads, what each costs, and its share of the
+  budget the kernel reports — with any file that did not fit named at the top,
+  which until now only the model was told. Appearance holds the avatar, the VRM
+  model and the agent's colour, written as `hsl(H S% L%)` with a live dot; a
+  chosen colour is raised until it holds 4.5:1 on the raised surface, so
+  choosing one cannot make an agent unreadable. Tool permissions answer default
+  / allow / deny per server and per tool; each server's entry set is re-read
+  immediately before it is written, so answering for one agent cannot delete
+  another agent's grants.
+- **A save that is refused leaves nothing half-written.** The password is sent
+  first, because a mistyped current password is the likeliest refusal: refused
+  first, the rename beside it has not happened either. A server whose entries
+  could not be re-read is not written at all — a list built on a failed read
+  holds one agent's rows, and sending it would delete everyone else's.
+- The settings page wears the colour of the agent it is about, including a
+  colour being tried before it is saved; a colour chosen there reaches the chat
+  and the approval card, not only the roster.
+- Native `<select>` is gone from these screens. The platform paints its own
+  list with its own metrics, so the picker is now a button and a listbox that
+  the workshop's own density and surfaces apply to, with the keyboard contract
+  the native one has.
+- The power password can be changed and removed from the settings page
+  (`POST /api/agents/:id/power-password`); the current one is required when one
+  is set, so the admin key alone does not lift the guard it is there to be.
+
 ### Removed
 
 - The microphone button in the composer. It never sent audio — it inserted a
@@ -69,7 +120,13 @@ button, the greeting in the empty room, the blinking cursor, the reading column
 below 800px, the monospace context meter) — all five drawn as the mock draws
 them. The MCP list and page: 0 of 21 present, 2 partly (the fixed 200px section
 rail below 900px, the monospace ids under names). The agent's question: 0 of
-21 present, 0 partly.
+21 present, 0 partly. The roster: 0 of 21 present, 4 partly (no
+loading state is drawn while the list arrives, the 400px list column is fixed
+below about 900px, ids are monospace, and every row carries a face — which here
+is the subject of the row rather than decoration, and monochrome except the one
+selected). The agent's settings page: 0 of 21 present, 3 partly (the fixed
+200px section rail below 900px, monospace ids and file names, and the same
+absent loading state while the grants and the always-loaded files are read).
 
 ## [0.6.9a1] — 2026-09-08
 <!-- release-title: an agent gets files it always reads, and skills it loads when it needs them -->

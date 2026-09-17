@@ -33,6 +33,13 @@
   height: 15px;
   flex: none;
 }
+/* The mock's focus ring, scoped to the workshop: the keyboard has to be able
+ * to see where it is, and the custom picker is reachable only that way. */
+.ws :focus-visible {
+  outline: 2px solid hsl(var(--agent));
+  outline-offset: 2px;
+  border-radius: var(--radius-tool);
+}
 .ws .num {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -493,6 +500,10 @@ textarea.in {
   flex: none;
   background: hsl(var(--text-tertiary));
 }
+/* The server name opens its tools, so it is a button — drawn as the text it was. */
+.tool button.nm {
+  text-align: left;
+}
 .tool.sub {
   padding-left: 36px;
 }
@@ -569,4 +580,426 @@ textarea.in {
 }
 .danger {
   color: hsl(6 70% 72%);
+}
+
+/* ---------- the roster: who exists, and one of them in full ----------
+ * Ported rule for rule from docs/gui/samples/03-agents.html. The list is
+ * monochrome except the selected row, whose face wears the agent's colour —
+ * the accent belongs to the one present and to nothing else. */
+.roster-split {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  min-height: 0;
+}
+.roster {
+  border-right: 1px solid hsl(var(--surface-primary));
+  overflow: auto;
+  padding: 6px 8px;
+}
+.roster .r {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-surface);
+  width: 100%;
+  text-align: left;
+  color: hsl(var(--text-secondary));
+}
+.roster .r:hover {
+  background: hsl(var(--surface-secondary));
+  color: hsl(var(--text-primary));
+}
+.roster .r.on {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+.roster .r .f {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-tertiary));
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.roster .r.on .f {
+  background: hsl(var(--agent));
+  color: hsl(var(--agent-ink));
+}
+.roster .r .nm {
+  font-size: 14px;
+  font-weight: 500;
+  color: hsl(var(--text-primary));
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The row's two lines. The mock nests them in block elements; here they are
+ * spans, so the column and the state line are told to behave as blocks. */
+.roster .r .who {
+  display: block;
+  min-width: 0;
+}
+.roster .r .st {
+  /* inline-flex as in the mock: the state sits in a line box, which is what
+     gives the row its height. */
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+}
+.roster .r .st.live {
+  color: hsl(var(--text-secondary));
+}
+.roster .r .st.live::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(150 45% 55%);
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.roster .r .last {
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.roster .r.off .nm {
+  color: hsl(var(--text-secondary));
+}
+.roster .grp {
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  padding: 12px 10px 4px;
+}
+/* Something is waiting on this row. Neutral on purpose: the accent is the
+ * agent's own colour, and a mark that borrowed it would say "this agent" where
+ * it means "your turn". */
+.roster .r .unread {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--text-primary));
+  flex: none;
+}
+
+/* The one agent, in full. */
+.agent-detail {
+  padding: 22px 32px;
+  overflow: auto;
+  max-width: 720px;
+}
+.agent-detail .who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.agent-detail .who .nm {
+  font-weight: 600;
+  font-size: 15px;
+}
+.agent-detail .who .id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.agent-dl {
+  margin: 18px 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+.agent-dl dt {
+  color: hsl(var(--text-tertiary));
+}
+.agent-dl dd {
+  margin: 0;
+  color: hsl(var(--text-primary));
+  min-width: 0;
+}
+.agent-dl dd.sub {
+  color: hsl(var(--text-secondary));
+}
+.agent-acts {
+  margin-top: 22px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.agent-acts .spacer {
+  flex: 1;
+}
+.agent-note {
+  margin: 24px 0 0;
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+}
+
+/* ---------- the face at three sizes (08-agent-settings.html `.face-lg`) ---------- */
+.face-lg {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: hsl(var(--agent));
+  color: hsl(var(--agent-ink));
+  display: grid;
+  place-items: center;
+  flex: none;
+  overflow: hidden;
+}
+.face-lg.head {
+  width: 36px;
+  height: 36px;
+  margin-left: 6px;
+}
+.face-lg.mid {
+  width: 40px;
+  height: 40px;
+}
+
+/* ---------- the picker (`.sel`) ---------- */
+.sel-wrap {
+  position: relative;
+  display: inline-block;
+}
+.sel {
+  display: inline-flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-width: 200px;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-tool);
+  padding: 7px 10px;
+  font-size: 13.5px;
+  text-align: left;
+}
+.sel .lbl {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sel .c {
+  color: hsl(var(--text-tertiary));
+  font-size: 11px;
+}
+.sel:hover {
+  background: hsl(var(--surface-primary));
+}
+.sel:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sel-list {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: hsl(var(--surface-primary));
+  border-radius: var(--radius-surface);
+}
+.sel-opt {
+  padding: 6px 10px;
+  border-radius: var(--radius-tool);
+  font-size: 13.5px;
+  color: hsl(var(--text-secondary));
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sel-opt.active {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-primary));
+}
+.sel-opt.on {
+  color: hsl(var(--text-primary));
+}
+.sel-opt small {
+  display: block;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.sel-empty {
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+}
+
+/* ---------- the switch (`.tgl`) ---------- */
+.tgl {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: hsl(var(--border-default));
+  position: relative;
+  flex: none;
+}
+.tgl::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: hsl(var(--text-tertiary));
+}
+.tgl.on {
+  background: hsl(var(--text-secondary));
+}
+.tgl.on::after {
+  left: 16px;
+  background: hsl(var(--surface-base));
+}
+
+/* ---------- rows the mock draws with inline styles ---------- */
+.dev {
+  color: hsl(6 70% 72%);
+}
+.dev.warn {
+  color: hsl(40 70% 65%);
+}
+.dev.off {
+  color: hsl(var(--text-tertiary));
+}
+.vrow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.crow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* 03-agents.html: the colour row's dot is the 7px status dot in the agent's colour. */
+.crow .dot-sm {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.crow .dot-lg {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex: none;
+}
+.crow .hint {
+  margin: 0;
+}
+.in.narrow {
+  width: 180px;
+}
+.tool.rule {
+  grid-template-columns: 1fr auto auto;
+  padding-left: 0;
+}
+.tool.rule .btn {
+  padding: 2px 8px;
+  color: hsl(var(--text-tertiary));
+}
+
+/* ---------- a question asked over the page ----------
+ * Lightness, not glass: the panel is the raised surface with the base dimmed
+ * behind it, and it carries no shadow. */
+.wmodal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--surface-overlay);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.wmodal {
+  /* A `.ws` fills its parent; a dialog is as tall as what it holds. */
+  height: auto;
+  width: min(520px, 100%);
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-surface);
+  padding: 18px 22px 16px;
+  font-size: 13.5px;
+}
+.wmodal h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: hsl(var(--text-primary));
+}
+.wmodal .frow:last-of-type {
+  border-bottom: 0;
+}
+.wmodal .in {
+  background: hsl(var(--surface-primary));
+}
+.wmodal .sel {
+  background: hsl(var(--surface-primary));
+}
+.wmodal .acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+.wmodal .acts .spacer {
+  flex: 1;
+}
+.wmodal details summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: hsl(var(--text-secondary));
+  padding: 10px 0 2px;
+}
+/* The same chevron the chat's "inner" disclosure uses: without one, a summary
+   reads as a label. */
+.wmodal details summary::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 8px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.12s;
+  vertical-align: 2px;
+}
+.wmodal details[open] summary::after {
+  transform: rotate(45deg);
+}
+.wmodal details summary::-webkit-details-marker {
+  display: none;
+}
+.wmodal details summary:hover {
+  color: hsl(var(--text-primary));
+}
+/* The import, previewed before it happens. */
+.import-preview {
+  margin: 8px 24px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-surface);
+  background: hsl(var(--surface-secondary));
+}
+.import-preview .agent-dl {
+  margin-top: 8px;
 }

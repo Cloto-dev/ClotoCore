@@ -3,6 +3,7 @@ import { isTauri } from '../lib/tauri';
 import type {
   AccessControlEntry,
   AccessTreeResponse,
+  AgentInstructionsReport,
   AgentMetadata,
   ChatMessage,
   ClotoMessage,
@@ -376,6 +377,32 @@ export const api = {
    *  setRecallPrecision so the control can be read-edit-save instead of write-only. */
   getRecallPrecision: (id: string, apiKey: string) =>
     fetchJson<RecallPrecisionInfo>(`/agents/${id}/recall-precision`, 'fetch recall precision', apiKey),
+
+  /** Which of an agent's always-loaded files exist, what each costs, and which
+   *  reach the prompt. The budget comes back with the answer. */
+  getAgentInstructionFiles: (agentId: string, apiKey?: string) =>
+    fetchJson<AgentInstructionsReport>(
+      `/agents/${encodeURIComponent(agentId)}/instruction-files`,
+      'fetch the always-loaded files',
+      apiKey,
+    ),
+
+  /**
+   * Set, change or remove the password that guards an agent's power switch and
+   * its deletion. An empty `newPassword` removes it. `currentPassword` is
+   * required once one is set — the admin key alone does not suffice, or the
+   * password would be trivially removable by whoever it guards against.
+   */
+  setAgentPowerPassword: (agentId: string, newPassword: string, currentPassword: string | undefined, apiKey: string) =>
+    mutate(
+      `/agents/${encodeURIComponent(agentId)}/power-password`,
+      'POST',
+      "set the agent's power password",
+      currentPassword === undefined
+        ? { new_password: newPassword }
+        : { current_password: currentPassword, new_password: newPassword },
+      { 'X-API-Key': apiKey },
+    ).then(() => {}),
 
   post: (path: string, payload: unknown, apiKey: string) =>
     mutate(path, 'POST', `post to ${path}`, payload, { 'X-API-Key': apiKey }).then(() => {}),
@@ -1218,6 +1245,9 @@ export function createAuthenticatedApi(apiKey: string) {
     updateAgent: (id: string, payload: Parameters<typeof api.updateAgent>[1]) => api.updateAgent(id, payload, k),
     setRecallPrecision: (id: string, precision: string) => api.setRecallPrecision(id, precision, k),
     getRecallPrecision: (id: string) => api.getRecallPrecision(id, k),
+    getAgentInstructionFiles: (agentId: string) => api.getAgentInstructionFiles(agentId, k),
+    setAgentPowerPassword: (agentId: string, newPassword: string, currentPassword?: string) =>
+      api.setAgentPowerPassword(agentId, newPassword, currentPassword, k),
     deleteAgent: (agentId: string, password?: string) => api.deleteAgent(agentId, k, password),
     toggleAgentPower: (agentId: string, enabled: boolean, password?: string) =>
       api.toggleAgentPower(agentId, enabled, k, password),

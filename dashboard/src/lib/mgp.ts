@@ -1,8 +1,8 @@
 import type { McpServerInfo } from '../types';
 
 /**
- * MGP server identification (single source of truth, replaces inline duplicates
- * in `ServerAccessSection.tsx` and `McpServersPage.tsx`).
+ * MGP server identification (single source of truth, replacing the inline
+ * duplicates the server screens used to carry).
  *
  * A server is rendered as MGP (purple card branding) when *either*:
  *   (a) `mgp_supported` — kernel handshake negotiated `capabilities.mgp`
