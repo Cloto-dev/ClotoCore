@@ -28,10 +28,15 @@ vi.mock('../../contexts/ConversationContext', () => ({
 }));
 vi.mock('../../pages/AgentPage', () => ({ AgentPage: () => <div>agent-page</div> }));
 vi.mock('../AppSidebar', () => ({
-  AppSidebar: ({ onHelpClick }: { onHelpClick?: () => void }) => (
-    <button type="button" onClick={onHelpClick} data-testid="sidebar">
-      sidebar-help
-    </button>
+  AppSidebar: ({ onHelpClick, onSettingsClick }: { onHelpClick?: () => void; onSettingsClick?: () => void }) => (
+    <>
+      <button type="button" onClick={onHelpClick} data-testid="sidebar">
+        sidebar-help
+      </button>
+      <button type="button" onClick={onSettingsClick}>
+        sidebar-settings
+      </button>
+    </>
   ),
 }));
 vi.mock('../CommandApprovalDeck', () => ({ CommandApprovalDeck: () => null }));
@@ -106,6 +111,13 @@ describe('the way to settings', () => {
       window.dispatchEvent(new CustomEvent('cloto-open-settings', { detail: { section: 'about' } }));
     });
     expect(navigate).toHaveBeenCalledWith('/settings?section=about');
+  });
+
+  it('goes to the settings page when the sidebar asks for it', () => {
+    render(<AppLayout />);
+    fireEvent.click(screen.getByText('sidebar-settings'));
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(navigate).toHaveBeenCalledWith('/settings');
   });
 
   it('goes to the first section when the notice names none', () => {
