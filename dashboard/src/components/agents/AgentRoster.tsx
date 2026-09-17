@@ -85,6 +85,7 @@ export function AgentRoster({ agents, onSelectAgent, onRefresh, processing }: Pr
   const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [createNotice, setCreateNotice] = useState<string | null>(null);
 
   const selected = agents.find((a) => a.id === selectedId) ?? null;
   const engines = useMemo(() => servers.filter(isEngineServer), [servers]);
@@ -413,6 +414,11 @@ export function AgentRoster({ agents, onSelectAgent, onRefresh, processing }: Pr
         </div>
       )}
       {importError && !pendingImport && <div className="problem">{importError}</div>}
+      {createNotice && (
+        <div className="problem" role="alert">
+          {createNotice}
+        </div>
+      )}
 
       {agents.length === 0 ? (
         <div className="empty">{t('no_agents')}</div>
@@ -506,8 +512,15 @@ export function AgentRoster({ agents, onSelectAgent, onRefresh, processing }: Pr
       {createOpen && (
         <CreateAgentModal
           onClose={() => setCreateOpen(false)}
-          onCreated={() => {
+          onCreated={(created) => {
             setCreateOpen(false);
+            // The agent exists either way; a face that could not be saved is
+            // said here, on the roster the new agent is about to appear in.
+            setCreateNotice(
+              created.faceProblem
+                ? t('create.face_not_saved', { name: created.name, reason: created.faceProblem })
+                : null,
+            );
             onRefresh();
           }}
         />

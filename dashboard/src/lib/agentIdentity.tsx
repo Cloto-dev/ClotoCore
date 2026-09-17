@@ -5,6 +5,10 @@ import type { AgentMetadata } from '../types';
 
 /** The agent's hue, 0–359. Derived from the id, which does not change when the
  * agent is renamed. */
+// HARDCODED(crates/core/src/handlers/utils.rs::AVATAR_MAX_BYTES): the kernel refuses a larger avatar; checking here says so before the upload instead of after it.
+/** The largest avatar the kernel accepts, in bytes. */
+export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
 export function agentHue(agent: Pick<AgentMetadata, 'id'>): number {
   // FNV-1a: spreads ids that differ by one character across the circle.
   let hash = 0x811c9dc5;

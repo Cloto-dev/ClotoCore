@@ -1,22 +1,26 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAgentCreation } from '../../hooks/useAgentCreation';
+import { type CreatedAgent, useAgentCreation } from '../../hooks/useAgentCreation';
 import { useMcpServers } from '../../hooks/useMcpServers';
+import { AVATAR_MAX_BYTES } from '../../lib/agentIdentity';
 import { displayServerId } from '../../lib/format';
 import { isEngineServer, isMemoryServer } from '../../lib/serverCategory';
+import { extractVrmThumbnail } from '../../lib/vrmThumbnail';
 import { Select } from '../ui/Select';
+import { VrmThumbnailDialog } from '../VrmThumbnailDialog';
 
 interface Props {
   onClose: () => void;
-  /** Told the name of the agent that now exists. */
-  onCreated: (name: string) => void;
+  /** Told which agent now exists, and whether its face could be saved with it. */
+  onCreated: (created: CreatedAgent) => void;
 }
 
 /**
  * Making a new agent, as a question asked over the roster.
  *
- * Four fields are enough to have someone to talk to; everything else an agent
- * can be given is on its settings page, where it can be changed later. The
+ * Four fields are enough to have someone to talk to, and a face is offered
+ * beside the name because it is what the roster and the chat show first;
+ * everything else an agent can be given is on its settings page. The
  * password and the routing rules are folded away because neither is needed to
  * start, and a first-run form that opens with six empty controls teaches that
  * this is complicated.
@@ -40,6 +44,58 @@ export function CreateAgentModal({ onClose, onCreated }: Props) {
     updateRoutingRule,
     removeRoutingRule,
   } = useAgentCreation(onCreated);
+
+  // The chosen picture, shown before anything is uploaded: the files go to
+  // the kernel only once the agent exists (the hook does that on Create).
+  const [facePreview, setFacePreview] = useState<string | null>(null);
+  const [faceProblem, setFaceProblem] = useState<string | null>(null);
+  const [vrmThumbnail, setVrmThumbnail] = useState<{ file: File; url: string } | null>(null);
+  const [askVrmThumbnail, setAskVrmThumbnail] = useState(false);
+  const previewRef = useRef<string | null>(null);
+
+  const showFace = (file: File | null, url: string | null) => {
+    // The VRM's thumbnail owns its own URL; only a preview made here is revoked.
+    if (previewRef.current && previewRef.current !== vrmThumbnail?.url) URL.revokeObjectURL(previewRef.current);
+    previewRef.current = url;
+    setFacePreview(url);
+    updateField('avatarFile', file);
+  };
+
+  const chooseFace = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > AVATAR_MAX_BYTES) {
+      setFaceProblem(t('plugin_workspace.avatar_too_large'));
+      return;
+    }
+    setFaceProblem(null);
+    showFace(file, URL.createObjectURL(file));
+  };
+
+  const chooseVrm = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    updateField('vrmFile', file);
+    try {
+      const thumbnail = await extractVrmThumbnail(file);
+      if (!thumbnail) return;
+      setVrmThumbnail({ file: thumbnail, url: URL.createObjectURL(thumbnail) });
+      if (sessionStorage.getItem('cloto-vrm-thumbnail-skip') !== '1') setAskVrmThumbnail(true);
+    } catch {
+      // A model without a usable thumbnail is not an error.
+    }
+  };
+
+  const removeVrm = () => {
+    updateField('vrmFile', null);
+    if (vrmThumbnail) {
+      if (facePreview === vrmThumbnail.url) showFace(null, null);
+      URL.revokeObjectURL(vrmThumbnail.url);
+    }
+    setVrmThumbnail(null);
+  };
 
   useEffect(() => {
     nameRef.current?.focus();
@@ -77,6 +133,38 @@ export function CreateAgentModal({ onClose, onCreated }: Props) {
               value={form.name}
               onChange={(e) => updateField('name', e.target.value)}
             />
+          </div>
+        </div>
+
+        <div className="frow">
+          <div className="k">
+            {t('create.face')}
+            <small>{t('settings.avatar_sub')}</small>
+          </div>
+          <div className="v">
+            <div className="vrow">
+              <span className="face-lg" data-testid="create-face">
+                {facePreview && <img src={facePreview} alt="" width={64} height={64} style={{ objectFit: 'cover' }} />}
+              </span>
+              <span>
+                <label className="btn">
+                  {t('settings.avatar_choose')}
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={chooseFace} />
+                </label>
+                {vrmThumbnail && facePreview !== vrmThumbnail.url && (
+                  <button type="button" className="btn" onClick={() => setAskVrmThumbnail(true)}>
+                    {t('settings.avatar_from_vrm')}
+                  </button>
+                )}
+                {form.avatarFile && (
+                  <button type="button" className="btn" onClick={() => showFace(null, null)}>
+                    {t('plugin_workspace.avatar_remove')}
+                  </button>
+                )}
+              </span>
+            </div>
+            <div className="hint">{t('create.face_hint')}</div>
+            {faceProblem && <div className="hint danger">{faceProblem}</div>}
           </div>
         </div>
 
@@ -131,6 +219,29 @@ export function CreateAgentModal({ onClose, onCreated }: Props) {
 
         <details>
           <summary>{t('create.advanced')}</summary>
+
+          <div className="frow">
+            <div className="k">
+              {t('settings.vrm')}
+              <small>{t('settings.vrm_sub')}</small>
+            </div>
+            <div className="v">
+              <div className="vrow">
+                <label className="btn">
+                  {t('settings.vrm_choose')}
+                  <input type="file" accept=".vrm" style={{ display: 'none' }} onChange={chooseVrm} />
+                </label>
+                {form.vrmFile && (
+                  <>
+                    <span className="hint">{form.vrmFile.name}</span>
+                    <button type="button" className="btn" onClick={removeVrm}>
+                      {t('settings.vrm_remove')}
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
 
           <div className="frow">
             <div className="k">
@@ -203,6 +314,15 @@ export function CreateAgentModal({ onClose, onCreated }: Props) {
           </button>
         </div>
       </div>
+      <VrmThumbnailDialog
+        open={askVrmThumbnail}
+        thumbnailUrl={vrmThumbnail?.url ?? ''}
+        onApply={() => {
+          if (vrmThumbnail) showFace(vrmThumbnail.file, vrmThumbnail.url);
+          setAskVrmThumbnail(false);
+        }}
+        onSkip={() => setAskVrmThumbnail(false)}
+      />
     </div>
   );
 }

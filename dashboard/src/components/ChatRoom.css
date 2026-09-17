@@ -776,3 +776,13 @@
   color: hsl(var(--text-tertiary));
   padding: 8px 4px 0;
 }
+
+/* The new agent exists but its face could not be saved: one line above the
+   composer, in the note size, not an error surface — nothing here failed to
+   start. */
+.col.write .face-notice {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: hsl(var(--text-secondary));
+}

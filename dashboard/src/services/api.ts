@@ -473,13 +473,18 @@ export const api = {
       password?: string;
     },
     apiKey: string,
-  ): Promise<void> {
+  ): Promise<{ id: string | null }> {
     const res = await fetch(`${API_BASE}/agents`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': apiKey },
       body: JSON.stringify(payload),
     });
     await throwIfNotOk(res, 'create agent');
+    // The kernel answers with the id it gave the agent. A body that cannot be
+    // read does not undo the creation, so it is `null` rather than a throw.
+    const body = (await res.json().catch(() => null)) as { data?: { id?: unknown } } | null;
+    const id = body?.data?.id;
+    return { id: typeof id === 'string' && id ? id : null };
   },
   postChat: (message: ClotoMessage, apiKey: string) =>
     mutate('/chat', 'POST', 'send chat', message, { 'X-API-Key': apiKey }).then(() => {}),

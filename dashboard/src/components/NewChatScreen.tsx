@@ -43,6 +43,8 @@ export function NewChatScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   // The agent just made, by name, until the list that contains it arrives.
   const [arriving, setArriving] = useState<string | null>(null);
+  // The agent was made but its face was not saved: said once, above the composer.
+  const [faceNotice, setFaceNotice] = useState<string | null>(null);
   const [engines, setEngines] = useState<McpServerInfo[]>([]);
 
   const faces = useMemo(() => presenceOrder(agents, conversations), [agents, conversations]);
@@ -229,6 +231,11 @@ export function NewChatScreen() {
       </div>
 
       <div className="col write">
+        {faceNotice && (
+          <p className="face-notice" role="alert">
+            {faceNotice}
+          </p>
+        )}
         <ChatInputBar
           // The composer is the draft's, not the face's: turning keeps what was typed.
           key={draft?.key}
@@ -246,9 +253,14 @@ export function NewChatScreen() {
       {createOpen && (
         <CreateAgentModal
           onClose={() => setCreateOpen(false)}
-          onCreated={(name) => {
+          onCreated={(created) => {
             setCreateOpen(false);
-            setArriving(name);
+            setArriving(created.name);
+            setFaceNotice(
+              created.faceProblem
+                ? t('create.face_not_saved', { name: created.name, reason: created.faceProblem })
+                : null,
+            );
             void refetchAgents();
           }}
         />

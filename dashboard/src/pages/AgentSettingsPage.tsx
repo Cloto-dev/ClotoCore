@@ -31,15 +31,13 @@ import {
   withToolGrant,
 } from '../lib/agentAccess';
 import { exportAgent } from '../lib/agentExport';
-import { AgentIcon, agentAccentTriplet, parseAccentTriplet } from '../lib/agentIdentity';
+import { AgentIcon, AVATAR_MAX_BYTES, agentAccentTriplet, parseAccentTriplet } from '../lib/agentIdentity';
 import { displayServerId } from '../lib/format';
 import { isEngineServer, isMemoryServer } from '../lib/serverCategory';
 import { extractVrmThumbnail } from '../lib/vrmThumbnail';
 import type { AgentInstructionsReport, AgentMetadata, McpToolInfo } from '../types';
 
 const DEFAULT_AGENT_ID = 'agent.cloto_default';
-/** The largest avatar the kernel accepts, in bytes. */
-const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
 /** How many servers the tool section shows before "show the rest". */
 const SERVERS_SHOWN = 7;
 

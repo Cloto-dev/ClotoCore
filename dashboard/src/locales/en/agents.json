@@ -247,7 +247,10 @@
     "description_sub": "The role, the manner, what you want done. This is where the character is decided.",
     "advanced": "Advanced",
     "password_sub": "Optional. Asked for before this agent is stopped or deleted.",
-    "routing_sub": "Optional. Send a turn to another engine when it matches."
+    "routing_sub": "Optional. Send a turn to another engine when it matches.",
+    "face": "Icon",
+    "face_hint": "Up to 5MB. Optional — it can be set or changed later in the agent's settings.",
+    "face_not_saved": "{{name}} was created, but its icon or VRM could not be saved: {{reason}} Set it in the agent's settings."
   },
   "settings": {
     "sections": "Sections",

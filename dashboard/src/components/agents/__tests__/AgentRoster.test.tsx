@@ -41,7 +41,23 @@ vi.mock('../../../contexts/ConversationContext', () => ({
 vi.mock('../../../hooks/useEventStream', () => ({ useEventStream: () => {} }));
 vi.mock('../../CliAgentPanel', () => ({ CliAgentPanel: () => <div>cli-panel</div> }));
 vi.mock('../../PowerToggleModal', () => ({ PowerToggleModal: () => <div>power-modal</div> }));
-vi.mock('../CreateAgentModal', () => ({ CreateAgentModal: () => <div>create-modal</div> }));
+vi.mock('../CreateAgentModal', () => ({
+  CreateAgentModal: ({
+    onCreated,
+  }: {
+    onCreated: (c: { name: string; id: string | null; faceProblem: string | null }) => void;
+  }) => (
+    <div>
+      create-modal
+      <button type="button" onClick={() => onCreated({ name: 'Nova', id: 'agent.nova', faceProblem: null })}>
+        made-whole
+      </button>
+      <button type="button" onClick={() => onCreated({ name: 'Nova', id: 'agent.nova', faceProblem: 'disk full' })}>
+        made-faceless
+      </button>
+    </div>
+  ),
+}));
 vi.mock('../DeleteAgentModal', () => ({ DeleteAgentModal: () => <div>delete-modal</div> }));
 
 import { AgentRoster } from '../AgentRoster';
@@ -167,6 +183,22 @@ describe('the roster', () => {
     expect(busy?.querySelector('.last')?.textContent).toMatch(/^\d{2}:\d{2}$/);
     const quiet = screen.getAllByRole('button').find((b) => b.querySelector('.nm')?.textContent === 'quiet');
     expect(quiet?.querySelector('.last')?.textContent).toBe('');
+  });
+
+  it('says on the roster when a new agent was made but their face could not be saved', () => {
+    const onRefresh = vi.fn();
+    render(<AgentRoster agents={AGENTS} onSelectAgent={vi.fn()} onRefresh={onRefresh} processing={new Set()} />);
+    fireEvent.click(screen.getByText('create_agent'));
+    fireEvent.click(screen.getByText('made-faceless'));
+    expect(screen.getByRole('alert').textContent).toBe('create.face_not_saved:Nova|disk full');
+    // The agent exists: the dialog is gone and the list is read again.
+    expect(screen.queryByText('create-modal')).toBeNull();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    // The next creation that goes well takes the line away.
+    fireEvent.click(screen.getByText('create_agent'));
+    fireEvent.click(screen.getByText('made-whole'));
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('shows the empty state when there is nobody yet', () => {

@@ -39,9 +39,17 @@ vi.mock('../ChatInputBar', () => ({
     </>
   ),
 }));
+const created = vi.hoisted(() => ({ faceProblem: null as string | null }));
 vi.mock('../agents/CreateAgentModal', () => ({
-  CreateAgentModal: ({ onCreated }: { onCreated: (name: string) => void }) => (
-    <button type="button" onClick={() => onCreated('Newcomer')}>
+  CreateAgentModal: ({
+    onCreated,
+  }: {
+    onCreated: (c: { name: string; id: string | null; faceProblem: string | null }) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => onCreated({ name: 'Newcomer', id: 'agent.newcomer', faceProblem: created.faceProblem })}
+    >
       create-modal
     </button>
   ),
@@ -177,6 +185,31 @@ describe('the new chat', () => {
     agentCtx.agents = [agent('a'), agent('b'), agent('agent.newcomer', { name: 'Newcomer' })];
     rerender(<NewChatScreen />);
     expect(convCtx.setDraftAgent).toHaveBeenLastCalledWith('agent.newcomer');
+  });
+
+  it('says it when the new agent exists but their face could not be saved, and still turns to them', async () => {
+    created.faceProblem = 'disk full';
+    convCtx.draft = { key: 'draft:1', agentId: null };
+    const { rerender } = render(<NewChatScreen />);
+    fireEvent.click(screen.getByText('new_chat.create_agent'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('create-modal'));
+    });
+    expect(screen.getByRole('alert').textContent).toBe('create.face_not_saved');
+    agentCtx.agents = [agent('a'), agent('agent.newcomer', { name: 'Newcomer' })];
+    rerender(<NewChatScreen />);
+    expect(convCtx.setDraftAgent).toHaveBeenLastCalledWith('agent.newcomer');
+    created.faceProblem = null;
+  });
+
+  it('says nothing about a face when the creation had no trouble with one', async () => {
+    convCtx.draft = { key: 'draft:1', agentId: null };
+    render(<NewChatScreen />);
+    fireEvent.click(screen.getByText('new_chat.create_agent'));
+    await act(async () => {
+      fireEvent.click(screen.getByText('create-modal'));
+    });
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('makes the empty composer the way in to creating an agent, and only while nobody is facing', () => {

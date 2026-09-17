@@ -9,6 +9,17 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ## [Unreleased]
 
+### Added
+
+- **A new agent can be given its icon, and its VRM, as it is made.** The create
+  dialog has an icon row under the name — the picture shows at once, can be
+  taken back, and is refused before anything is sent if it is over the 5MB the
+  kernel accepts — and a VRM row under Advanced. A VRM that carries a thumbnail
+  offers it as the icon, as the settings page does. Nothing is uploaded until
+  the agent exists. If the agent is made but its icon or VRM cannot be saved,
+  that is said on the screen you return to, beside the new agent — not as a
+  failed creation, which would invite making a second agent of the same name.
+
 ### Changed
 
 - **The memory screen is one time axis instead of a grid of cards.** What an
