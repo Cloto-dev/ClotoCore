@@ -240,13 +240,23 @@ impl EventProcessor {
                         .clone();
                     let handler = self.system_handler.clone();
                     let msg = msg.clone();
+                    // Registered now, not when the turn starts: a stop that
+                    // arrives while this message waits behind the agent's
+                    // previous turn is kept and ends it before it begins.
+                    let registration = handler
+                        .response_stops()
+                        .register(&msg.id, &handler.target_agent_of(&msg));
                     tokio::spawn(async move {
                         let Ok(_permit) = sem.acquire().await else {
                             return;
                         };
-                        if let Err(e) = handler.handle_message(msg).await {
+                        if let Err(e) = handler
+                            .handle_message_stoppable(msg, registration.stopped())
+                            .await
+                        {
                             error!(error = %e, "❌ SystemHandler.handle_message error");
                         }
+                        drop(registration);
                     });
                 }
             }

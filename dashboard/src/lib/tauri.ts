@@ -5,6 +5,34 @@
 export const isTauri = '__TAURI_INTERNALS__' in window;
 
 /**
+ * Whether the window's title bar is laid over the page (macOS, `titleBarStyle:
+ * "Overlay"` in tauri.conf.json): the OS draws only the three window buttons,
+ * at the top-left, on top of whatever the page puts there. The page then owes
+ * two things the OS no longer gives it — room for those buttons, and somewhere
+ * to take hold of the window. Everywhere else the OS draws a title bar of its
+ * own above the page and the page owes nothing.
+ */
+export const hasOverlayTitleBar = isTauri && /Mac/i.test(navigator.userAgent);
+
+/** Height of the strip the page leaves for the overlaid window buttons. */
+export const OVERLAY_TITLE_BAR_PX = 28;
+
+/**
+ * Tell the OS which appearance the window's own frame should take, so a title
+ * bar the OS draws does not stay light over a dark page (or the reverse) when
+ * the app's theme differs from the system's.
+ */
+export async function setWindowTheme(theme: 'light' | 'dark') {
+  if (!isTauri) return;
+  try {
+    const { getCurrentWindow } = await import('@tauri-apps/api/window');
+    await getCurrentWindow().setTheme(theme);
+  } catch {
+    // Cosmetic: a frame in the wrong appearance is not worth an error.
+  }
+}
+
+/**
  * Open a native file dialog to select a file.
  * Returns the selected file path or null if cancelled.
  */
@@ -25,26 +53,6 @@ export async function openFileDialog(options?: {
   // open() returns string | string[] | null
   if (Array.isArray(result)) return result[0] ?? null;
   return result;
-}
-
-// ── Window Controls ──
-
-export async function minimizeWindow() {
-  if (!isTauri) return;
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  await getCurrentWindow().minimize();
-}
-
-export async function toggleMaximizeWindow() {
-  if (!isTauri) return;
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  await getCurrentWindow().toggleMaximize();
-}
-
-export async function closeWindow() {
-  if (!isTauri) return;
-  const { getCurrentWindow } = await import('@tauri-apps/api/window');
-  await getCurrentWindow().close();
 }
 
 // ── VRM Window ──

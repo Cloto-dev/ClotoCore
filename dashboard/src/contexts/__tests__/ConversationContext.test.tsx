@@ -76,7 +76,7 @@ describe('choosing the open conversation', () => {
     localStorage.setItem('cloto-open-conversation:agent.a', 'older');
     mount();
     await waitFor(() => expect(ctx).not.toBeNull());
-    let id = '';
+    let id: string | null = '';
     await act(async () => {
       id = await (ctx as Ctx).resolveOpen('agent.a');
     });
@@ -89,7 +89,7 @@ describe('choosing the open conversation', () => {
     localStorage.setItem('cloto-open-conversation:agent.a', 'deleted-elsewhere');
     mount();
     await waitFor(() => expect(ctx).not.toBeNull());
-    let id = '';
+    let id: string | null = '';
     await act(async () => {
       id = await (ctx as Ctx).resolveOpen('agent.a');
     });
@@ -97,50 +97,101 @@ describe('choosing the open conversation', () => {
     expect(localStorage.getItem('cloto-open-conversation:agent.a')).toBe('newest');
   });
 
-  it('creates exactly one conversation when there is none, even if asked twice at once', async () => {
+  it('opens the new chat, and creates nothing, when nobody has spoken with the agent yet', async () => {
     api.listConversations.mockResolvedValue([]);
     mount();
     await waitFor(() => expect(ctx).not.toBeNull());
+    let id: string | null = 'unset';
+    await act(async () => {
+      id = await (ctx as Ctx).resolveOpen('agent.a');
+    });
+    expect(id).toBeNull();
+    expect((ctx as Ctx).draft?.agentId).toBe('agent.a');
+    expect(api.createConversation).not.toHaveBeenCalled();
+  });
+});
+
+describe('the new chat', () => {
+  it('creates nothing and lists nothing until the first message is sent', async () => {
+    api.listConversations.mockResolvedValue([conv('old', 'agent.a', 1000)]);
+    mount();
+    await waitFor(() => expect((ctx as Ctx).conversations.length).toBe(2));
+    act(() => (ctx as Ctx).startDraft('agent.a'));
+    expect((ctx as Ctx).draft).toMatchObject({ agentId: 'agent.a' });
+    expect(api.createConversation).not.toHaveBeenCalled();
+    expect((ctx as Ctx).conversations.length).toBe(2);
+    expect(agentCtx.setSelectedAgentId).toHaveBeenLastCalledWith('agent.a');
+    expect(navigate).toHaveBeenLastCalledWith('/?agent=agent.a', { replace: false });
+
+    // Leaving without a word leaves nothing behind.
+    act(() => (ctx as Ctx).leaveDraft());
+    expect((ctx as Ctx).draft).toBeNull();
+    expect(api.createConversation).not.toHaveBeenCalled();
+  });
+
+  it('turns to another agent, or to nobody, as the same draft', async () => {
+    api.listConversations.mockResolvedValue([]);
+    mount();
+    await waitFor(() => expect(ctx).not.toBeNull());
+    act(() => (ctx as Ctx).startDraft('agent.a'));
+    const key = (ctx as Ctx).draft?.key;
+    act(() => (ctx as Ctx).setDraftAgent('agent.b'));
+    expect((ctx as Ctx).draft).toEqual({ key, agentId: 'agent.b' });
+    expect(navigate).toHaveBeenLastCalledWith('/?agent=agent.b', { replace: true });
+    act(() => (ctx as Ctx).setDraftAgent(null));
+    expect((ctx as Ctx).draft).toEqual({ key, agentId: null });
+    expect(agentCtx.setSelectedAgentId).toHaveBeenLastCalledWith(null);
+    // Pressing New chat again is asking for an empty one: a new key.
+    act(() => (ctx as Ctx).startDraft('agent.a'));
+    expect((ctx as Ctx).draft?.key).not.toBe(key);
+  });
+
+  it('cannot be sent while it faces nobody', async () => {
+    api.listConversations.mockResolvedValue([]);
+    mount();
+    await waitFor(() => expect(ctx).not.toBeNull());
+    act(() => (ctx as Ctx).startDraft(null));
+    act(() => (ctx as Ctx).sendDraft({ blocks: [], rawText: 'hi', engineOverride: null }));
+    expect((ctx as Ctx).draft?.first).toBeUndefined();
+  });
+
+  it('becomes a conversation with its first message: created once, listed first, opened, mounted under the same key', async () => {
+    api.listConversations.mockResolvedValue([conv('old', 'agent.a', 1000)]);
+    mount();
+    await waitFor(() => expect((ctx as Ctx).conversations.length).toBe(2));
+    act(() => (ctx as Ctx).startDraft('agent.a'));
+    const key = (ctx as Ctx).draft?.key as string;
+    act(() => (ctx as Ctx).sendDraft({ blocks: [], rawText: 'hi', engineOverride: null }));
+    expect((ctx as Ctx).draft?.first?.rawText).toBe('hi');
+
     let ids: string[] = [];
     await act(async () => {
-      ids = await Promise.all([(ctx as Ctx).resolveOpen('agent.a'), (ctx as Ctx).resolveOpen('agent.a')]);
+      // A double send must not mint two.
+      ids = await Promise.all([(ctx as Ctx).commitDraft('agent.a'), (ctx as Ctx).commitDraft('agent.a')]);
     });
     expect(api.createConversation).toHaveBeenCalledTimes(1);
     expect(api.createConversation).toHaveBeenCalledWith('agent.a', 'u1');
-    expect(ids[0]).toBe(ids[1]);
-    expect(localStorage.getItem('cloto-open-conversation:agent.a')).toBe(ids[0]);
+    expect(ids).toEqual(['new-1', 'new-1']);
+    expect((ctx as Ctx).conversations[0].id).toBe('new-1');
+    expect((ctx as Ctx).openFor('agent.a')).toBe('new-1');
+    expect((ctx as Ctx).draft).toBeNull();
+    // The console is not remounted in the middle of its first exchange.
+    expect((ctx as Ctx).mountKeyFor('agent.a', 'new-1')).toBe(key);
+    expect((ctx as Ctx).mountKeyFor('agent.a', 'old')).toBe('agent.a:old');
+  });
+
+  it('is left when a conversation is chosen', async () => {
+    api.listConversations.mockResolvedValue([conv('old', 'agent.a', 1000)]);
+    mount();
+    await waitFor(() => expect(ctx).not.toBeNull());
+    act(() => (ctx as Ctx).startDraft('agent.a'));
+    act(() => (ctx as Ctx).open('agent.a', 'old'));
+    expect((ctx as Ctx).draft).toBeNull();
+    expect((ctx as Ctx).openFor('agent.a')).toBe('old');
   });
 });
 
 describe('acting on a conversation', () => {
-  it('new chat creates for the agent, opens it, and lists it first', async () => {
-    api.listConversations.mockResolvedValue([conv('old', 'agent.a', 1000)]);
-    mount();
-    await waitFor(() => expect((ctx as Ctx).conversations.length).toBe(2));
-    await act(async () => {
-      const created = await (ctx as Ctx).newChat('agent.a');
-      (ctx as Ctx).open('agent.a', created.id);
-    });
-    expect(api.createConversation).toHaveBeenCalledWith('agent.a', 'u1');
-    expect((ctx as Ctx).conversations[0].id).toBe('new-1');
-    expect((ctx as Ctx).openFor('agent.a')).toBe('new-1');
-    expect(agentCtx.setSelectedAgentId).toHaveBeenCalledWith('agent.a');
-    expect(navigate).toHaveBeenCalledWith('/?agent=agent.a');
-  });
-
-  it('new chat reuses an empty conversation instead of minting a second one', async () => {
-    api.listConversations.mockResolvedValue([{ ...conv('blank', 'agent.a', 5000), message_count: 0 }]);
-    mount();
-    await waitFor(() => expect((ctx as Ctx).conversations.length).toBe(2));
-    let opened = '';
-    await act(async () => {
-      opened = (await (ctx as Ctx).newChat('agent.a')).id;
-    });
-    expect(opened).toBe('blank');
-    expect(api.createConversation).not.toHaveBeenCalled();
-    expect((ctx as Ctx).openFor('agent.a')).toBe('blank');
-  });
-
   it('delete forgets the remembered choice; archive re-reads the list', async () => {
     api.listConversations.mockResolvedValue([conv('c1', 'agent.a', 1000)]);
     api.deleteConversation.mockResolvedValue({ deleted_messages: 1 });

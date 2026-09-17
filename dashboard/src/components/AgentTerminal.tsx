@@ -1,36 +1,16 @@
-import {
-  Activity,
-  Download,
-  Lock,
-  MessageSquare,
-  Plus,
-  Route,
-  Settings,
-  Terminal,
-  Trash2,
-  Upload,
-  Users,
-  X,
-  Zap,
-} from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import { useTranslation } from 'react-i18next';
-import { useLocation } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { useAgentContext } from '../contexts/AgentContext';
 import { useConversations } from '../contexts/ConversationContext';
-import { useAgentCreation } from '../hooks/useAgentCreation';
 import { useApi } from '../hooks/useApi';
 import { useEventStream } from '../hooks/useEventStream';
 import { useMcpServers } from '../hooks/useMcpServers';
-import { agentColor } from '../lib/agentIdentity';
-import { displayServerId } from '../lib/format';
-import { isEngineServer, isMemoryServer } from '../lib/serverCategory';
+import { useReadOnOpen } from '../hooks/useUnreadAgents';
 import { EVENTS_URL } from '../services/api';
-import type { AccessControlEntry, AgentMetadata } from '../types';
+import type { AgentMetadata } from '../types';
 import { AgentConsole } from './AgentConsole';
-import { AgentPluginWorkspace } from './AgentPluginWorkspace';
-import { AgentPowerButton } from './AgentPowerButton';
-import { CliAgentPanel } from './CliAgentPanel';
-import { PowerToggleModal } from './PowerToggleModal';
+import { AgentRoster } from './agents/AgentRoster';
+import { NewChatScreen } from './NewChatScreen';
 
 export interface AgentTerminalProps {
   agents: AgentMetadata[];
@@ -40,40 +20,24 @@ export interface AgentTerminalProps {
   onBack?: () => void;
 }
 
-interface PendingImport {
-  agentData: {
-    name: string;
-    description: string;
-    default_engine: string;
-    metadata: Record<string, string>;
-  };
-  grantedServerIds: string[];
-  warnings: string[];
-  displayEngineId: string;
-}
-
-export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh, onBack }: AgentTerminalProps) {
+/**
+ * The agent route, which is two screens: the roster when nobody is selected,
+ * and the conversation when somebody is.
+ *
+ * Settings is neither — it is its own route (`/agents/:id/settings`), so it can
+ * be linked to, reloaded, and left with the browser's Back.
+ */
+export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh }: AgentTerminalProps) {
   const api = useApi();
-  const { t } = useTranslation('agents');
-  const { t: tc } = useTranslation('common');
-  const [configuringAgent, setConfiguringAgent] = useState<AgentMetadata | null>(null);
-
-  // Power toggle modal
-  const [powerTarget, setPowerTarget] = useState<AgentMetadata | null>(null);
-
-  // Delete confirmation
-  const [deleteTarget, setDeleteTarget] = useState<AgentMetadata | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deletePassword, setDeletePassword] = useState('');
-
-  // Engine / memory discovery is by tool surface, not a server-id prefix
-  // (category prefixes retired): a reasoning engine exposes
-  // `think`, a memory backend exposes `store`/`recall`.
-  // Must be called before any conditional returns to satisfy React's Rules of Hooks
-  const { servers: mcpServers, refetch: refetchMcpServers } = useMcpServers();
-  const mcpEngines = mcpServers.filter((s) => isEngineServer(s) && s.status === 'Connected');
-  const mcpMemories = mcpServers.filter((s) => isMemoryServer(s) && s.status === 'Connected');
+  const navigate = useNavigate();
+  const { processingAgentIds } = useAgentContext();
+  const { refetch: refetchMcpServers } = useMcpServers();
+  const { draft, leaveDraft } = useConversations();
+  // The new chat, while someone is still being chosen. Turning through the
+  // faces selects each agent in passing, which is not opening a conversation
+  // with them: their waiting questions stay unread.
+  const choosing = draft !== null && !draft.first;
+  useReadOnOpen(choosing ? null : (selectedAgent?.id ?? null));
 
   // The agent view is persistently mounted — AppLayout hides it with CSS rather
   // than unmounting it — so useMcpServers' mount-time fetch never re-runs while
@@ -84,201 +48,6 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
   useEffect(() => {
     if (location.pathname === '/') void refetchMcpServers();
   }, [location.pathname, refetchMcpServers]);
-
-  const DEFAULT_AGENT_ID = 'agent.cloto_default';
-
-  // Import (deferred: parse into pendingImport, commit on Save)
-  const importRef = useRef<HTMLInputElement>(null);
-  const [cliAgentOpen, setCliAgentOpen] = useState(false);
-  const [importWarnings, setImportWarnings] = useState<string[]>([]);
-  const [pendingImport, setPendingImport] = useState<PendingImport | null>(null);
-  const [isImporting, setIsImporting] = useState(false);
-  const [importError, setImportError] = useState<string | null>(null);
-
-  // Clear transient UI state when the agent is deselected from the parent
-  // (e.g. sidebar navigation). Pending imports are discarded since they
-  // haven't been committed yet.
-  useEffect(() => {
-    if (!selectedAgent && configuringAgent) {
-      setConfiguringAgent(null);
-    }
-    if (!selectedAgent && pendingImport) {
-      setPendingImport(null);
-      setImportError(null);
-    }
-  }, [selectedAgent, configuringAgent, pendingImport]);
-
-  const handleExport = async (agent: AgentMetadata) => {
-    try {
-      const accessData = await api.getAgentAccess(agent.id);
-      const mcpAccess = (accessData.entries || [])
-        .filter((e: AccessControlEntry) => e.entry_type === 'server_grant')
-        .map((e: AccessControlEntry) => ({ server_id: e.server_id, permission: e.permission }));
-
-      const { has_avatar, avatar_description, has_power_password, has_password, ...cleanMeta } = agent.metadata || {};
-      const exportData = {
-        cloto_agent_export: 1,
-        exported_at: new Date().toISOString(),
-        agent: {
-          name: agent.name,
-          description: agent.description,
-          default_engine_id: agent.default_engine_id || null,
-          metadata: cleanMeta,
-          required_capabilities: agent.required_capabilities,
-        },
-        mcp_access: mcpAccess,
-        avatar_path: has_avatar === 'true' ? `avatars/${agent.id}.png` : null,
-      };
-
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${agent.name}.cloto-agent.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      if (import.meta.env.DEV) console.error('Export failed:', e);
-    }
-  };
-
-  // Parse the import file and build a pending preview. No API calls yet:
-  // createAgent + putAgentMcpAccess are committed on Save.
-  const handleImport = async (file: File) => {
-    try {
-      const text = await file.text();
-      const data = JSON.parse(text);
-
-      if (!data.cloto_agent_export || !data.agent?.name) {
-        alert(t('import_invalid'));
-        return;
-      }
-
-      const agentData = data.agent;
-      const meta: Record<string, string> = {
-        ...(agentData.metadata || {}),
-        agent_type: agentData.metadata?.agent_type || 'ai',
-      };
-
-      const warnings: string[] = [];
-
-      // Check if engine exists
-      let engineId = agentData.default_engine_id || '';
-      if (engineId && !mcpEngines.some((s) => s.id === engineId)) {
-        warnings.push(t('import_engine_missing', { engine: engineId }));
-        engineId = '';
-      }
-
-      // Filter out MCP servers that are not currently installed. The pending
-      // state only carries server_ids that exist — surviving warnings are
-      // shown in the preview card so the user can decide before committing.
-      const knownServerIds = new Set(mcpServers.map((s) => s.id));
-      const grantedServerIds: string[] = [];
-      if (Array.isArray(data.mcp_access)) {
-        for (const access of data.mcp_access) {
-          if (!knownServerIds.has(access.server_id)) {
-            warnings.push(t('import_server_skipped', { server: access.server_id }));
-            continue;
-          }
-          grantedServerIds.push(access.server_id);
-        }
-      }
-
-      setPendingImport({
-        agentData: {
-          name: agentData.name,
-          description: agentData.description || '',
-          default_engine: engineId,
-          metadata: meta,
-        },
-        grantedServerIds,
-        warnings,
-        displayEngineId: engineId,
-      });
-      setImportError(null);
-      setImportWarnings([]);
-    } catch (e) {
-      alert(t('import_error', { error: e instanceof Error ? e.message : 'Unknown error' }));
-    }
-  };
-
-  const handleSaveImport = async () => {
-    if (!pendingImport || isImporting) return;
-    setIsImporting(true);
-    setImportError(null);
-    try {
-      await api.createAgent({
-        name: pendingImport.agentData.name,
-        description: pendingImport.agentData.description,
-        default_engine: pendingImport.agentData.default_engine,
-        metadata: pendingImport.agentData.metadata,
-      });
-
-      const finalWarnings = [...pendingImport.warnings];
-
-      if (pendingImport.grantedServerIds.length > 0) {
-        const allAgents = await api.getAgents();
-        const created = allAgents.find((a: AgentMetadata) => a.name === pendingImport.agentData.name);
-        if (created) {
-          try {
-            await api.putAgentMcpAccess(created.id, pendingImport.grantedServerIds);
-          } catch {
-            // Grant failed after agent was created. Surface per-server warnings
-            // so the user knows to re-grant manually.
-            for (const serverId of pendingImport.grantedServerIds) {
-              finalWarnings.push(t('import_server_skipped', { server: serverId }));
-            }
-          }
-        }
-      }
-
-      const name = pendingImport.agentData.name;
-      onRefresh();
-      setImportWarnings(finalWarnings);
-      setPendingImport(null);
-      if (finalWarnings.length === 0) {
-        alert(t('import_success', { name }));
-      }
-    } catch (e) {
-      setImportError(e instanceof Error ? e.message : 'Unknown error');
-    } finally {
-      setIsImporting(false);
-    }
-  };
-
-  const handleCancelImport = () => {
-    setPendingImport(null);
-    setImportError(null);
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (!deleteTarget) return;
-    setIsDeleting(true);
-    setDeleteError(null);
-    try {
-      const hasPassword = deleteTarget.metadata?.has_power_password === 'true';
-      await api.deleteAgent(deleteTarget.id, hasPassword ? deletePassword : undefined);
-      setDeleteTarget(null);
-      setDeletePassword('');
-      onRefresh();
-    } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : 'Unknown error');
-    } finally {
-      setIsDeleting(false);
-    }
-  };
-
-  // Creation form
-  const {
-    form: newAgent,
-    updateField,
-    handleCreate,
-    isCreating,
-    createError,
-    addRoutingRule,
-    updateRoutingRule,
-    removeRoutingRule,
-  } = useAgentCreation(onRefresh);
 
   // Listen for AgentPowerChanged events to auto-refresh
   useEventStream(
@@ -291,527 +60,29 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
     api.apiKey,
   );
 
-  const handlePowerToggle = (agent: AgentMetadata) => {
-    setPowerTarget(agent);
-  };
-
-  if (configuringAgent) {
-    return (
-      <AgentPluginWorkspace
-        agent={configuringAgent}
-        onBack={() => {
-          setConfiguringAgent(null);
-          onSelectAgent(null);
-          onRefresh();
-        }}
-      />
-    );
-  }
+  if (choosing) return <NewChatScreen />;
 
   if (selectedAgent) {
     return (
       <OpenConversationConsole
         agent={selectedAgent}
-        onBack={() => onSelectAgent(null)}
-        onConfigure={() => setConfiguringAgent(selectedAgent)}
+        onBack={() => {
+          leaveDraft();
+          onSelectAgent(null);
+        }}
+        onConfigure={() => navigate(`/agents/${encodeURIComponent(selectedAgent.id)}/settings`)}
       />
     );
   }
 
   return (
-    <div className="relative flex h-full overflow-hidden">
-      {/* Power Toggle Modal */}
-      {powerTarget && (
-        <PowerToggleModal agent={powerTarget} onClose={() => setPowerTarget(null)} onSuccess={onRefresh} />
-      )}
-
-      {cliAgentOpen && (
-        <CliAgentPanel agents={agents} onAgentsChanged={onRefresh} onClose={() => setCliAgentOpen(false)} />
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {deleteTarget && (
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)]"
-          role="dialog"
-          aria-modal="true"
-          aria-label={t('delete.title')}
-        >
-          <div className="bg-surface-primary border border-edge rounded-2xl shadow-xl p-6 w-80 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-xl bg-red-500/10 text-red-500">
-                <Trash2 size={18} />
-              </div>
-              <div>
-                <h3 className="font-bold text-content-primary text-sm">{t('delete.title')}</h3>
-                <p className="text-xs text-content-tertiary font-mono mt-0.5">{t('delete.irreversible')}</p>
-              </div>
-            </div>
-            <div className="bg-surface-secondary rounded-xl p-3 space-y-1">
-              <p className="text-xs font-bold text-content-primary">{deleteTarget.name}</p>
-              <p className="text-xs text-content-tertiary font-mono">{deleteTarget.id}</p>
-            </div>
-            <p className="text-xs text-content-secondary">{t('delete.warning')}</p>
-            {deleteTarget.metadata?.has_power_password === 'true' && (
-              <input
-                type="password"
-                value={deletePassword}
-                onChange={(e) => setDeletePassword(e.target.value)}
-                placeholder={t('delete.password_placeholder')}
-                className="w-full bg-surface-base border border-edge rounded-xl px-3 py-2 text-xs font-mono text-content-primary placeholder:text-content-tertiary"
-              />
-            )}
-            {deleteError && <p className="text-xs text-red-400">{deleteError}</p>}
-            <div className="flex gap-2 pt-1">
-              <button
-                onClick={() => {
-                  setDeleteTarget(null);
-                  setDeleteError(null);
-                  setDeletePassword('');
-                }}
-                disabled={isDeleting}
-                aria-label={tc('cancel')}
-                className="flex-1 py-2 rounded-xl border border-edge text-xs font-bold text-content-secondary hover:bg-surface-secondary transition-all disabled:opacity-50"
-              >
-                {tc('cancel')}
-              </button>
-              <button
-                onClick={handleDeleteConfirm}
-                disabled={isDeleting || (deleteTarget.metadata?.has_power_password === 'true' && !deletePassword)}
-                aria-label={tc('delete')}
-                className="flex-1 py-2 rounded-xl bg-red-500 text-white text-xs font-bold hover:bg-red-600 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
-              >
-                {isDeleting ? <Activity size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                {tc('delete')}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="flex-1 overflow-y-auto no-scrollbar p-6 md:p-8">
-          {/* Section: Agents */}
-          <div className="flex items-center gap-3 mb-4 border-b border-edge pb-2">
-            <Users className="text-agent" size={16} />
-            <h2 className="font-bold text-xs text-content-secondary flex-1">{t('title')}</h2>
-            <input
-              ref={importRef}
-              type="file"
-              accept=".json"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleImport(f);
-                e.target.value = '';
-              }}
-            />
-            <button
-              onClick={() => setCliAgentOpen(true)}
-              aria-label={t('cli_agent.open')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-agent hover:bg-agent/10 transition-all"
-            >
-              <Terminal size={14} /> {t('cli_agent.open')}
-            </button>
-            <button
-              onClick={() => importRef.current?.click()}
-              disabled={pendingImport !== null || isImporting}
-              aria-label={t('import_config')}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-agent hover:bg-agent/10 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Upload size={14} /> {t('import_config')}
-            </button>
-          </div>
-
-          {/* Import preview (pending state — Save commits, Cancel discards) */}
-          {pendingImport && (
-            <div className="mb-4 p-4 rounded-xl bg-agent/5 border border-agent/40 space-y-3">
-              <div className="flex items-start gap-3">
-                <div className="p-2 rounded-lg bg-agent/10 text-agent">
-                  <Upload size={14} />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-bold text-xs text-content-primary">{t('import_preview.title')}</h3>
-                  <p className="text-xs text-content-tertiary font-mono mt-0.5">{t('import_preview.hint')}</p>
-                </div>
-              </div>
-              <div className="bg-surface-secondary rounded-lg p-3 space-y-1.5 font-mono text-xs">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-content-tertiary">name:</span>
-                  <span className="text-content-primary font-bold truncate">{pendingImport.agentData.name}</span>
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-content-tertiary">{t('import_preview.engine_label')}:</span>
-                  <span className="text-content-primary truncate">
-                    {pendingImport.displayEngineId
-                      ? displayServerId(pendingImport.displayEngineId)
-                      : t('import_preview.none')}
-                  </span>
-                </div>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-content-tertiary">{t('import_preview.access_label')}:</span>
-                  <span className="text-content-primary">
-                    {t('import_preview.access_count', { count: pendingImport.grantedServerIds.length })}
-                  </span>
-                </div>
-              </div>
-              {pendingImport.warnings.length > 0 && (
-                <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-1">
-                  {pendingImport.warnings.map((w) => (
-                    <p key={w} className="text-xs text-amber-400 font-mono">
-                      {w}
-                    </p>
-                  ))}
-                </div>
-              )}
-              {importError && <p className="text-xs text-red-400 font-mono">{importError}</p>}
-              <div className="flex gap-2">
-                <button
-                  onClick={handleCancelImport}
-                  disabled={isImporting}
-                  aria-label={tc('cancel')}
-                  className="flex-1 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:bg-surface-secondary transition-all disabled:opacity-50"
-                >
-                  {tc('cancel')}
-                </button>
-                <button
-                  onClick={handleSaveImport}
-                  disabled={isImporting}
-                  aria-label={t('import_preview.save')}
-                  className="flex-1 py-2 rounded-lg bg-agent text-agent-ink text-xs font-bold hover:bg-agent/90 transition-all disabled:opacity-50 flex items-center justify-center gap-1"
-                >
-                  {isImporting ? <Activity size={12} className="animate-spin" /> : <Upload size={12} />}
-                  {t('import_preview.save')}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Import warnings */}
-          {importWarnings.length > 0 && (
-            <div className="mb-4 p-3 rounded-lg bg-amber-500/10 border border-amber-500/30 space-y-1">
-              {importWarnings.map((w) => (
-                <p key={w} className="text-xs text-amber-400 font-mono">
-                  {w}
-                </p>
-              ))}
-              <button
-                onClick={() => setImportWarnings([])}
-                aria-label={tc('close')}
-                className="text-xs text-content-tertiary hover:text-agent mt-1"
-              >
-                &times; {tc('close')}
-              </button>
-            </div>
-          )}
-
-          {/* Agent Cards Grid */}
-          {agents.length === 0 ? (
-            <div className="py-12 text-center text-content-tertiary bg-surface-panel rounded-lg border border-edge border-dashed font-mono text-xs">
-              {t('no_agents')}
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {agents.map((agent) => {
-                const _color = agentColor(agent);
-                return (
-                  <div
-                    key={agent.id}
-                    className="relative card-solid p-4 rounded-xl border border-edge hover:border-agent group cursor-pointer overflow-hidden"
-                    onClick={() => onSelectAgent(agent)}
-                  >
-                    {agent.metadata?.has_avatar === 'true' && (
-                      <img
-                        src={api.getAvatarUrl(agent.id)}
-                        alt=""
-                        className="absolute inset-0 w-full h-full object-cover opacity-10 blur-sm group-hover:opacity-15 transition-opacity duration-300 pointer-events-none"
-                      />
-                    )}
-                    {/* Row 1: Status + Name + Power */}
-                    <div className="flex items-center gap-3 mb-2">
-                      <div
-                        role="img"
-                        className={`w-3 h-3 rounded-full flex-shrink-0 ${agent.enabled ? 'bg-emerald-500' : 'bg-content-muted'}`}
-                        aria-label={agent.enabled ? t('status_enabled') : t('status_disabled')}
-                      />
-                      <h3 className="font-bold text-content-primary text-base flex-1 truncate">{agent.name}</h3>
-                      <AgentPowerButton agent={agent} onPowerToggle={handlePowerToggle} />
-                    </div>
-
-                    {/* Row 2: Engine · Memory */}
-                    <div className="text-xs font-mono text-content-tertiary mb-2">
-                      {t('ai_agent')} ·{' '}
-                      {agent.default_engine_id ? displayServerId(agent.default_engine_id) : t('no_engine')}
-                      {agent.metadata?.preferred_memory && ` · ${displayServerId(agent.metadata.preferred_memory)}`}
-                    </div>
-
-                    {/* Divider + Actions */}
-                    <div className="mt-2 pt-2 border-t border-edge-subtle flex items-center gap-x-3 gap-y-2 flex-wrap">
-                      <div className="flex items-center gap-1 flex-wrap ml-auto justify-end">
-                        <button
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-agent hover:bg-agent/10 transition-all"
-                          aria-label={t('chat')}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectAgent(agent);
-                          }}
-                        >
-                          <MessageSquare size={14} /> {t('chat')}
-                        </button>
-                        {agent.id !== DEFAULT_AGENT_ID && (
-                          <button
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-agent hover:bg-agent/10 transition-all"
-                            aria-label={t('export_config')}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleExport(agent);
-                            }}
-                          >
-                            <Download size={14} /> {t('export_config')}
-                          </button>
-                        )}
-                        <button
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-agent hover:bg-agent/10 transition-all"
-                          aria-label={t('config')}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSelectAgent(agent);
-                            setConfiguringAgent(agent);
-                          }}
-                        >
-                          <Settings size={14} /> {t('config')}
-                        </button>
-                        {agent.id !== DEFAULT_AGENT_ID && (
-                          <button
-                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap shrink-0 text-content-tertiary hover:text-red-500 hover:bg-red-500/10 transition-all"
-                            aria-label={tc('delete')}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDeleteTarget(agent);
-                              setDeleteError(null);
-                            }}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Right Sidebar: Create Form */}
-      <div className="w-[340px] shrink-0 border-l border-[var(--border-strong)] bg-surface-base/30 overflow-y-auto no-scrollbar hidden lg:flex flex-col">
-        <div className="p-6">
-          {/* Section header */}
-          <div className="flex items-center gap-3 mb-6 border-b border-edge pb-2">
-            <Zap className="text-agent" size={16} />
-            <h2 className="font-bold text-xs text-content-secondary">{t('create_agent')}</h2>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-content-tertiary mb-1">{t('form.name')}</label>
-              <input
-                type="text"
-                value={newAgent.name}
-                onChange={(e) => updateField('name', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary"
-                placeholder={t('form.name_placeholder')}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-content-tertiary mb-1">{t('form.description')}</label>
-              <textarea
-                value={newAgent.desc}
-                onChange={(e) => updateField('desc', e.target.value)}
-                className="w-full px-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary h-16 resize-none"
-                placeholder={t('form.desc_placeholder')}
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-content-tertiary mb-1">{t('form.llm_engine')}</label>
-              {mcpEngines.length > 0 ? (
-                <select
-                  value={newAgent.engine}
-                  onChange={(e) => updateField('engine', e.target.value)}
-                  className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary"
-                >
-                  <option value="">{t('form.select')}</option>
-                  {mcpEngines.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {displayServerId(s.id)}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <div className="w-full px-2 py-1.5 rounded-lg border border-dashed border-content-muted text-xs text-content-tertiary font-mono text-center">
-                  {t('form.no_engines')}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-content-tertiary mb-1">{t('form.memory')}</label>
-              <select
-                value={newAgent.memory}
-                onChange={(e) => updateField('memory', e.target.value)}
-                className="w-full px-2 py-1.5 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary"
-              >
-                <option value="">{t('form.memory_none')}</option>
-                {mcpMemories.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {displayServerId(s.id)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-content-tertiary mb-1">
-                {t('form.password')}{' '}
-                <span className="text-content-tertiary font-normal normal-case">({t('form.password_optional')})</span>
-              </label>
-              <div className="relative">
-                <Lock size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-content-tertiary" />
-                <input
-                  type="password"
-                  value={newAgent.password}
-                  onChange={(e) => updateField('password', e.target.value)}
-                  className="w-full pl-8 pr-3 py-2 rounded-lg border border-edge text-xs focus:outline-none focus:border-agent bg-surface-primary"
-                  placeholder={t('form.password_placeholder')}
-                />
-              </div>
-            </div>
-
-            {/* Engine Routing Rules */}
-            {mcpEngines.length > 1 && (
-              <div>
-                <label className="block text-xs font-bold text-content-tertiary mb-2">
-                  <Route size={10} className="inline mr-1" />
-                  {t('routing.title')}
-                  <span className="text-content-tertiary font-normal normal-case ml-1">({t('routing.optional')})</span>
-                </label>
-                <div className="space-y-2">
-                  {newAgent.routingRules.map((rule, i) => (
-                    <div key={i} className="space-y-1 bg-surface-panel rounded-lg p-2 border border-edge">
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="text"
-                          value={rule.match}
-                          onChange={(e) => updateRoutingRule(i, 'match', e.target.value)}
-                          placeholder="contains:keyword"
-                          className="flex-1 px-2 py-1 rounded border border-edge text-xs font-mono bg-surface-primary focus:outline-none focus:border-agent min-w-0"
-                        />
-                        <span className="text-xs text-content-tertiary shrink-0">&rarr;</span>
-                        <select
-                          value={rule.engine}
-                          onChange={(e) => updateRoutingRule(i, 'engine', e.target.value)}
-                          className="w-28 px-1 py-1 rounded border border-edge text-xs font-mono bg-surface-primary focus:outline-none focus:border-agent"
-                        >
-                          <option value="">{t('routing.select_engine')}</option>
-                          {mcpEngines.map((s) => (
-                            <option key={s.id} value={s.id}>
-                              {displayServerId(s.id)}
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => removeRoutingRule(i)}
-                          aria-label={t('routing.remove_rule')}
-                          className="p-0.5 rounded text-content-tertiary hover:text-red-500 hover:bg-red-500/10 transition-all shrink-0"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                      {/* CFR + Fallback options */}
-                      <div className="flex items-center gap-2 pl-1">
-                        <label className="flex items-center gap-1 text-xs text-content-tertiary cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={rule.cfr || false}
-                            onChange={(e) => updateRoutingRule(i, 'cfr', e.target.checked)}
-                            className="w-3 h-3 rounded"
-                          />
-                          CFR
-                        </label>
-                        {rule.cfr && (
-                          <>
-                            <span className="text-xs text-content-tertiary">&rarr;</span>
-                            <select
-                              value={rule.escalate_to || ''}
-                              onChange={(e) => updateRoutingRule(i, 'escalate_to', e.target.value || undefined)}
-                              className="w-24 px-1 py-0.5 rounded border border-edge text-xs font-mono bg-surface-primary focus:outline-none focus:border-agent"
-                            >
-                              <option value="">{t('routing.escalate_to')}</option>
-                              {mcpEngines
-                                .filter((s) => s.id !== rule.engine)
-                                .map((s) => (
-                                  <option key={s.id} value={s.id}>
-                                    {displayServerId(s.id)}
-                                  </option>
-                                ))}
-                            </select>
-                          </>
-                        )}
-                        <span className="text-xs text-content-tertiary ml-1">{t('routing.fallback')}</span>
-                        <select
-                          value={rule.fallback || ''}
-                          onChange={(e) => updateRoutingRule(i, 'fallback', e.target.value || undefined)}
-                          className="w-24 px-1 py-0.5 rounded border border-edge text-xs font-mono bg-surface-primary focus:outline-none focus:border-agent"
-                        >
-                          <option value="">{t('routing.fallback_none')}</option>
-                          {mcpEngines
-                            .filter((s) => s.id !== rule.engine)
-                            .map((s) => (
-                              <option key={s.id} value={s.id}>
-                                {displayServerId(s.id)}
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={addRoutingRule}
-                    aria-label={t('routing.add_rule')}
-                    className="w-full py-1 rounded border border-dashed border-edge text-xs font-bold text-content-tertiary hover:text-agent hover:border-agent transition-all flex items-center justify-center gap-1"
-                  >
-                    <Plus size={10} /> {t('routing.add_rule')}
-                  </button>
-                </div>
-                <p className="text-xs text-content-tertiary mt-1 font-mono">{t('routing.help')}</p>
-              </div>
-            )}
-
-            {createError && <p className="text-xs text-red-400 text-center">{createError}</p>}
-            <button
-              onClick={handleCreate}
-              disabled={!newAgent.name || !newAgent.desc || !newAgent.engine || isCreating}
-              aria-label={t('create_agent')}
-              className="w-full text-agent-ink py-2 rounded-lg text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-1.5 bg-agent"
-            >
-              {isCreating ? <Activity size={14} className="animate-spin" /> : <Plus size={14} />}
-              {t('create_agent')}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    <AgentRoster agents={agents} onSelectAgent={onSelectAgent} onRefresh={onRefresh} processing={processingAgentIds} />
   );
 }
 
-/** Mounts the console on the conversation that is open for the agent —
- * remembered, else newest, else new — and remounts it when that changes. */
+/** Mounts the console on what is open for the agent — a draft if New chat was
+ * pressed, else the remembered conversation, else the newest, else a draft —
+ * and remounts it when that changes. */
 function OpenConversationConsole({
   agent,
   onBack,
@@ -821,21 +92,29 @@ function OpenConversationConsole({
   onBack: () => void;
   onConfigure: () => void;
 }) {
-  const { openFor, resolveOpen } = useConversations();
-  const conversationId = openFor(agent.id);
+  const { openFor, resolveOpen, draft, commitDraft, mountKeyFor } = useConversations();
+  // The new chat's first message was written for this agent: the console
+  // mounts on nothing, creates the conversation, and sends it.
+  const sending = draft?.first && draft.agentId === agent.id ? draft : null;
+  const draftKey = sending?.key ?? null;
+  const conversationId = draftKey ? null : openFor(agent.id);
   useEffect(() => {
-    if (!conversationId) {
+    if (!draftKey && !conversationId) {
       resolveOpen(agent.id).catch((err) => {
         if (import.meta.env.DEV) console.error('Failed to open a conversation:', err);
       });
     }
-  }, [agent.id, conversationId, resolveOpen]);
-  if (!conversationId) return null;
+  }, [agent.id, draftKey, conversationId, resolveOpen]);
+  if (!draftKey && !conversationId) return null;
   return (
     <AgentConsole
-      key={`${agent.id}:${conversationId}`}
+      // A draft and the conversation it becomes share one key, so the console
+      // is not remounted while its first message is on its way.
+      key={draftKey ?? mountKeyFor(agent.id, conversationId as string)}
       agent={agent}
       conversationId={conversationId}
+      onFirstMessage={() => commitDraft(agent.id)}
+      initialSend={sending?.first}
       onBack={onBack}
       onConfigure={onConfigure}
     />

@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   postChat: vi.fn(),
   postChatMessage: vi.fn(),
   retryResponse: vi.fn(),
+  stopResponse: vi.fn(),
   getAgentLastUsage: vi.fn(),
   getAvatarUrl: vi.fn(() => ''),
   getNotifications: vi.fn(),
@@ -75,8 +76,15 @@ vi.mock('../../lib/agentIdentity', () => ({
   agentColor: () => 'hsl(190 70% 58%)',
 }));
 // The reply's text, without the typewriter's timers and markdown pipeline.
+// The typewriter, without the typing. By default it never finishes, which keeps
+// a reply "arriving" for the tests that look at that state; a test that needs
+// the room free again sets `typewriter.finishes`.
+const typewriter = vi.hoisted(() => ({ finishes: false }));
 vi.mock('../TypewriterMessage', () => ({
-  TypewriterMessage: ({ text }: { text: string }) => <div>{text}</div>,
+  TypewriterMessage: ({ text, onComplete }: { text: string; onComplete?: () => void }) => {
+    if (typewriter.finishes) queueMicrotask(() => onComplete?.());
+    return <div>{text}</div>;
+  },
 }));
 vi.mock('../ContentBlockView', () => ({
   MessageContent: ({ content }: { content: Array<{ type: string; text?: string }> }) => (
@@ -126,11 +134,13 @@ function reply(sourceId: string, content: string) {
 
 beforeEach(() => {
   stream.handler = null;
+  typewriter.finishes = false;
   api.getAgentAccess.mockReset().mockResolvedValue({ entries: [] });
   api.getChatMessages.mockReset().mockResolvedValue({ messages: [], has_more: false });
   api.postChat.mockReset().mockResolvedValue(undefined);
   api.postChatMessage.mockReset().mockResolvedValue({ id: 'x', created_at: 0 });
   api.retryResponse.mockReset().mockResolvedValue({ retry_id: 'r' });
+  api.stopResponse.mockReset().mockResolvedValue({ stopped: true });
   api.getAgentLastUsage.mockReset().mockResolvedValue({ usage: null });
   api.getNotifications.mockReset().mockResolvedValue([]);
   api.approveCommand.mockReset().mockResolvedValue(undefined);
@@ -239,5 +249,125 @@ describe('the living room', () => {
     const next = await send('next question');
     reply(next, 'a fresh reply');
     expect(await screen.findByText('a fresh reply')).toBeTruthy();
+  });
+
+  it('asks the kernel to stop the reply it was waiting for', async () => {
+    draw();
+    await screen.findByText('console.remark');
+    const stopped = await send('slow question');
+    fireEvent.click(screen.getByRole('button', { name: 'chat_input.stop' }));
+    expect(api.stopResponse).toHaveBeenCalledWith('agent.a', stopped);
+  });
+
+  it('shows the reply after all when the kernel says it had already finished', async () => {
+    api.stopResponse.mockResolvedValue({ stopped: false });
+    draw();
+    await screen.findByText('console.remark');
+    const finished = await send('quick question');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'chat_input.stop' }));
+    });
+    // The reply is stored; holding it back would hide it until a reload.
+    reply(finished, 'it was already written');
+    expect(await screen.findByText('it was already written')).toBeTruthy();
+  });
+
+  it('keeps the reply held back when the stop call fails', async () => {
+    api.stopResponse.mockRejectedValue(new Error('down'));
+    draw();
+    await screen.findByText('console.remark');
+    const unsure = await send('question');
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'chat_input.stop' }));
+    });
+    reply(unsure, 'should not be drawn');
+    expect(screen.queryByText('should not be drawn')).toBeNull();
+  });
+
+  it('ends the wait when the reply is stopped from another window', async () => {
+    draw();
+    await screen.findByText('console.remark');
+    const elsewhere = await send('question');
+    expect(screen.getByRole('button', { name: 'chat_input.stop' })).toBeTruthy();
+    act(() => {
+      stream.handler?.({ type: 'ResponseStopped', data: { agent_id: 'agent.b', source_message_id: elsewhere } });
+    });
+    // Another agent's stop is not this one's.
+    expect(screen.getByRole('button', { name: 'chat_input.stop' })).toBeTruthy();
+    act(() => {
+      stream.handler?.({ type: 'ResponseStopped', data: { agent_id: 'agent.a', source_message_id: elsewhere } });
+    });
+    expect(screen.getByRole('button', { name: 'chat_input.send' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'chat_input.stop' })).toBeNull();
+  });
+});
+
+describe('a console mounted on the new chat', () => {
+  const first = { blocks: [{ type: 'text' as const, text: 'hello' }], rawText: 'hello', engineOverride: null };
+
+  it('asks for no history, creates the conversation, and sends the first message into it', async () => {
+    const onFirstMessage = vi.fn().mockResolvedValue('made-1');
+    render(
+      <AgentConsole
+        agent={agent}
+        conversationId={null}
+        onFirstMessage={onFirstMessage}
+        initialSend={first}
+        onBack={vi.fn()}
+      />,
+    );
+    await vi.waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1));
+    expect(onFirstMessage).toHaveBeenCalledTimes(1);
+    const dispatched = api.postChat.mock.calls[0][0] as { content: string; metadata: { conversation_id: string } };
+    expect(dispatched.content).toBe('hello');
+    expect(dispatched.metadata.conversation_id).toBe('made-1');
+    // Without a conversation id the history endpoint answers with everything
+    // the agent was ever sent: a draft must not ask.
+    expect(api.getChatMessages).not.toHaveBeenCalled();
+    expect(screen.getByText('hello')).toBeTruthy();
+  });
+
+  it('creates once: the second message goes into the conversation the first one made', async () => {
+    typewriter.finishes = true;
+    const onFirstMessage = vi.fn().mockResolvedValue('made-1');
+    render(
+      <AgentConsole
+        agent={agent}
+        conversationId={null}
+        onFirstMessage={onFirstMessage}
+        initialSend={first}
+        onBack={vi.fn()}
+      />,
+    );
+    await vi.waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1));
+    const firstId = (api.postChat.mock.calls[0][0] as { id: string }).id;
+    reply(firstId, 'hi there');
+    // The room takes a new message once the reply has finished arriving.
+    await vi.waitFor(
+      () => {
+        fireEvent.change(box(), { target: { value: 'and again' } });
+        fireEvent.keyDown(box(), { key: 'Enter' });
+        expect(api.postChat).toHaveBeenCalledTimes(2);
+      },
+      { timeout: 4000 },
+    );
+    expect(onFirstMessage).toHaveBeenCalledTimes(1);
+    const second = api.postChat.mock.calls[1][0] as { metadata: { conversation_id: string } };
+    expect(second.metadata.conversation_id).toBe('made-1');
+  });
+
+  it('says so, and sends nothing, when the conversation cannot be created', async () => {
+    const onFirstMessage = vi.fn().mockRejectedValue(new Error('kernel said no'));
+    render(
+      <AgentConsole
+        agent={agent}
+        conversationId={null}
+        onFirstMessage={onFirstMessage}
+        initialSend={first}
+        onBack={vi.fn()}
+      />,
+    );
+    await screen.findByText(/kernel said no/);
+    expect(api.postChat).not.toHaveBeenCalled();
   });
 });

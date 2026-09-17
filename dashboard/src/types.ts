@@ -121,6 +121,29 @@ export interface Conversation {
   message_count: number;
 }
 
+/** A message found by `GET /api/chat/search`: across every agent's
+ * conversations, archived ones included. */
+export interface ChatSearchHit {
+  message_id: string;
+  agent_id: string;
+  conversation_id: string | null;
+  conversation_title: string | null;
+  archived: boolean;
+  source: string;
+  created_at: number;
+  /** The text around the first match, on one line. */
+  snippet: string;
+}
+
+export interface ChatSearchResult {
+  query: string;
+  /** Newest first, at most the limit asked for. */
+  results: ChatSearchHit[];
+  /** Every message that matched, whether or not it is in `results`. */
+  total: number;
+  truncated: boolean;
+}
+
 // API response types
 export interface PermissionRequest {
   request_id: string;
@@ -226,6 +249,29 @@ export interface RecallPrecisionInfo {
   overridden: boolean;
   /** The memory server's global default precision level. */
   global_precision: string;
+}
+
+/**
+ * One always-loaded instruction file, as the kernel found it for an agent
+ * (`GET /api/agents/:id/instruction-files`). Mirrors
+ * `crates/core/src/managers/mcp.rs::AgentInstructionFile`.
+ */
+export interface AgentInstructionFile {
+  name: string;
+  /** Whether the file exists with something other than whitespace in it. */
+  present: boolean;
+  /** Characters after trimming; 0 when the file is not present. */
+  chars: number;
+  /** Whether the file reached the prompt. A present file is left out whole when
+   * it does not fit what the files before it left of the budget. */
+  loaded: boolean;
+}
+
+/** What an agent's always-loaded files cost against the shared budget. The
+ * budget travels with the answer, so no screen has to copy the number. */
+export interface AgentInstructionsReport {
+  budget_chars: number;
+  files: AgentInstructionFile[];
 }
 
 export interface Episode {

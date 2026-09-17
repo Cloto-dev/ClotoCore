@@ -1,4 +1,3 @@
-import { CheckCircle, Download, GitBranch, RefreshCw, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { REPOSITORY_URL } from '../../constants';
@@ -13,10 +12,8 @@ import {
   type UpdateInfo,
 } from '../../lib/tauri';
 import { SetupWizard } from '../SetupWizard';
-import { AlertCard } from '../ui/AlertCard';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { PillSelect } from '../ui/PillSelect';
-import { SectionCard, Toggle } from './common';
+import { Select, SettingsGroup, SettingsRow, Toggle } from './common';
 
 type UpdateState = 'idle' | 'checking' | 'up-to-date' | 'available' | 'updating' | 'updated' | 'error';
 
@@ -92,185 +89,106 @@ export function AboutSection() {
 
   return (
     <>
-      <SectionCard title={t('about.clotocore')}>
-        <div className="space-y-3">
-          <p className="text-xs text-content-secondary leading-relaxed">{t('about.description')}</p>
-          <div className="text-2xl font-mono font-black text-agent">v{__APP_VERSION__}</div>
-        </div>
-      </SectionCard>
+      <SettingsGroup title={t('about.clotocore')}>
+        <SettingsRow label={t('about.version_label')} desc={t('about.description')}>
+          <span className="val num">v{__APP_VERSION__}</span>
+        </SettingsRow>
+      </SettingsGroup>
 
-      <SectionCard title={t('about.updates')}>
-        <div className="space-y-3">
-          {/* Auto-update toggle (Tauri desktop only) */}
-          {isTauri && (
-            <div className="mb-3 pb-3 border-b border-edge">
-              <Toggle
-                enabled={autoUpdateEnabled}
-                onToggle={() => setAutoUpdateRaw(autoUpdateEnabled ? 'off' : 'on')}
-                label={t('about.auto_update')}
-              />
-              <p className="text-xs text-content-tertiary mt-1">{t('about.auto_update_desc')}</p>
-            </div>
-          )}
+      <SettingsGroup title={t('about.updates')}>
+        {/* Auto-update check and the channel it reads — desktop shell only. */}
+        {isTauri && (
+          <SettingsRow label={t('about.auto_update')} desc={t('about.auto_update_desc')}>
+            <Toggle
+              label={t('about.auto_update')}
+              checked={autoUpdateEnabled}
+              onChange={() => setAutoUpdateRaw(autoUpdateEnabled ? 'off' : 'on')}
+            />
+          </SettingsRow>
+        )}
 
-          {/* Update channel selector (Tauri desktop only) */}
-          {isTauri && (
-            <div className="mb-3 pb-3 border-b border-edge space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-xs font-bold text-content-secondary">{t('about.update_channel')}</span>
-                <PillSelect<UpdateChannel>
-                  value={channel}
-                  options={[
-                    { value: 'stable', label: t('about.channel_stable'), hint: t('about.channel_stable_hint') },
-                    { value: 'current', label: t('about.channel_current'), hint: t('about.channel_current_hint') },
-                    {
-                      value: 'experimental',
-                      label: t('about.channel_experimental'),
-                      hint: t('about.channel_experimental_hint'),
-                    },
-                  ]}
-                  onSelect={handleChannelSelect}
-                  icon={GitBranch}
-                  accented={channel !== 'stable'}
-                />
-              </div>
-              <p className="text-xs text-content-tertiary">{t('about.update_channel_desc')}</p>
-            </div>
-          )}
+        {isTauri && (
+          <SettingsRow label={t('about.update_channel')} desc={t('about.update_channel_desc')}>
+            <Select<UpdateChannel>
+              label={t('about.update_channel')}
+              value={channel}
+              onChange={handleChannelSelect}
+              options={[
+                { value: 'stable', label: t('about.channel_stable'), hint: t('about.channel_stable_hint') },
+                { value: 'current', label: t('about.channel_current'), hint: t('about.channel_current_hint') },
+                {
+                  value: 'experimental',
+                  label: t('about.channel_experimental'),
+                  hint: t('about.channel_experimental_hint'),
+                },
+              ]}
+            />
+          </SettingsRow>
+        )}
 
-          {/* Check button */}
-          {(updateState === 'idle' || updateState === 'error') && (
-            <button
-              onClick={handleCheck}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-agent hover:border-agent transition-all"
-            >
-              <RefreshCw size={14} />
-              {t('about.check_for_updates')}
+        <SettingsRow label={t('about.latest_label')} desc={t('about.latest_desc')}>
+          {updateState === 'checking' ? (
+            <span className="val">{t('about.checking')}</span>
+          ) : updateState === 'updating' ? (
+            <span className="val">{t('about.applying')}</span>
+          ) : (
+            <button type="button" className="btn" onClick={handleCheck}>
+              {updateState === 'idle' || updateState === 'error' ? t('about.check_for_updates') : t('about.recheck')}
             </button>
           )}
+        </SettingsRow>
 
-          {/* Checking spinner */}
-          {updateState === 'checking' && (
-            <div className="flex items-center gap-2 text-xs text-content-tertiary">
-              <RefreshCw size={14} className="animate-spin" />
-              {t('about.checking')}
-            </div>
-          )}
+        {updateState === 'up-to-date' && (
+          <p className="says ok">{t('about.up_to_date', { version: updateInfo?.currentVersion })}</p>
+        )}
 
-          {/* Up to date */}
-          {updateState === 'up-to-date' && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-xs text-emerald-500 font-bold">
-                <CheckCircle size={14} />
-                {t('about.up_to_date', { version: updateInfo?.currentVersion })}
-              </div>
-              <button
-                onClick={handleCheck}
-                className="text-xs text-content-tertiary hover:text-agent transition-colors"
-              >
-                {t('about.check_again')}
+        {updateState === 'available' && updateInfo && (
+          <div className="set-block">
+            <p className="says">
+              {t('about.available', { version: updateInfo.latestVersion })}
+              {updateInfo.releaseDate && ` (${formatDate(updateInfo.releaseDate)})`}
+            </p>
+            {updateInfo.releaseNotes && (
+              <p className="quote">
+                {updateInfo.releaseNotes.slice(0, 500)}
+                {updateInfo.releaseNotes.length > 500 && '...'}
+              </p>
+            )}
+            {isTauri && (
+              <button type="button" className="btn pri" onClick={handleUpdate}>
+                {t('about.update_now')}
               </button>
-            </div>
-          )}
+            )}
+          </div>
+        )}
 
-          {/* Update available */}
-          {updateState === 'available' && updateInfo && (
-            <div className="space-y-3">
-              <div className="flex items-center gap-2 text-xs text-agent font-bold">
-                <Download size={14} />
-                {t('about.available', { version: updateInfo.latestVersion })}
-                {updateInfo.releaseDate && (
-                  <span className="text-content-tertiary font-normal">({formatDate(updateInfo.releaseDate)})</span>
-                )}
-              </div>
+        {updateState === 'updated' && (
+          <div className="set-block">
+            <p className="says ok">{t('about.applied')}</p>
+            {updateOutput && <p className="quote">{updateOutput.slice(0, 300)}</p>}
+            <p className="says">{t('about.restart_hint')}</p>
+          </div>
+        )}
 
-              {updateInfo.releaseNotes && (
-                <div className="text-xs text-content-tertiary font-mono bg-surface-panel rounded-lg p-3 border border-edge leading-relaxed max-h-32 overflow-y-auto">
-                  {updateInfo.releaseNotes.slice(0, 500)}
-                  {updateInfo.releaseNotes.length > 500 && '...'}
-                </div>
-              )}
+        {updateState === 'error' && error && <p className="says bad">{error}</p>}
+      </SettingsGroup>
 
-              <div className="flex gap-2">
-                {isTauri && (
-                  <button
-                    onClick={handleUpdate}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-agent text-agent-ink text-xs font-bold shadow-sm hover:shadow-md transition-all"
-                  >
-                    <Download size={14} />
-                    {t('about.update_now')}
-                  </button>
-                )}
-                <button
-                  onClick={handleCheck}
-                  className="px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-agent transition-all"
-                >
-                  {t('about.recheck')}
-                </button>
-              </div>
-            </div>
-          )}
+      <SettingsGroup title={t('about.license')}>
+        <SettingsRow label={t('about.bsl')} desc={t('about.mit_convert')} />
+      </SettingsGroup>
 
-          {/* Updating */}
-          {updateState === 'updating' && (
-            <div className="flex items-center gap-2 text-xs text-content-tertiary">
-              <RefreshCw size={14} className="animate-spin" />
-              {t('about.applying')}
-            </div>
-          )}
-
-          {/* Updated */}
-          {updateState === 'updated' && (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2 text-xs text-emerald-500 font-bold">
-                <CheckCircle size={14} />
-                {t('about.applied')}
-              </div>
-              {updateOutput && (
-                <div className="text-xs text-content-tertiary font-mono bg-surface-panel rounded-lg p-2 border border-edge">
-                  {updateOutput.slice(0, 300)}
-                </div>
-              )}
-              <p className="text-xs text-content-tertiary">{t('about.restart_hint')}</p>
-            </div>
-          )}
-
-          {/* Error */}
-          {updateState === 'error' && error && <AlertCard>{error}</AlertCard>}
-        </div>
-      </SectionCard>
-
-      <SectionCard title={t('about.license')}>
-        <div className="space-y-2">
-          <p className="text-xs text-content-secondary">{t('about.bsl')}</p>
-          <p className="text-xs text-content-tertiary">{t('about.mit_convert')}</p>
-        </div>
-      </SectionCard>
-
-      <SectionCard title={t('about.links')}>
-        <div className="space-y-3">
-          {[
-            {
-              labelKey: 'about.repository',
-              value: 'github.com/Cloto-dev/ClotoCore',
-              href: REPOSITORY_URL,
-            },
-            { labelKey: 'about.contact', value: 'ClotoCore@proton.me', href: 'mailto:ClotoCore@proton.me' },
-          ].map((link) => (
-            <div key={link.labelKey} className="flex items-center justify-between">
-              <span className="text-xs text-content-tertiary font-bold">{t(link.labelKey)}</span>
-              <a
-                href={link.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-xs text-agent hover:underline font-mono"
-              >
-                {link.value}
-              </a>
-            </div>
-          ))}
-        </div>
-      </SectionCard>
+      <SettingsGroup title={t('about.links')}>
+        <SettingsRow label={t('about.repository')}>
+          <a className="val" href={REPOSITORY_URL} target="_blank" rel="noopener noreferrer">
+            github.com/Cloto-dev/ClotoCore
+          </a>
+        </SettingsRow>
+        <SettingsRow label={t('about.contact')}>
+          <a className="val" href="mailto:ClotoCore@proton.me">
+            ClotoCore@proton.me
+          </a>
+        </SettingsRow>
+      </SettingsGroup>
 
       {/* Desktop shell only, for the same reason the first-run wizard is
           (see the gate in App.tsx): the wizard's preset step *replaces* the
@@ -278,18 +196,14 @@ export function AboutSection() {
           outside Tauri, so over a browser this button led to a dead end at
           the key step — a broken affordance guarding a destructive one. */}
       {isTauri && (
-        <SectionCard title={t('about.setup')}>
-          <div className="space-y-2">
-            <p className="text-xs text-content-tertiary">{t('about.setup_desc')}</p>
-            <button
-              onClick={() => setShowWizard(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-agent hover:border-agent transition-all"
-            >
-              <RotateCcw size={14} />
+        <SettingsGroup title={t('about.setup')}>
+          <p className="gdesc">{t('about.setup_desc')}</p>
+          <div className="set-block">
+            <button type="button" className="btn" onClick={() => setShowWizard(true)}>
               {t('about.rerun_setup')}
             </button>
           </div>
-        </SectionCard>
+        </SettingsGroup>
       )}
 
       {showWizard && (

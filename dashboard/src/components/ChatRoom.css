@@ -475,6 +475,110 @@
   text-align: center;
   line-height: 1.8;
 }
+/* ---------- the new chat: faces that turn ---------- */
+/* The presence, with someone else one movement away. It is taken hold of
+   anywhere (grab), and the two arrows stand at the reading column's edges. */
+.presence.turning {
+  position: relative;
+  align-self: stretch;
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+}
+.presence.turning.pulled {
+  cursor: grabbing;
+}
+.presence .facing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* A face arrives; it does not pop. The only motion on this screen, and it
+     says something: who is here just changed. */
+  animation: face-arrives 0.18s ease-out;
+}
+.presence.turning.pulled .facing {
+  animation: none;
+}
+@keyframes face-arrives {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .presence .facing {
+    animation: none;
+  }
+}
+.presence .turn {
+  position: absolute;
+  top: calc(50% - 3vh - 42px);
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+  border-radius: var(--radius-surface);
+  color: hsl(var(--text-secondary));
+}
+.presence .turn.prev {
+  left: 0;
+}
+.presence .turn.next {
+  right: 0;
+}
+.presence .turn .arrow {
+  font-size: 26px;
+  line-height: 1;
+}
+/* The neighbour's face: there, but receding — smaller, colourless, half lit —
+   so that who is facing stays the only one in colour. */
+.presence .turn .peek {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-tertiary));
+  opacity: 0.55;
+  filter: grayscale(1);
+  transition: opacity 0.12s;
+}
+.presence .turn .peek svg {
+  width: 20px;
+  height: 20px;
+}
+.presence .turn .peek img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.presence .turn:hover {
+  color: hsl(var(--text-primary));
+}
+.presence .turn:hover .peek {
+  opacity: 0.9;
+}
+/* Nobody yet: the face is empty, in no one's colour. */
+.presence .pic.nobody {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-secondary));
+  cursor: pointer;
+}
+.presence .pic.nobody:hover {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-primary));
+}
+.presence .name.create {
+  border-radius: var(--radius-tool);
+  padding: 0 10px;
+}
+.presence .name.create:hover {
+  background: hsl(var(--surface-primary));
+}
+
 .presence .threads {
   width: min(520px, 100%);
   margin-top: 40px;
@@ -647,6 +751,22 @@
   cursor: default;
   filter: none;
 }
+/* Nobody is present, so the button is in nobody's colour: the accent belongs
+   to an agent (docs/DESIGN_PHILOSOPHY.md §4.2), never to the product. */
+.send.nobody,
+.send.nobody:disabled {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-tertiary));
+  opacity: 1;
+}
+/* The empty box is the way in: it answers the pointer like something pressable. */
+.box.inviting,
+.box.inviting textarea {
+  cursor: pointer;
+}
+.box.inviting:hover {
+  box-shadow: 0 0 0 1px hsl(var(--border-default));
+}
 .send.stop {
   background: hsl(var(--text-primary));
   color: hsl(var(--surface-base));
@@ -655,4 +775,14 @@
   font-size: 12px;
   color: hsl(var(--text-tertiary));
   padding: 8px 4px 0;
+}
+
+/* The new agent exists but its face could not be saved: one line above the
+   composer, in the note size, not an error surface — nothing here failed to
+   start. */
+.col.write .face-notice {
+  margin: 0 0 8px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: hsl(var(--text-secondary));
 }

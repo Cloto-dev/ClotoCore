@@ -5,6 +5,10 @@ import type { AgentMetadata } from '../types';
 
 /** The agent's hue, 0–359. Derived from the id, which does not change when the
  * agent is renamed. */
+// HARDCODED(crates/core/src/handlers/utils.rs::AVATAR_MAX_BYTES): the kernel refuses a larger avatar; checking here says so before the upload instead of after it.
+/** The largest avatar the kernel accepts, in bytes. */
+export const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
+
 export function agentHue(agent: Pick<AgentMetadata, 'id'>): number {
   // FNV-1a: spreads ids that differ by one character across the circle.
   let hash = 0x811c9dc5;
@@ -56,15 +60,62 @@ export function accentLightness(hue: number): number {
   return Math.round(l * 100);
 }
 
-/** The `--agent` token value for an agent: an HSL component triplet. */
-export function agentAccentTriplet(agent: Pick<AgentMetadata, 'id'>): string {
+/** An agent whose accent can be read: the id always, the metadata when the
+ * caller has it. Call sites that only know an id pass just the id. */
+export type AccentSource = Pick<AgentMetadata, 'id'> & Partial<Pick<AgentMetadata, 'metadata'>>;
+
+/**
+ * A chosen accent, as three HSL components, or `null` when the stored value is
+ * not one this product can draw.
+ *
+ * The stored form is the bare triplet (`"190 70% 58%"`) so it can be dropped
+ * straight into `--agent`, which is what every consumer of the accent reads.
+ * Anything outside the HSL ranges is refused rather than clamped: a value the
+ * person cannot have meant is better answered with the agent's own colour than
+ * with a nearby one they did not choose.
+ */
+export function parseAccentTriplet(raw: string | undefined): [number, number, number] | null {
+  if (!raw) return null;
+  const m = /^\s*(-?[\d.]+)\s+(-?[\d.]+)%\s+(-?[\d.]+)%\s*$/.exec(raw);
+  if (!m) return null;
+  const [h, s, l] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (![h, s, l].every(Number.isFinite)) return null;
+  if (h < 0 || h > 360) return null;
+  if (s < 0 || s > 100) return null;
+  if (l < 0 || l > 100) return null;
+  return [h, s, l];
+}
+
+/**
+ * Lightness of a chosen accent, raised until it holds 4.5:1 on the raised
+ * surface. The same loop the id-derived colour goes through: choosing a colour
+ * is allowed, choosing an unreadable one is not.
+ */
+function readableLightness(hue: number, saturation: number, lightness: number): number {
+  const raised = hslToRgb(SCALE_HUE, RAISED_SATURATION, RAISED_LIGHTNESS);
+  let l = lightness / 100;
+  while (l < 0.9 && contrastRatio(hslToRgb(hue, saturation / 100, l), raised) < MIN_CONTRAST) {
+    l += 0.01;
+  }
+  return Math.round(l * 100);
+}
+
+/** The `--agent` token value for an agent: an HSL component triplet. The
+ * agent's own `metadata.accent` when it holds one this product can draw, else
+ * the colour its id gives it. */
+export function agentAccentTriplet(agent: AccentSource): string {
+  const chosen = parseAccentTriplet(agent.metadata?.accent);
+  if (chosen) {
+    const [h, s, l] = chosen;
+    return `${h} ${s}% ${readableLightness(h, s, l)}%`;
+  }
   const hue = agentHue(agent);
   return `${hue} ${ACCENT_SATURATION * 100}% ${accentLightness(hue)}%`;
 }
 
 /** The accent colour of an agent, as a CSS colour. Under the Legacy theme every
  * agent wears the old brand blue, which the stylesheet holds in `--agent`. */
-export function agentColor(agent: Pick<AgentMetadata, 'id'>, root: HTMLElement = document.documentElement): string {
+export function agentColor(agent: AccentSource, root: HTMLElement = document.documentElement): string {
   if (root.classList.contains('theme-legacy')) return 'hsl(var(--agent))';
   return `hsl(${agentAccentTriplet(agent)})`;
 }
@@ -73,10 +124,7 @@ export function agentColor(agent: Pick<AgentMetadata, 'id'>, root: HTMLElement =
  * (docs/DESIGN_PHILOSOPHY.md §4.2). The neutral scale is not touched — its tint
  * is fixed, so the surfaces do not change when the selection does. `null` falls
  * back to the default in index.css. */
-export function applyPresentAgent(
-  agent: Pick<AgentMetadata, 'id'> | null,
-  root: HTMLElement = document.documentElement,
-) {
+export function applyPresentAgent(agent: AccentSource | null, root: HTMLElement = document.documentElement) {
   if (!agent) {
     root.style.removeProperty('--agent');
     return;

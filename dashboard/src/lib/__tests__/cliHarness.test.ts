@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import type { McpServerInfo } from '../../types';
+import type { AgentMetadata, McpServerInfo } from '../../types';
 import {
+  boundAgents,
   buildAgentMetadataUpdate,
   buildEnvUpdate,
   findHarnessServer,
+  harnessInitials,
+  harnessName,
   isMeteredPlan,
   PROBE_TOOL,
   parseAgentConfig,
@@ -178,5 +181,68 @@ describe('isMeteredPlan', () => {
     // would put an unmeasured claim on screen.
     expect(isMeteredPlan('unknown')).toBe(false);
     expect(isMeteredPlan(undefined)).toBe(false);
+  });
+});
+
+describe('harnessName and harnessInitials', () => {
+  it('uses the label the connector sends, and the id only when it sends none', () => {
+    expect(harnessName({ id: 'claude', label: 'Claude Code' })).toBe('Claude Code');
+    expect(harnessName({ id: 'claude', label: '  ' })).toBe('claude');
+    expect(harnessName({ id: 'codex' })).toBe('codex');
+  });
+
+  it('marks a two-word name with its initials and a one-word name with its first two letters', () => {
+    expect(harnessInitials({ id: 'claude', label: 'Claude Code' })).toBe('cc');
+    expect(harnessInitials({ id: 'codex' })).toBe('co');
+    expect(harnessInitials({ id: 'gemini_cli' })).toBe('gc');
+  });
+});
+
+describe('boundAgents', () => {
+  const schema = { metadata_key: 'cli_agent', fields: [] };
+  const agent = (id: string, engine: string, binding?: string) =>
+    ({
+      id,
+      name: id,
+      default_engine_id: engine,
+      metadata: binding === undefined ? { other: 'kept' } : { other: 'kept', cli_agent: binding },
+    }) as unknown as AgentMetadata;
+
+  it('takes only the agents whose engine is the connector', () => {
+    const out = boundAgents([agent('a', 'cli'), agent('b', 'deepseek')], 'cli', {
+      active_harness: 'claude',
+      agent_config: schema,
+    });
+    expect(out.map((b) => b.agent.id)).toEqual(['a']);
+  });
+
+  it("runs an agent on its own saved harness, else on the connector's choice", () => {
+    const out = boundAgents(
+      [agent('own', 'cli', '{"harness":"codex"}'), agent('none', 'cli'), agent('blank', 'cli', '{"harness":"  "}')],
+      'cli',
+      { active_harness: 'claude', agent_config: schema },
+    );
+    expect(out.map((b) => [b.agent.id, b.harness])).toEqual([
+      ['own', 'codex'],
+      ['none', 'claude'],
+      ['blank', 'claude'],
+    ]);
+  });
+
+  it('puts an agent whose saved settings cannot be read on no harness, and says why', () => {
+    const [broken] = boundAgents([agent('broken', 'cli', 'not-json')], 'cli', {
+      active_harness: 'claude',
+      agent_config: schema,
+    });
+    // The connector fails this agent's run; it does not fall back to its own choice.
+    expect(broken.harness).toBeNull();
+    expect(broken.bindingError).toMatch(/not valid JSON/);
+    expect(broken.binding).toEqual({});
+  });
+
+  it('reads no binding when the connector declares no per-agent settings', () => {
+    const [a] = boundAgents([agent('a', 'cli', 'not-json')], 'cli', { active_harness: 'codex' });
+    expect(a.bindingError).toBeNull();
+    expect(a.harness).toBe('codex');
   });
 });

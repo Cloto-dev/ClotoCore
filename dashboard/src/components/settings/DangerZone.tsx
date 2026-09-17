@@ -1,4 +1,3 @@
-import { ChevronDown, ChevronRight, Loader2, ShieldAlert } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useApi } from '../../hooks/useApi';
@@ -11,9 +10,9 @@ import {
   type UninstallPlanResponse,
   type UninstallResponse,
 } from '../../services/api';
-import { AlertCard } from '../ui/AlertCard';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { SecretInput } from '../ui/SecretInput';
+import { SettingsGroup } from './common';
 
 /** Serde tag → the cumulative level the kernel accepts as `tier` (1..4). */
 const TIER_LEVEL: Record<PurgeTierName, number> = {
@@ -24,14 +23,6 @@ const TIER_LEVEL: Record<PurgeTierName, number> = {
 };
 
 const TIER_LEVELS = [1, 2, 3, 4] as const;
-
-function Flag({ label, tone }: { label: string; tone: 'danger' | 'warn' }) {
-  const classes =
-    tone === 'danger'
-      ? 'bg-red-500/10 border-red-500/30 text-red-400'
-      : 'bg-amber-500/10 border-amber-500/30 text-amber-400';
-  return <span className={`px-1.5 py-px rounded border text-xs font-mono ${classes}`}>{label}</span>;
-}
 
 function EntryRow({ entry }: { entry: PurgeEntry }) {
   const { t } = useTranslation('settings');
@@ -44,21 +35,19 @@ function EntryRow({ entry }: { entry: PurgeEntry }) {
         : formatBytes(entry.size_bytes);
 
   return (
-    <div className="flex items-start gap-2 py-1.5 border-b border-edge last:border-b-0">
-      <span className="w-12 shrink-0 pt-px text-xs font-mono text-content-tertiary">{entry.kind}</span>
-      <div className="min-w-0 flex-1">
-        <p className="text-xs font-mono text-content-primary break-all">{entry.path ?? entry.name ?? entry.id}</p>
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-0.5">
-          <span className="text-xs font-mono text-content-tertiary">
-            {t('health.danger.tier_short', { level: TIER_LEVEL[entry.tier] })}
-          </span>
-          <span className="text-xs text-content-tertiary">{t(`health.danger.source_${entry.source}`)}</span>
-          {entry.secret && <Flag tone="danger" label={t('health.danger.flag_secret')} />}
-          {entry.covers_secret && <Flag tone="danger" label={t('health.danger.flag_covers_secret')} />}
-          {entry.unreadable && <Flag tone="warn" label={t('health.danger.flag_unreadable')} />}
-        </div>
-      </div>
-      <span className="shrink-0 pt-px text-xs font-mono text-content-tertiary">{size}</span>
+    <div className="e">
+      <span className="k">{entry.kind}</span>
+      <span className="w">
+        <span className="p">{entry.path ?? entry.name ?? entry.id}</span>
+        <span className="m">
+          <span>{t('health.danger.tier_short', { level: TIER_LEVEL[entry.tier] })}</span>
+          <span>{t(`health.danger.source_${entry.source}`)}</span>
+          {entry.secret && <span className="flag">{t('health.danger.flag_secret')}</span>}
+          {entry.covers_secret && <span className="flag">{t('health.danger.flag_covers_secret')}</span>}
+          {entry.unreadable && <span className="flag warn">{t('health.danger.flag_unreadable')}</span>}
+        </span>
+      </span>
+      <span className="z">{size}</span>
     </div>
   );
 }
@@ -165,127 +154,92 @@ export function DangerZone() {
   const canExecute = !!summary && summary.entries > 0 && scopeMatchesPlan && !!sudoKey.trim() && !busy;
 
   return (
-    <div className="mt-6 pt-5 border-t border-edge">
-      <div className="bg-surface-panel border border-red-500/30 rounded-lg p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <ShieldAlert size={14} className="text-red-400 shrink-0" />
-          <h4 className="text-xs font-black text-red-400">{t('health.danger.title')}</h4>
-        </div>
-
+    <div className="set-danger">
+      <SettingsGroup title={t('health.danger.title')}>
         {handoff ? (
           /* Post-handoff: the kernel exits on its own. Nothing to poll. */
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin text-red-400 shrink-0" />
-              <span className="text-xs font-bold text-content-primary">{t('health.danger.running_title')}</span>
-            </div>
-            <p className="text-xs text-content-secondary">{t('health.danger.running_desc')}</p>
-            <div>
-              <span className="text-xs font-bold text-content-tertiary">{t('health.danger.report_path')}</span>
-              <p className="text-xs font-mono text-content-primary break-all select-all">{handoff.report_path}</p>
-            </div>
-            <p className="text-xs font-mono text-content-tertiary leading-relaxed">
-              {t('health.danger.running_resume_hint')}
+          <div className="set-block">
+            <p className="says bad">{t('health.danger.running_title')}</p>
+            <p className="says">{t('health.danger.running_desc')}</p>
+            <p className="says">
+              {t('health.danger.report_path')}: <span className="select-all">{handoff.report_path}</span>
             </p>
+            <p className="quote">{t('health.danger.running_resume_hint')}</p>
           </div>
         ) : (
           <>
-            <p className="text-xs text-content-secondary mb-3">{t('health.danger.desc')}</p>
+            <p className="gdesc">{t('health.danger.desc')}</p>
 
             {!open ? (
-              <button
-                type="button"
-                onClick={handleOpen}
-                className="px-4 py-2 text-xs font-bold rounded-lg bg-surface-control border border-edge hover:border-red-500 text-red-400 transition-colors"
-              >
-                {t('health.danger.review')}
-              </button>
+              <div className="set-block">
+                <button type="button" className="btn danger" onClick={handleOpen}>
+                  {t('health.danger.review')}
+                </button>
+              </div>
             ) : (
-              <div className="space-y-4">
+              <div className="set-block">
                 {/* ── Gate 2: scope (cumulative tiers, default = narrowest) ── */}
-                <div>
-                  <p className="text-xs font-bold text-content-tertiary mb-1">{t('health.danger.scope_title')}</p>
-                  <p className="text-xs text-content-tertiary mb-2">{t('health.danger.scope_hint')}</p>
-                  <div className="space-y-1">
-                    {TIER_LEVELS.map((level) => {
-                      const included = level <= tier;
-                      return (
-                        <label
-                          key={level}
-                          className={`flex items-start gap-2 p-2 rounded border transition-colors ${
-                            included ? 'border-red-500/30 bg-red-500/5' : 'border-edge'
-                          } ${level === 1 || busy ? 'cursor-default' : 'cursor-pointer hover:border-red-500'}`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={included}
-                            disabled={level === 1 || busy}
-                            onChange={() => toggleTier(level)}
-                            className="mt-0.5 accent-red-500"
-                          />
-                          <span className="min-w-0">
-                            <span className="block text-xs font-bold text-content-primary">
-                              {t(`health.danger.tier${level}`)}
-                              {level === 1 && (
-                                <span className="ml-1 font-normal text-content-tertiary">
-                                  ({t('health.danger.tier1_always')})
-                                </span>
-                              )}
-                            </span>
-                            <span className="block text-xs text-content-tertiary">
-                              {t(`health.danger.tier${level}_hint`)}
-                            </span>
+                <h2>{t('health.danger.scope_title')}</h2>
+                <p className="gdesc">{t('health.danger.scope_hint')}</p>
+                <div className="tiers">
+                  {TIER_LEVELS.map((level) => {
+                    const included = level <= tier;
+                    return (
+                      <label key={level} className={level === 1 || busy ? 'held' : undefined}>
+                        <input
+                          type="checkbox"
+                          checked={included}
+                          disabled={level === 1 || busy}
+                          onChange={() => toggleTier(level)}
+                        />
+                        <span>
+                          <span className="n">
+                            {t(`health.danger.tier${level}`)}
+                            {level === 1 && <span className="always">({t('health.danger.tier1_always')})</span>}
                           </span>
-                        </label>
-                      );
-                    })}
-                  </div>
+                          <span className="h">{t(`health.danger.tier${level}_hint`)}</span>
+                        </span>
+                      </label>
+                    );
+                  })}
                 </div>
 
-                {planAction.error && <AlertCard>{planAction.error}</AlertCard>}
+                {planAction.error && <p className="says bad">{planAction.error}</p>}
 
                 {/* ── Gate 1: the dry-run enumeration, rendered as real paths ── */}
                 {planAction.isLoading && !plan ? (
-                  <div className="flex items-center gap-2 py-6 justify-center text-content-tertiary">
-                    <Loader2 size={14} className="animate-spin" />
-                    <span className="text-xs">{t('health.danger.reviewing')}</span>
-                  </div>
+                  <p className="says">{t('health.danger.reviewing')}</p>
                 ) : plan ? (
                   <div className={planAction.isLoading ? 'opacity-50' : undefined}>
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="text-xs font-bold text-content-tertiary">{t('health.danger.plan_title')}</p>
-                      {planAction.isLoading && <Loader2 size={10} className="animate-spin text-content-tertiary" />}
-                    </div>
-                    <p className="text-xs font-mono text-content-tertiary">
+                    <h2>{t('health.danger.plan_title')}</h2>
+                    <p className="gdesc">
                       {t('health.danger.plan_meta', {
                         planVersion: plan.plan.plan_version,
                         appVersion: plan.plan.app_version,
                         generatedAt: new Date(plan.plan.generated_at).toLocaleString(),
                       })}
                     </p>
-                    <p className="text-xs font-mono text-content-tertiary break-all mb-2">
+                    <p className="gdesc">
                       {t('health.danger.data_dir')}: {plan.plan.data_dir}
                     </p>
-
-                    {/* Summary the kernel derived (totals skip size-less entries,
-                        elevation is the executor's own rule). */}
-                    <div className="flex flex-wrap items-center gap-2 mb-2">
-                      <span className="text-xs font-mono text-content-secondary">
-                        {t('health.danger.summary_items', { count: plan.summary.entries })} · {totalSize}
-                      </span>
-                      {plan.summary.contains_secret && <Flag tone="danger" label={t('health.danger.summary_secret')} />}
-                      {plan.summary.needs_elevation && (
-                        <Flag tone="warn" label={t('health.danger.summary_elevation')} />
+                    <p className="gdesc facts">
+                      <span>{t('health.danger.summary_items', { count: plan.summary.entries })}</span>
+                      <span>{totalSize}</span>
+                      {plan.summary.contains_secret && (
+                        <span className="flag">{t('health.danger.summary_secret')}</span>
                       )}
-                    </div>
+                      {plan.summary.needs_elevation && (
+                        <span className="flag warn">{t('health.danger.summary_elevation')}</span>
+                      )}
+                    </p>
                     {plan.summary.total_truncated && (
-                      <p className="text-xs text-amber-400 mb-2">{t('health.danger.summary_truncated')}</p>
+                      <p className="says warn">{t('health.danger.summary_truncated')}</p>
                     )}
 
                     {plan.plan.entries.length === 0 ? (
-                      <p className="text-xs text-amber-400 py-2">{t('health.danger.empty')}</p>
+                      <p className="says warn">{t('health.danger.empty')}</p>
                     ) : (
-                      <div className="max-h-64 overflow-y-auto pr-1">
+                      <div className="purge">
                         {plan.plan.entries.map((entry) => (
                           <EntryRow key={`${entry.id}:${entry.path ?? entry.name ?? ''}`} entry={entry} />
                         ))}
@@ -295,44 +249,36 @@ export function DangerZone() {
                     {/* Skipped candidates: "we looked and it was not there" is
                         part of the enumeration's trustworthiness (§7). */}
                     {plan.plan.skipped.length > 0 && (
-                      <div className="mt-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowSkipped((v) => !v)}
-                          className="flex items-center gap-1 text-xs text-content-tertiary hover:text-content-secondary transition-colors"
-                        >
-                          {showSkipped ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
+                      <div className="set-block">
+                        <button type="button" className="btn" onClick={() => setShowSkipped((v) => !v)}>
                           {t('health.danger.skipped_show', { count: plan.plan.skipped.length })}
                         </button>
                         {showSkipped && (
-                          <div className="mt-1 pl-3 border-l border-edge">
-                            <p className="text-xs text-content-tertiary mb-1">{t('health.danger.skipped_hint')}</p>
-                            {plan.plan.skipped.map((s) => (
-                              <div
-                                key={`${s.id}:${s.path ?? ''}`}
-                                className="flex items-start gap-2 py-0.5 text-xs font-mono text-content-tertiary"
-                              >
-                                <span className="break-all flex-1">{s.path ?? s.id}</span>
-                                <span className="shrink-0">{t(`health.danger.skip_${s.reason}`)}</span>
-                              </div>
-                            ))}
-                          </div>
+                          <>
+                            <p className="gdesc">{t('health.danger.skipped_hint')}</p>
+                            <div className="purge">
+                              {plan.plan.skipped.map((s) => (
+                                <div className="e" key={`${s.id}:${s.path ?? ''}`}>
+                                  <span className="p">{s.path ?? s.id}</span>
+                                  <span className="z">{t(`health.danger.skip_${s.reason}`)}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </>
                         )}
                       </div>
                     )}
 
                     {/* Verbatim, every surface (§7 "Boundaries"). */}
                     {plan.plan.notes.length > 0 && (
-                      <div className="mt-3">
-                        <p className="text-xs font-bold text-content-tertiary mb-1">{t('health.danger.notes_title')}</p>
-                        <ul className="list-disc pl-4 space-y-0.5">
-                          {plan.plan.notes.map((note) => (
-                            <li key={note} className="text-xs text-content-tertiary leading-relaxed">
-                              {note}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
+                      <>
+                        <h2>{t('health.danger.notes_title')}</h2>
+                        {plan.plan.notes.map((note) => (
+                          <p className="gdesc" key={note}>
+                            {note}
+                          </p>
+                        ))}
+                      </>
                     )}
                   </div>
                 ) : null}
@@ -340,16 +286,16 @@ export function DangerZone() {
                 {/* The enumeration on screen is for another scope: say so, and
                     keep gate 3 out of reach until a matching plan is read. */}
                 {plan && !scopeMatchesPlan && !planAction.isLoading && (
-                  <AlertCard variant="warning">{t('health.danger.scope_stale')}</AlertCard>
+                  <p className="says warn">{t('health.danger.scope_stale')}</p>
                 )}
 
                 {/* ── Gate 3: sudo mode ── */}
                 {summary && summary.entries > 0 && scopeMatchesPlan && (
-                  <div className="pt-3 border-t border-edge space-y-2">
-                    <p className="text-xs font-bold text-content-tertiary">{t('health.danger.sudo_title')}</p>
-                    <p className="text-xs text-content-tertiary leading-relaxed">{t('health.danger.sudo_desc')}</p>
-                    <p className="text-xs text-content-tertiary">{t('health.danger.sudo_where')}</p>
-                    <div className="flex gap-2">
+                  <>
+                    <h2>{t('health.danger.sudo_title')}</h2>
+                    <p className="gdesc">{t('health.danger.sudo_desc')}</p>
+                    <p className="gdesc">{t('health.danger.sudo_where')}</p>
+                    <div className="set-block">
                       <SecretInput
                         value={sudoKey}
                         onChange={(v) => {
@@ -357,56 +303,38 @@ export function DangerZone() {
                           execAction.clearError();
                         }}
                         placeholder={t('health.danger.sudo_placeholder')}
-                        className="w-full bg-surface-field border border-edge rounded-lg px-3 py-2 pr-8 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-red-500 transition-colors"
+                        className="in wide mono"
                       />
                     </div>
                     {execAction.error && (
-                      <AlertCard>
-                        <span className="block">{execAction.error}</span>
-                        <span className="block mt-1">{t('health.danger.error_ambiguous')}</span>
-                      </AlertCard>
+                      <p className="says bad">
+                        {execAction.error} {t('health.danger.error_ambiguous')}
+                      </p>
                     )}
-                  </div>
+                  </>
                 )}
 
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handleClose}
-                    disabled={execAction.isLoading}
-                    className="px-4 py-2 text-xs font-bold rounded-lg bg-surface-control border border-edge hover:border-agent text-content-secondary transition-colors disabled:opacity-40"
-                  >
+                <div className="set-block">
+                  <button type="button" className="btn" onClick={handleClose} disabled={execAction.isLoading}>
                     {t('health.danger.close')}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => loadPlan(tier)}
-                    disabled={busy}
-                    className="px-4 py-2 text-xs font-bold rounded-lg bg-surface-control border border-edge hover:border-agent text-content-secondary transition-colors disabled:opacity-40"
-                  >
+                  <button type="button" className="btn" onClick={() => loadPlan(tier)} disabled={busy}>
                     {t('health.danger.refresh')}
                   </button>
                   <button
                     type="button"
+                    className="btn danger"
                     onClick={() => setConfirming(true)}
                     disabled={!canExecute}
-                    className="px-4 py-2 text-xs font-bold rounded-lg bg-red-500/10 border border-red-500/30 hover:border-red-500 text-red-400 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                   >
-                    {execAction.isLoading ? (
-                      <span className="flex items-center gap-2">
-                        <Loader2 size={12} className="animate-spin" />
-                        {t('health.danger.execute')}
-                      </span>
-                    ) : (
-                      t('health.danger.execute')
-                    )}
+                    {t('health.danger.execute')}
                   </button>
                 </div>
               </div>
             )}
           </>
         )}
-      </div>
+      </SettingsGroup>
 
       <ConfirmDialog
         open={confirming}

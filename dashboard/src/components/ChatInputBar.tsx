@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useShortcut } from '../hooks/useShortcut';
 import { agentColor } from '../lib/agentIdentity';
 import type { AgentMetadata, ContentBlock, McpServerInfo } from '../types';
 import { EngineSelector } from './EngineSelector';
@@ -26,6 +27,13 @@ interface ChatInputBarProps {
   onSwitchAgent?: (agentId: string) => void;
   /** The context meter, drawn at the row's right. */
   meter?: ReactNode;
+  /**
+   * There is nobody to write to yet. The box stays empty and says nothing: it
+   * is the thing a person reaches for, so reaching for it is the way in —
+   * pressing it (or typing into it) accepts the invitation. Nothing can be
+   * written or sent, and the send button wears no one's colour.
+   */
+  invitation?: { label: string; onAccept: () => void };
 }
 
 interface PendingAttachment {
@@ -53,6 +61,7 @@ export function ChatInputBar({
   agents = [],
   onSwitchAgent,
   meter,
+  invitation,
 }: ChatInputBarProps) {
   const { t } = useTranslation('agents');
   const [input, setInput] = useState('');
@@ -71,6 +80,15 @@ export function ChatInputBar({
   };
   const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // '/' writes here from anywhere that is not already text — when this
+  // composer is the one on screen. The agent page stays mounted behind other
+  // routes, inside a hidden wrapper, and must not take the key from there.
+  useShortcut('focusComposer', () => {
+    const el = inputRef.current;
+    if (!el || el.disabled || el.readOnly || el.closest('.hidden')) return false;
+    el.focus();
+    return true;
+  });
   const isComposingRef = useRef(false);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const agentMenuRef = useRef<HTMLDivElement>(null);
@@ -193,7 +211,9 @@ export function ChatInputBar({
   return (
     <div className="write">
       <div className="col">
-        <div className="box">
+        {/* The textarea inside carries the role and the keyboard path; the click
+            here only widens the pointer target to the whole box. */}
+        <div className={`box${invitation ? ' inviting' : ''}`} onClick={invitation ? invitation.onAccept : undefined}>
           {attachment && (
             <div className="attach">
               <img src={attachment.preview} alt="" />
@@ -217,6 +237,14 @@ export function ChatInputBar({
               isComposingRef.current = false;
             }}
             onKeyDown={(e) => {
+              if (invitation) {
+                // Anything that would have written something accepts instead.
+                if (e.key === 'Enter' || e.key === ' ' || (e.key.length === 1 && !e.metaKey && !e.ctrlKey)) {
+                  e.preventDefault();
+                  invitation.onAccept();
+                }
+                return;
+              }
               // Enter sends; Shift+Enter breaks the line; an Enter that ends
               // IME composition is neither.
               if (
@@ -232,24 +260,30 @@ export function ChatInputBar({
               if (e.key === 'Escape' && editMode) editMode.onCancel();
             }}
             onPaste={handlePaste}
-            disabled={disabled}
-            placeholder={placeholder}
-            aria-label={placeholder}
+            disabled={disabled && !invitation}
+            readOnly={!!invitation}
+            placeholder={invitation ? '' : placeholder}
+            aria-label={invitation ? invitation.label : placeholder}
           />
           <div className="row">
-            <button
-              type="button"
-              className="ib"
-              onClick={handleFileSelect}
-              disabled={disabled}
-              title={t('chat_input.attach_image')}
-              aria-label={t('chat_input.attach_image')}
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
-            <span className="sep" />
+            {/* Nothing can be attached to nobody: the box is empty. */}
+            {!invitation && (
+              <>
+                <button
+                  type="button"
+                  className="ib"
+                  onClick={handleFileSelect}
+                  disabled={disabled}
+                  title={t('chat_input.attach_image')}
+                  aria-label={t('chat_input.attach_image')}
+                >
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+                <span className="sep" />
+              </>
+            )}
             {agentName && (
               <div className="menu-anchor" ref={agentMenuRef}>
                 <button
@@ -285,12 +319,15 @@ export function ChatInputBar({
                 )}
               </div>
             )}
-            <EngineSelector
-              servers={servers}
-              selectedEngine={selectedEngine}
-              onSelect={setSelectedEngine}
-              disabled={disabled}
-            />
+            {/* An engine is somebody's; with nobody there is none to choose. */}
+            {!invitation && (
+              <EngineSelector
+                servers={servers}
+                selectedEngine={selectedEngine}
+                onSelect={setSelectedEngine}
+                disabled={disabled}
+              />
+            )}
             {editMode && (
               <button type="button" className="ctx" onClick={editMode.onCancel}>
                 {t('chat_input.cancel_edit')}
@@ -313,9 +350,9 @@ export function ChatInputBar({
             ) : (
               <button
                 type="button"
-                className="send"
+                className={`send${invitation ? ' nobody' : ''}`}
                 onClick={handleSend}
-                disabled={!canSend}
+                disabled={!canSend || !!invitation}
                 title={t('chat_input.send')}
                 aria-label={t('chat_input.send')}
               >
@@ -333,7 +370,15 @@ export function ChatInputBar({
             )}
           </div>
         </div>
-        <div className="hint">{t('chat_input.hint')}</div>
+        {/* Kept in the layout when it says nothing, so the box does not move
+            as the faces turn. */}
+        <div
+          className="hint"
+          style={invitation ? { visibility: 'hidden' } : undefined}
+          aria-hidden={invitation ? true : undefined}
+        >
+          {t('chat_input.hint')}
+        </div>
       </div>
 
       {/* Hidden file input for browser mode */}

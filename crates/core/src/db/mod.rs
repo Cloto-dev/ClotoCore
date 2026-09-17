@@ -7,6 +7,7 @@
 pub mod api_keys;
 pub mod audit;
 pub mod chat;
+pub mod chat_search;
 pub mod conversations;
 pub mod cron;
 pub mod health;
@@ -19,6 +20,7 @@ pub mod trusted_commands;
 pub use api_keys::*;
 pub use audit::*;
 pub use chat::*;
+pub use chat_search::*;
 pub use conversations::*;
 pub use cron::*;
 pub use llm::*;

@@ -11,6 +11,7 @@ Use `gui.read` to read any file listed below (path relative to `dashboard/src/`)
 | Path | Page Component | Description |
 |------|---------------|-------------|
 | `/` | `pages/AgentPage.tsx` | Agent chat (default page) |
+| `/agents/cli` | `pages/CliAgentsPage.tsx` | CLI agents: the harnesses on this machine, the connector's options, per-agent settings |
 | `/mcp-servers` | `pages/McpServersPage.tsx` | MCP server management (servers tab + marketplace tab) |
 | `/dashboard` | `components/MemoryCore.tsx` | Memory & episode viewer |
 | `/cron` | `components/CronJobs.tsx` | Scheduled job management |
@@ -18,7 +19,9 @@ Use `gui.read` to read any file listed below (path relative to `dashboard/src/`)
 
 System views (non-route):
 - `components/KernelMonitor.tsx` — System kernel monitor (accessed via AgentPage system mode)
-- `components/SettingsView.tsx` — Settings modal (opened from sidebar)
+
+Routes (see `App.tsx`):
+- `components/SettingsView.tsx` — Settings, at `/settings`. The open section is `?section=<id>`; an unknown or missing one opens `general`.
 
 ---
 
@@ -31,23 +34,26 @@ System views (non-route):
 ### `components/` — Core UI components
 
 #### Agent Interaction
-- `AgentTerminal.tsx` — **Main agent UI**. Agent card grid (create, select, power toggle), conversation area, chat history, plugin workspace toggle.
+- `AgentTerminal.tsx` — The agent route: the roster when nobody is selected, the conversation when somebody is. Reads an agent's waiting questions once its conversation is on screen.
+- `NewChatScreen.tsx` — The new chat: the faces ("create an agent", then every agent) that turn by swipe, drag or arrow, above the composer. Creates nothing; hands the first message to the console, which creates the conversation and sends it.
+- `agents/AgentRoster.tsx` — The roster: everyone on the left (answering now / idle, state line, last conversation, unread mark), one agent in full on the right. Import preview, export, power, delete.
+- `agents/CreateAgentModal.tsx` — Create an agent (name, description, engine, memory; password and routing under Advanced).
+- `agents/DeleteAgentModal.tsx` — Delete confirmation with the password gate; shared by the roster and the settings page.
+- `CommandPalette.tsx` — Search (⌘K / Ctrl+K, or the sidebar's search button): screens and settings sections, conversations by title and agent, MCP servers by name and description, and memories (the recent set the kernel lists). Mounted by `AppLayout`. What was said inside conversations is not searched: that needs a kernel search route.
+- `../hooks/useShortcut.ts` + `../lib/shortcuts.ts` — Every global shortcut in one table (⌘K search, ⌘N new chat, `/` the composer), one window listener, newest registration asked first; a bare key is left alone while text is being typed.
+- `../pages/CliAgentsPage.tsx` — The CLI agents page at `/agents/cli` (opened from the roster's head, and from an agent's engine row when that engine runs a harness): the harnesses the connector's probe reports, the connection options its catalog entry declares, and the per-agent settings its probe schema describes. Knows no harness, option or field by name. Deferred save: agents are written before the options, and everything that can refuse is asked before anything is written.
+- `../pages/AgentSettingsPage.tsx` — One agent's settings at `/agents/:id/settings`: basics, engine, memory, appearance, tool permissions, danger zone. All edits use the **deferred save pattern** (pending state → apply on Save, Discard and Back make no call).
 - `AgentConsole.tsx` — Chat message display. Renders messages, thinking steps, tool calls, streaming responses. Handles SSE events (AgentThinking, ToolExecuted, etc).
 - `ChatInputBar.tsx` — Message input field with send button. Supports multiline input.
-- `AgentPowerButton.tsx` — Green/gray power button for toggling agent on/off.
 - `PowerToggleModal.tsx` — Confirmation modal when toggling agent power (with optional password).
-- `AgentPluginWorkspace.tsx` — Agent configuration screen: avatar/VRM management, profile editing, MCP server access control. All operations use **deferred save pattern** (pending state → apply on Save, cancel discards all).
 - `EngineSelector.tsx` — LLM engine dropdown selector. Shows available MCP engine servers.
-- `ServerAccessSection.tsx` — Displays and manages MCP server access grants for an agent.
 
 #### Agent Creation & Identity
-- `AvatarSection.tsx` — Agent avatar display, upload, and deletion. VRM 3D model upload/delete.
 - `VrmThumbnailDialog.tsx` — Modal dialog offering to apply VRM embedded thumbnail as agent avatar. "Don't show again" option (sessionStorage).
-- `ProfileSection.tsx` — Agent name/description editing.
 - `SetupWizard.tsx` — First-run setup flow (7 steps): welcome, API key, language, presets, server installation, quick guide, completion.
 
 #### Memory & Episodes
-- `MemoryCore.tsx` — **Dashboard view**. Displays agent memories (long-term) and episodes (episodic summaries). Filterable by agent. Shows metrics (memory count, RAM usage).
+- `MemoryCore.tsx` — **Dashboard view**. One vertical time axis: memories newest first, grouped by local day, with a run of empty days compressed into a single segment. Filterable by agent, by kind (long-term / episodes) and by a client-side search. The right column holds the episodes and a band of the last 30 days' counts. Grouping, gaps and that band are computed in `lib/memoryTimeline.ts`.
 
 #### Cron Scheduler
 - `CronJobs.tsx` — Create, view, and manage scheduled autonomous jobs for agents. Cron expression input, execution history, enable/disable toggles.
@@ -65,7 +71,7 @@ System views (non-route):
 - `InstallDialog.tsx` — Server installation progress dialog.
 
 #### Settings (`components/settings/`)
-- `SettingsView.tsx` — Main settings container with sidebar navigation. Accepts `initialSection` prop.
+- `SettingsView.tsx` — The settings page: the section rail on the left, rows of "item, explanation, control" on the right. The section comes from `?section=`; clicking one replaces the history entry.
 - `GeneralSection.tsx` — Theme, language, user identity (display name with onBlur pattern).
 - `DisplaySection.tsx` — Custom cursor toggle (localStorage).
 - `LlmProvidersSection.tsx` — LLM API key configuration (OpenAI, Anthropic, etc).
@@ -93,9 +99,10 @@ System views (non-route):
 - `TypewriterMessage.tsx` — Animated typing effect for message display.
 
 #### Layout & Navigation
-- `AppLayout.tsx` — Master layout wrapper (header + sidebar + content). Manages settings modal with initialSection routing.
+- `AppLayout.tsx` — Master layout wrapper (header + sidebar + content). Sends the `cloto-open-settings` event to `/settings?section=<id>`.
 - `AppSidebar.tsx` — Left sidebar with agent list and navigation links.
-- `ViewHeader.tsx` — Top header bar with title, navigation, connection status, update indicator (green arrow), window controls.
+- `WindowBar.tsx` — The bar across the top of the main layout: show/hide the sidebar (remembered per browser), back and forward through the router's history. Draws no title and no window buttons; on macOS its controls start to the right of the overlaid OS window buttons.
+- `ViewHeader.tsx` — The header of the setup wizard: title, help, connection status, update indicator. Not used by the main layout — the window's frame is the OS's (`tauri.conf.json`), and the main layout's own bar is `WindowBar.tsx`.
 - `BranchNavigator.tsx` — Conversation branching/fork navigation.
 
 #### System & Status
@@ -213,7 +220,7 @@ System views (non-route):
 
 ```
 AppLayout
-├── ViewHeader (top bar: nav, title, update indicator, connection status, window controls)
+├── WindowBar (sidebar toggle, back, forward; the rest of it is the hold to drag the window by)
 ├── AppSidebar (left nav: agent list + nav links + settings button)
 └── Router Outlet
     ├── AgentPage → AgentTerminal
@@ -235,16 +242,17 @@ AppLayout
     │       └── InstallDialog (progress)
     │
     ├── MemoryCore (dashboard)
-    │   ├── Memory cards (long-term memories)
-    │   └── Episode timeline (episodic summaries)
+    │   ├── Time axis (day bands, memory rows, gap segments)
+    │   └── Side column (episodes, the last 30 days)
     │
     └── CronJobs (scheduler)
 
-Settings (modal, opened from sidebar or update button)
+Settings (the `/settings` page, reached from the sidebar or the update notice)
 ├── GeneralSection (theme, language, identity)
-├── SecuritySection (API keys)
-├── DisplaySection (cursor toggle)
+├── ConversationsSection (archived conversations, bulk archive/delete)
+├── SecuritySection (API keys, LLM providers)
 ├── AdvancedSection (YOLO, cron limits)
+├── HealthSection (checks, repair, danger zone)
 ├── LogSection (event viewer)
 └── AboutSection (version, auto-update toggle, update check, license, setup rerun)
 

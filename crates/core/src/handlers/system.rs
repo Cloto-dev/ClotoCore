@@ -112,6 +112,8 @@ use crate::plugins::routing_default::{
 enum HandleOutcome {
     Executed,
     Skipped(String),
+    /// Stopped from outside before the reply was finished.
+    Stopped,
 }
 
 /// Per-agent recall timing policy (knob 1). Selects *when* the
@@ -299,6 +301,11 @@ pub struct SystemHandler {
     /// How many of a conversation's newest messages the model reads
     /// (`Config::max_conversation_context`).
     max_conversation_context: usize,
+    /// Shared with `AppState::response_stops`: the replies being produced, so
+    /// `POST /api/chat/{agent_id}/stop` can stop one. Defaults to an orphan
+    /// registry for tests; production wires the `AppState` one via
+    /// [`Self::set_response_stops`].
+    response_stops: crate::managers::response_stop::ResponseStops,
 }
 
 impl SystemHandler {
@@ -343,7 +350,27 @@ impl SystemHandler {
             mcp_streaming_enabled,
             session_manager: Arc::new(crate::managers::session_manager::SessionManager::new()),
             max_conversation_context: crate::config::DEFAULT_MAX_CONVERSATION_CONTEXT,
+            response_stops: crate::managers::response_stop::ResponseStops::new(),
         }
+    }
+
+    pub fn set_response_stops(&mut self, stops: crate::managers::response_stop::ResponseStops) {
+        self.response_stops = stops;
+    }
+
+    /// The registry a reply is registered in while it is produced.
+    #[must_use]
+    pub fn response_stops(&self) -> &crate::managers::response_stop::ResponseStops {
+        &self.response_stops
+    }
+
+    /// The agent a message is for: its target, else the default agent.
+    #[must_use]
+    pub fn target_agent_of(&self, msg: &ClotoMessage) -> String {
+        msg.target_agent
+            .clone()
+            .or_else(|| msg.metadata.get("target_agent_id").cloned())
+            .unwrap_or_else(|| self.default_agent_id.clone())
     }
 
     /// Wire the env-derived consensus configuration into this handler.
@@ -550,15 +577,52 @@ impl SystemHandler {
     /// actual execution outcome regardless of which early-return path the
     /// implementation took.
     pub async fn handle_message(&self, msg: ClotoMessage) -> anyhow::Result<()> {
-        let cron_job_id = msg.metadata.get("cron_job_id").cloned();
-        let target_agent_id = msg
-            .target_agent
-            .clone()
-            .or_else(|| msg.metadata.get("target_agent_id").cloned())
-            .unwrap_or_else(|| self.default_agent_id.clone());
-        let agent_id_for_audit = target_agent_id.clone();
+        // Nothing outside can stop a message handled this way.
+        self.handle_message_stoppable(msg, std::future::pending::<()>())
+            .await
+    }
 
-        let outcome = self.handle_message_impl(msg).await;
+    /// Handle a message unless `stop` resolves first. A stop drops the turn at
+    /// the await point it had reached — the engine call, a tool — so no reply
+    /// is stored and no `ThoughtResponse` is sent; `ResponseStopped` is sent in
+    /// its place. `stop` comes from a [`StopRegistration`], which resolves only
+    /// once the turn has stored the user's message (see
+    /// `managers::response_stop`), so a stop never loses what the user wrote.
+    /// The cron bookkeeping below runs either way.
+    ///
+    /// [`StopRegistration`]: crate::managers::response_stop::StopRegistration
+    pub async fn handle_message_stoppable(
+        &self,
+        msg: ClotoMessage,
+        stop: impl std::future::Future<Output = ()>,
+    ) -> anyhow::Result<()> {
+        let cron_job_id = msg.metadata.get("cron_job_id").cloned();
+        let target_agent_id = self.target_agent_of(&msg);
+        let agent_id_for_audit = target_agent_id.clone();
+        let message_id = msg.id.clone();
+
+        let outcome = crate::managers::response_stop::until_stopped(
+            Box::pin(self.handle_message_impl(msg)),
+            stop,
+        )
+        .await
+        .unwrap_or(Ok(HandleOutcome::Stopped));
+
+        if let Ok(HandleOutcome::Stopped) = outcome {
+            info!(agent_id = %target_agent_id, message_id = %message_id, "⏹ Reply stopped");
+            let envelope = crate::EnvelopedEvent {
+                event: Arc::new(ClotoEvent::new(ClotoEventData::ResponseStopped {
+                    agent_id: target_agent_id.clone(),
+                    source_message_id: message_id.clone(),
+                })),
+                issuer: None,
+                correlation_id: None,
+                depth: 0,
+            };
+            if let Err(e) = self.sender.send(envelope).await {
+                error!(agent_id = %target_agent_id, error = %e, "❌ Failed to send ResponseStopped");
+            }
+        }
 
         // Bug #2: cron context cleanup — unconditional, even on error / early return.
         if cron_job_id.is_some() {
@@ -570,6 +634,10 @@ impl SystemHandler {
             let (status, err_msg): (&str, Option<String>) = match &outcome {
                 Ok(HandleOutcome::Executed) => ("success", None),
                 Ok(HandleOutcome::Skipped(reason)) => ("skipped", Some(reason.clone())),
+                Ok(HandleOutcome::Stopped) => (
+                    "stopped",
+                    Some("stopped before the reply was finished".to_string()),
+                ),
                 Err(e) => ("error", Some(e.to_string())),
             };
             if let Err(db_err) = crate::db::update_cron_job_last_status(
@@ -735,6 +803,11 @@ impl SystemHandler {
             self.note_conversation_message(&conversation_id, &msg.content, now_ms)
                 .await;
         }
+
+        // The user's message is stored: from here a stop may drop the turn
+        // (POST /api/chat/{agent_id}/stop), and one requested while the message
+        // was queued acts now.
+        self.response_stops.arm(&msg.id);
 
         // 1-B. Media pre-processing: analyze images / transcribe audio before routing to engine
         let msg = self.maybe_analyze_images(msg).await;

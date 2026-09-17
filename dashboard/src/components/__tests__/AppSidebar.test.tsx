@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation } from '../../types';
 
@@ -7,19 +7,24 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
 const navigate = vi.hoisted(() => vi.fn());
+const route = vi.hoisted(() => ({ pathname: '/' }));
 vi.mock('react-router-dom', () => ({
-  useLocation: () => ({ pathname: '/' }),
+  useLocation: () => route,
   useNavigate: () => navigate,
 }));
 vi.mock('../../hooks/useApi', () => ({ useApi: () => ({ post: vi.fn() }) }));
 vi.mock('../../hooks/useModules', () => ({ useModules: () => ({ modules: [] }) }));
 vi.mock('../../lib/tauri', () => ({ isExperimentalBuild: false }));
 vi.mock('../NotificationBell', () => ({ NotificationBell: () => null }));
+const connection = vi.hoisted(() => ({ connected: true, checking: false }));
+vi.mock('../../contexts/ConnectionContext', () => ({ useConnection: () => connection }));
 vi.mock('../ShutdownOverlay', () => ({ requestShutdown: vi.fn() }));
 
 const conversations = vi.hoisted(() => ({
   open: vi.fn(),
-  newChat: vi.fn(),
+  startDraft: vi.fn(),
+  leaveDraft: vi.fn(),
+  draft: null as { key: string; agentId: string | null } | null,
   rename: vi.fn(),
   archive: vi.fn(),
   remove: vi.fn(),
@@ -42,7 +47,11 @@ vi.mock('../../contexts/ConversationContext', () => ({
     conversations: conversations.list,
     openFor: conversations.openFor,
     open: conversations.open,
-    newChat: conversations.newChat,
+    startDraft: conversations.startDraft,
+    leaveDraft: conversations.leaveDraft,
+    get draft() {
+      return conversations.draft;
+    },
     rename: conversations.rename,
     archive: conversations.archive,
     remove: conversations.remove,
@@ -70,7 +79,9 @@ const DAY = 24 * 60 * 60 * 1000;
 beforeEach(() => {
   navigate.mockReset();
   conversations.open.mockReset();
-  conversations.newChat.mockReset();
+  conversations.startDraft.mockReset();
+  conversations.leaveDraft.mockReset();
+  conversations.draft = null;
   conversations.archive.mockReset();
   conversations.remove.mockReset();
   conversations.openFor.mockReset().mockReturnValue('today-1');
@@ -80,7 +91,6 @@ beforeEach(() => {
     conv('yday-1', 'agent.b', now - DAY, ''),
     conv('old-1', 'agent.a', now - 40 * DAY, 'Long ago'),
   ];
-  conversations.newChat.mockResolvedValue(conv('fresh', 'agent.a', now));
 });
 
 describe("the sidebar's conversations", () => {
@@ -109,19 +119,40 @@ describe("the sidebar's conversations", () => {
     expect(screen.getByText('KS22')).toBeTruthy();
   });
 
+  it('shows the older threads outright when nothing is recent, instead of an empty list under show more', () => {
+    const now = Date.now();
+    conversations.list = [
+      conv('old-1', 'agent.a', now - 40 * DAY, 'Long ago'),
+      conv('old-2', 'agent.b', now - 90 * DAY, 'Longer ago'),
+    ];
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.getByTitle('Long ago')).toBeTruthy();
+    expect(screen.getByTitle('Longer ago')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'show_more' })).toBeNull();
+  });
+
   it('opens a thread with its own agent, not the selected one', () => {
     render(<AppSidebar onSettingsClick={vi.fn()} />);
     fireEvent.click(screen.getByTitle('untitled_conversation'));
     expect(conversations.open).toHaveBeenCalledWith('agent.b', 'yday-1');
   });
 
-  it('new chat — the button and ⌘N — creates for the selected agent and opens it', async () => {
+  it('new chat — the button and ⌘N — opens the new chat on the present agent, and creates nothing', () => {
     render(<AppSidebar onSettingsClick={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'new_chat' }));
-    await vi.waitFor(() => expect(conversations.open).toHaveBeenCalledWith('agent.a', 'fresh'));
-    expect(conversations.newChat).toHaveBeenCalledTimes(1);
+    expect(conversations.startDraft).toHaveBeenCalledTimes(1);
+    expect(conversations.startDraft).toHaveBeenLastCalledWith('agent.a');
     fireEvent.keyDown(window, { key: 'n', metaKey: true });
-    await vi.waitFor(() => expect(conversations.newChat).toHaveBeenCalledTimes(2));
+    expect(conversations.startDraft).toHaveBeenCalledTimes(2);
+    // Opening a conversation is what clicking a row does, not this.
+    expect(conversations.open).not.toHaveBeenCalled();
+  });
+
+  it('marks no thread as open while the new chat is, and has no Chat link to go back by', () => {
+    conversations.draft = { key: 'draft:1', agentId: 'agent.a' };
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.getByTitle('Plans').getAttribute('aria-current')).toBeNull();
+    expect(screen.queryByText('chat')).toBeNull();
   });
 
   it('archives from the row menu, and deletes only after confirming', async () => {
@@ -142,5 +173,83 @@ describe("the sidebar's conversations", () => {
     render(<AppSidebar onSettingsClick={vi.fn()} />);
     expect(screen.getByText('kernel_running')).toBeTruthy();
     expect(screen.getByText('agents_count')).toBeTruthy();
+  });
+});
+
+describe('what the window header used to carry', () => {
+  it('opens the help from the navigation, and draws no link when there is no help to open', () => {
+    const onHelp = vi.fn();
+    const { unmount } = render(<AppSidebar onSettingsClick={vi.fn()} onHelpClick={onHelp} />);
+    fireEvent.click(screen.getByText('help'));
+    expect(onHelp).toHaveBeenCalledTimes(1);
+    unmount();
+
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.queryByText('help')).toBeNull();
+  });
+
+  it('says so when the kernel cannot be reached, instead of "running"', () => {
+    connection.connected = false;
+    try {
+      render(<AppSidebar onSettingsClick={vi.fn()} />);
+      expect(screen.getByText('kernel_unreachable')).toBeTruthy();
+      expect(screen.queryByText('kernel_running')).toBeNull();
+    } finally {
+      connection.connected = true;
+    }
+  });
+
+  it('turns the version into the way to the update once one is announced', () => {
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: /update_available_banner/ })).toBeNull();
+
+    const opened = vi.fn();
+    window.addEventListener('cloto-open-settings', opened);
+    act(() => {
+      window.dispatchEvent(new CustomEvent('cloto-update-available', { detail: { version: '9.9.9' } }));
+    });
+    fireEvent.click(screen.getByRole('button', { name: /update_available_banner/ }));
+    window.removeEventListener('cloto-open-settings', opened);
+
+    expect(opened).toHaveBeenCalledTimes(1);
+    expect((opened.mock.calls[0][0] as CustomEvent).detail).toEqual({ section: 'about' });
+  });
+});
+
+describe('search', () => {
+  it('opens search from its button, and draws no button when nothing can be searched', () => {
+    const onSearch = vi.fn();
+    const { unmount } = render(<AppSidebar onSettingsClick={vi.fn()} onSearchClick={onSearch} />);
+    fireEvent.click(screen.getByLabelText('search'));
+    expect(onSearch).toHaveBeenCalledTimes(1);
+    unmount();
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.queryByLabelText('search')).toBeNull();
+  });
+});
+
+describe('where the sidebar says you are', () => {
+  it('marks Settings as the destination you are on, now that it is a page', () => {
+    route.pathname = '/settings';
+    try {
+      render(<AppSidebar onSettingsClick={vi.fn()} />);
+      const settings = screen.getByRole('button', { name: /settings/ });
+      expect(settings.className).toContain('on');
+      // and nothing else claims to be the place you are
+      const lit = screen.getAllByRole('button').filter((b) => b.className.split(' ').includes('on'));
+      expect(lit.map((b) => b.textContent)).toEqual(['settings']);
+    } finally {
+      route.pathname = '/';
+    }
+  });
+
+  it('does not mark Settings while another destination is open', () => {
+    route.pathname = '/cron';
+    try {
+      render(<AppSidebar onSettingsClick={vi.fn()} />);
+      expect(screen.getByRole('button', { name: /settings/ }).className).not.toContain('on');
+    } finally {
+      route.pathname = '/';
+    }
   });
 });

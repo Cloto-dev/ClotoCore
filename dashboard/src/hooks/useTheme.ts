@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { setWindowTheme } from '../lib/tauri';
 
 type Theme = 'light' | 'dark';
 /** `legacy` is the palette from before the redesign; like `system`, it follows the
@@ -43,6 +44,8 @@ export function useThemeProvider() {
   const applyTheme = useCallback((t: Theme, pref: ThemePreference) => {
     document.documentElement.classList.toggle('dark', t === 'dark');
     document.documentElement.classList.toggle('theme-legacy', pref === 'legacy');
+    // The window's frame is the OS's; it follows the app's theme, not the system's.
+    void setWindowTheme(t);
     setTheme(t);
   }, []);
 

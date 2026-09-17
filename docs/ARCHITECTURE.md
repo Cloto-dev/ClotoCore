@@ -184,6 +184,8 @@ ClotoCore/
 | GET/POST | `/api/chat/:agent_id/conversations` | List / create conversations (`docs/CONVERSATIONS_DESIGN.md`) |
 | PATCH/DELETE | `/api/chat/:agent_id/conversations/:conversation_id` | Rename, archive or unarchive / delete with messages |
 | POST | `/api/chat/:agent_id/conversations/archive-all`, `…/delete-all` | Bulk archive / delete for an agent and user |
+| POST | `/api/chat/:agent_id/stop` | Stop the reply to `source_message_id`: nothing of it is stored, `ResponseStopped` replaces `ThoughtResponse`; `stopped: false` when it had already finished |
+| GET | `/api/chat/search` | Search every conversation's messages, archived ones included (`?q=` terms all present, newest first; `total` and `truncated` say when the list is cut) |
 | GET | `/api/chat/attachments/:attachment_id` | Retrieve chat attachment |
 | POST/GET | `/api/mcp/servers` | MCP server management |
 | DELETE | `/api/mcp/servers/:name` | Delete MCP server |

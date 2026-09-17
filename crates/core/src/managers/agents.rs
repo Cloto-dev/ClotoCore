@@ -196,6 +196,20 @@ impl AgentManager {
         Ok(())
     }
 
+    /// Replace an agent's power password. `None` removes it.
+    pub async fn set_password(&self, agent_id: &str, password: Option<&str>) -> anyhow::Result<()> {
+        let hash = match password {
+            Some(pw) => Some(Self::hash_password(pw)?),
+            None => None,
+        };
+        sqlx::query("UPDATE agents SET power_password_hash = ? WHERE id = ?")
+            .bind(hash)
+            .bind(agent_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Get the stored password hash for an agent.
     pub async fn get_password_hash(&self, agent_id: &str) -> anyhow::Result<Option<String>> {
         let row: (Option<String>,) =

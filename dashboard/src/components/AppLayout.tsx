@@ -1,20 +1,31 @@
-import { Cpu, HelpCircle, Settings } from 'lucide-react';
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { HelpCircle } from 'lucide-react';
+import { Suspense, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ActionsProvider } from '../contexts/ActionsContext';
 import { useAgentContext } from '../contexts/AgentContext';
 import { ConversationProvider } from '../contexts/ConversationContext';
+import { useShortcut } from '../hooks/useShortcut';
 import { isExperimentalBuild } from '../lib/tauri';
 import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
 import { CommandApprovalDeck } from './CommandApprovalDeck';
+import { CommandPalette } from './CommandPalette';
 import { HelpContent } from './HelpContent';
 import { Modal } from './Modal';
 import { SecurityGuard } from './SecurityGuard';
-import { ViewHeader } from './ViewHeader';
+import { WindowBar } from './WindowBar';
 
-const SettingsView = lazy(() => import('./SettingsView').then((m) => ({ default: m.SettingsView })));
+const SIDEBAR_HIDDEN_KEY = 'cloto-sidebar-hidden';
+
+/** A convenience, not state anything depends on: a browser that refuses storage just starts with the sidebar shown. */
+function readSidebarHidden(): boolean {
+  try {
+    return window.localStorage.getItem(SIDEBAR_HIDDEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 export interface AppOutletContext {
   setImmersive: (v: boolean) => void;
@@ -23,49 +34,45 @@ export interface AppOutletContext {
 export function AppLayout() {
   const { t } = useTranslation('common');
   const { t: tNav } = useTranslation('nav');
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialSection, setSettingsInitialSection] = useState<'general' | 'about'>('general');
   const [helpOpen, setHelpOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useShortcut('palette', () => {
+    setPaletteOpen((open) => !open);
+  });
   const [immersive, setImmersive] = useState(false);
+  const [sidebarHidden, setSidebarHidden] = useState(readSidebarHidden);
+
+  const toggleSidebar = () => {
+    const next = !sidebarHidden;
+    setSidebarHidden(next);
+    try {
+      window.localStorage.setItem(SIDEBAR_HIDDEN_KEY, next ? '1' : '0');
+    } catch {
+      // Not remembered across launches; the toggle itself still works.
+    }
+  };
   const navigate = useNavigate();
   const location = useLocation();
   const { agents, setSelectedAgentId } = useAgentContext();
   const isAgentRoute = location.pathname === '/';
 
-  const activeCount = agents.filter((a) => a.enabled).length;
-
-  // Track navigation history for back/forward button states
-  const maxIdxRef = useRef(0);
-  const [canGoBack, setCanGoBack] = useState(false);
-  const [canGoForward, setCanGoForward] = useState(false);
-
+  // Quick setup, re-run from Settings, ends at the living room.
   useEffect(() => {
-    const idx = ((window.history.state as Record<string, unknown>)?.idx as number) ?? 0;
-    maxIdxRef.current = Math.max(maxIdxRef.current, idx);
-    setCanGoBack(idx > 0);
-    setCanGoForward(idx < maxIdxRef.current);
-  }, []);
-
-  // Close settings and navigate home when quick setup completes
-  useEffect(() => {
-    const handler = () => {
-      setSettingsOpen(false);
-      navigate('/');
-    };
+    const handler = () => navigate('/');
     window.addEventListener('cloto-setup-rerun-complete', handler);
     return () => window.removeEventListener('cloto-setup-rerun-complete', handler);
   }, [navigate]);
 
-  // Open settings (optionally to About section) when update button is clicked
+  // The update notice asks for Settings, at About. Settings is a page, so the
+  // section it wants travels in the URL rather than in a prop.
   useEffect(() => {
     const handler = (e: Event) => {
       const section = (e as CustomEvent).detail?.section ?? 'general';
-      setSettingsInitialSection(section);
-      setSettingsOpen(true);
+      navigate(`/settings?section=${encodeURIComponent(section)}`);
     };
     window.addEventListener('cloto-open-settings', handler);
     return () => window.removeEventListener('cloto-open-settings', handler);
-  }, []);
+  }, [navigate]);
 
   const handleAskAgent = () => {
     setHelpOpen(false);
@@ -78,29 +85,20 @@ export function AppLayout() {
     <ConversationProvider>
       <ActionsProvider>
         <div className="h-screen bg-surface-base flex flex-col overflow-hidden relative font-sans text-content-primary select-none">
-          {/* 1. ViewHeader — first child, full width */}
-          {!immersive && (
-            <ViewHeader
-              icon={Cpu}
-              title="ClotoCore"
-              onHelp={() => setHelpOpen(true)}
-              navBack={() => navigate(-1)}
-              navForward={() => navigate(1)}
-              canGoBack={canGoBack}
-              canGoForward={canGoForward}
-              right={
-                <span className="text-xs font-mono text-content-tertiary">
-                  {activeCount} / {agents.length} Active
-                </span>
-              }
-            />
-          )}
+          {/* The window's frame is the OS's; this bar is the page's own: the
+              sidebar toggle, back and forward, and otherwise something to hold
+              the window by. */}
+          <WindowBar sidebarShown={!sidebarHidden} onToggleSidebar={toggleSidebar} immersive={immersive} />
 
-          {/* 2. Body — second child, sidebar + content */}
+          {/* Body — sidebar + content */}
           <div className="flex flex-1 overflow-hidden relative">
-            {!immersive && (
+            {!immersive && !sidebarHidden && (
               <div className="relative z-10">
-                <AppSidebar onSettingsClick={() => setSettingsOpen(true)} />
+                <AppSidebar
+                  onSettingsClick={() => navigate('/settings')}
+                  onHelpClick={() => setHelpOpen(true)}
+                  onSearchClick={() => setPaletteOpen(true)}
+                />
               </div>
             )}
             <main className="flex-1 h-full overflow-hidden relative z-10">
@@ -135,29 +133,6 @@ export function AppLayout() {
             )}
           </div>
 
-          {/* Settings modal */}
-          {settingsOpen && (
-            <Modal
-              title={tNav('settings')}
-              icon={Settings}
-              size="lg"
-              onClose={() => {
-                setSettingsOpen(false);
-                setSettingsInitialSection('general');
-              }}
-            >
-              <Suspense
-                fallback={
-                  <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
-                    {t('loading')}
-                  </div>
-                }
-              >
-                <SettingsView initialSection={settingsInitialSection} />
-              </Suspense>
-            </Modal>
-          )}
-
           {/* Help modal */}
           {helpOpen && (
             <Modal title={t('help.title')} icon={HelpCircle} size="sm" onClose={() => setHelpOpen(false)}>
@@ -168,6 +143,8 @@ export function AppLayout() {
           {/* Both live outside the routed content on purpose: a question an agent
             is blocked on is not about the screen you happen to be on, and the
             immersive view does not get to hide one either. */}
+          {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+
           <CommandApprovalDeck />
           <SecurityGuard />
         </div>

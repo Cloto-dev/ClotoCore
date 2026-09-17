@@ -123,6 +123,7 @@ pub async fn create_test_app_state_with_access(
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
         provider_probe_cache: crate::managers::provider_probe::ProbeCache::new(),
         last_usage: crate::managers::usage_tracker::UsageStore::new(),
+        response_stops: crate::managers::response_stop::ResponseStops::new(),
         session_manager: Arc::new(crate::managers::session_manager::SessionManager::new()),
     })
 }

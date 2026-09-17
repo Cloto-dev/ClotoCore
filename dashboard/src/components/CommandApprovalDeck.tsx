@@ -266,7 +266,7 @@ export function CommandApprovalDeck() {
     <div
       data-testid="approval-deck"
       className="fixed bottom-8 right-8 z-[1000] max-w-md w-full animate-in slide-in-from-bottom-4 duration-300"
-      style={{ '--agent': agentAccentTriplet({ id: current.agentId }) } as React.CSSProperties}
+      style={{ '--agent': agentAccentTriplet(asker ?? { id: current.agentId }) } as React.CSSProperties}
     >
       <CommandApprovalCard
         // Keyed so a new request gets a fresh card. Without this the component

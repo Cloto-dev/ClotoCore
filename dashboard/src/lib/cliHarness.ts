@@ -1,4 +1,4 @@
-import type { McpServerInfo } from '../types';
+import type { AgentMetadata, McpServerInfo } from '../types';
 
 /** Reading an external CLI harness engine, without hard-coding which server it is.
  *
@@ -20,6 +20,8 @@ export const PROBE_TOOL = 'probe_harnesses';
  * as "not installed" or "logged out" would be inventing a fact. */
 export interface HarnessEntry {
   id: string;
+  /** A name for people, when the connector sends one. The id stands in for it otherwise. */
+  label?: string;
   binary?: string;
   installed?: boolean;
   path?: string | null;
@@ -29,6 +31,9 @@ export interface HarnessEntry {
   /** `subscription` / `api_key` / `unknown` — how a run would be billed. */
   plan?: string;
   auth_mode?: string;
+  /** Account plan labels the connector could read (never identity fields). */
+  organizationType?: string;
+  organizationRateLimitTier?: string;
   api_key_configured?: boolean;
   last_refresh?: string;
 }
@@ -211,4 +216,65 @@ export function buildEnvUpdate(
  * warning would put a claim on screen that nothing measured. */
 export function isMeteredPlan(plan: string | undefined): boolean {
   return plan === 'api_key';
+}
+
+/** What a harness is called on screen: the connector's label, else its id. */
+export function harnessName(h: Pick<HarnessEntry, 'id' | 'label'>): string {
+  return h.label?.trim() || h.id;
+}
+
+/** Two letters for the harness's mark: the initials of its name's first two
+ * words, or its first two letters when the name is one word. */
+export function harnessInitials(h: Pick<HarnessEntry, 'id' | 'label'>): string {
+  const words = harnessName(h)
+    .split(/[\s_-]+/)
+    .filter(Boolean);
+  const letters = words.length >= 2 ? words[0][0] + words[1][0] : (words[0] ?? '').slice(0, 2);
+  return letters.toLowerCase();
+}
+
+/** One agent that runs on the harness connector, and what its saved binding says. */
+export interface BoundAgent {
+  agent: AgentMetadata;
+  /** The saved per-agent fields, or `{}` when there are none or they could not be read. */
+  binding: Record<string, string>;
+  /** Set when the saved binding is not something this screen can read or edit safely. */
+  bindingError: string | null;
+  /** The harness this agent's next run would use; null when its run would fail
+   * before choosing one (an unreadable binding), or when nothing decides one. */
+  harness: string | null;
+}
+
+/**
+ * The agents whose engine is the harness connector, each with the harness its
+ * next run would use: its own saved choice, else what the connector would pick
+ * for anyone (`active_harness`). That is the order the connector resolves it in
+ * (`_run_config` overlays the agent's fields on the process defaults), so the
+ * screen does not show an agent under a harness it will not run.
+ *
+ * An unreadable binding is kept, not dropped, with no harness: the connector
+ * fails that agent's run rather than falling back to its own choice, so the
+ * agent belongs under no harness — and hiding it would hide the problem.
+ */
+export function boundAgents(
+  agents: readonly AgentMetadata[],
+  serverId: string,
+  probe: Pick<HarnessProbe, 'active_harness' | 'agent_config'>,
+): BoundAgent[] {
+  const key = probe.agent_config?.metadata_key;
+  return agents
+    .filter((agent) => agent.default_engine_id === serverId)
+    .map((agent) => {
+      let binding: Record<string, string> = {};
+      let bindingError: string | null = null;
+      if (key) {
+        try {
+          binding = parseAgentConfig(agent.metadata?.[key]);
+        } catch (error) {
+          bindingError = error instanceof Error ? error.message : String(error);
+        }
+      }
+      const own = binding.harness?.trim();
+      return { agent, binding, bindingError, harness: bindingError ? null : own || probe.active_harness };
+    });
 }

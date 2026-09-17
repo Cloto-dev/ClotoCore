@@ -7,7 +7,7 @@ import { useApi } from '../../hooks/useApi';
 import { displayTitle } from '../../lib/conversations';
 import type { Conversation } from '../../types';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
-import { SectionCard } from './common';
+import { SettingsGroup, SettingsRow } from './common';
 
 /**
  * Where archived conversations live (docs/CONVERSATIONS_DESIGN.md §2f): hidden
@@ -22,13 +22,24 @@ export function ConversationsSection() {
   const { agents } = useAgentContext();
   const { refresh } = useConversations();
   const [archived, setArchived] = useState<Conversation[]>([]);
+  // Whose list could not be read, and whether any read has finished. An agent
+  // whose list failed is not an agent with nothing archived: until every list
+  // has been read, this screen cannot say "nothing".
+  const [unread, setUnread] = useState<string[]>([]);
+  const [loaded, setLoaded] = useState(false);
   const [confirmDeleteAll, setConfirmDeleteAll] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const lists = await Promise.all(
-      agents.map((a) => api.listConversations(a.id, identity.id, true).catch(() => [] as Conversation[])),
-    );
+    const results = await Promise.allSettled(agents.map((a) => api.listConversations(a.id, identity.id, true)));
+    const lists: Conversation[][] = [];
+    const failed: string[] = [];
+    results.forEach((r, i) => {
+      if (r.status === 'fulfilled') lists.push(r.value);
+      else failed.push(agents[i].id);
+    });
+    setUnread(failed);
+    setLoaded(true);
     setArchived(
       lists
         .flat()
@@ -64,58 +75,51 @@ export function ConversationsSection() {
 
   return (
     <>
-      <SectionCard title={t('conversations.archived_title')}>
+      <SettingsGroup title={t('conversations.archived_title')}>
+        {unread.length > 0 && (
+          <p className="says warn" role="alert">
+            {t('conversations.unread', { agents: unread.map(agentName).join(', ') })}{' '}
+            <button type="button" className="btn" onClick={() => load()}>
+              {t('conversations.retry')}
+            </button>
+          </p>
+        )}
         {archived.length === 0 ? (
-          <p className="text-xs text-content-tertiary">{t('conversations.archived_empty')}</p>
+          // "Nothing is archived" is a claim about every agent; it is made only
+          // once every list has been read.
+          loaded && unread.length === 0 && <p className="gdesc">{t('conversations.archived_empty')}</p>
         ) : (
-          <ul className="divide-y divide-edge" data-testid="archived-conversations">
+          <ul className="slist" data-testid="archived-conversations">
             {archived.map((c) => (
-              <li key={c.id} className="flex items-center gap-3 py-2 text-xs">
-                <span className="flex-1 min-w-0 truncate text-content-primary">
-                  {displayTitle(c, t('conversations.untitled'))}
-                </span>
-                <span className="shrink-0 text-content-tertiary">{agentName(c.agent_id)}</span>
-                <button
-                  onClick={() => unarchive(c)}
-                  className="shrink-0 px-2 py-1 rounded border border-edge text-content-secondary hover:text-content-primary hover:border-agent"
-                >
+              <li key={c.id}>
+                <span className="t">{displayTitle(c, t('conversations.untitled'))}</span>
+                <span className="who">{agentName(c.agent_id)}</span>
+                <button type="button" className="btn" onClick={() => unarchive(c)}>
                   {t('conversations.unarchive')}
                 </button>
-                <button
-                  onClick={() => remove(c)}
-                  className="shrink-0 px-2 py-1 rounded border border-edge text-content-tertiary hover:text-red-400 hover:border-red-500"
-                >
+                <button type="button" className="btn danger" onClick={() => remove(c)}>
                   {t('conversations.delete')}
                 </button>
               </li>
             ))}
           </ul>
         )}
-      </SectionCard>
+      </SettingsGroup>
 
-      <SectionCard title={t('conversations.bulk_title')}>
-        <p className="text-xs text-content-tertiary mb-3">{t('conversations.bulk_desc')}</p>
-        <ul className="divide-y divide-edge">
-          {agents.map((a) => (
-            <li key={a.id} className="flex items-center gap-3 py-2 text-xs">
-              <span className="flex-1 min-w-0 truncate text-content-primary">{a.name}</span>
-              <button
-                onClick={() => archiveAll(a.id)}
-                className="shrink-0 px-2 py-1 rounded border border-edge text-content-secondary hover:text-content-primary hover:border-agent"
-              >
-                {t('conversations.archive_all')}
-              </button>
-              <button
-                onClick={() => setConfirmDeleteAll(a.id)}
-                className="shrink-0 px-2 py-1 rounded border border-edge text-content-tertiary hover:text-red-400 hover:border-red-500"
-              >
-                {t('conversations.delete_all')}
-              </button>
-            </li>
-          ))}
-        </ul>
-        {notice && <p className="mt-3 text-xs text-content-secondary">{notice}</p>}
-      </SectionCard>
+      <SettingsGroup title={t('conversations.bulk_title')}>
+        <p className="gdesc">{t('conversations.bulk_desc')}</p>
+        {agents.map((a) => (
+          <SettingsRow key={a.id} label={a.name}>
+            <button type="button" className="btn" onClick={() => archiveAll(a.id)}>
+              {t('conversations.archive_all')}
+            </button>
+            <button type="button" className="btn danger" onClick={() => setConfirmDeleteAll(a.id)}>
+              {t('conversations.delete_all')}
+            </button>
+          </SettingsRow>
+        ))}
+        {notice && <p className="says">{notice}</p>}
+      </SettingsGroup>
 
       <ConfirmDialog
         open={confirmDeleteAll !== null}
