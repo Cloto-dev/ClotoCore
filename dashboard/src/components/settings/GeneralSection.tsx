@@ -2,14 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useUserIdentity } from '../../contexts/UserIdentityContext';
 import { useApi } from '../../hooks/useApi';
-import { type ThemePreference, useTheme } from '../../hooks/useTheme';
 import { BUILTIN_LANGUAGES, exportLanguageTemplate, getCustomLanguages, importLanguagePack } from '../../i18n';
 import { getLanguagesDir, isTauri, openFileDialog, readTextFile } from '../../lib/tauri';
-import { Segmented, Select, SettingsGroup, SettingsRow, Toggle } from './common';
+import { Select, SettingsGroup, SettingsRow, Toggle } from './common';
+import { ThemePackGroup, ThemeRows } from './ThemeSettings';
 
 export function GeneralSection() {
   const api = useApi();
-  const { preference, setPreference } = useTheme();
   const { identity, setIdentity } = useUserIdentity();
   const { t, i18n } = useTranslation('settings');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -63,13 +62,6 @@ export function GeneralSection() {
   const allLanguages = [
     ...BUILTIN_LANGUAGES,
     ...customLangs.filter((l) => !builtinCodes.has(l.code)).map((l) => ({ ...l, custom: true })),
-  ];
-
-  const themes: { value: ThemePreference; labelKey: string }[] = [
-    { value: 'light', labelKey: 'general.theme_light' },
-    { value: 'dark', labelKey: 'general.theme_dark' },
-    { value: 'system', labelKey: 'general.theme_system' },
-    { value: 'legacy', labelKey: 'general.theme_legacy' },
   ];
 
   const handleExport = () => {
@@ -139,14 +131,7 @@ export function GeneralSection() {
   return (
     <>
       <SettingsGroup title={t('general.group_display')}>
-        <SettingsRow label={t('general.theme')} desc={t('general.theme_desc')}>
-          <Segmented<ThemePreference>
-            label={t('general.theme')}
-            value={preference}
-            onChange={setPreference}
-            options={themes.map((th) => ({ value: th.value, label: t(th.labelKey) }))}
-          />
-        </SettingsRow>
+        <ThemeRows />
 
         <SettingsRow label={t('general.language')} desc={t('general.language_desc')}>
           <Select
@@ -199,6 +184,8 @@ export function GeneralSection() {
           <p className={importStatus.type === 'success' ? 'says ok' : 'says bad'}>{importStatus.message}</p>
         )}
       </SettingsGroup>
+
+      <ThemePackGroup />
     </>
   );
 }

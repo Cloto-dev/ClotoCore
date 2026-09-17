@@ -11,6 +11,32 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Added
 
+- **Themes you can write.** A theme is now a JSON file of colours instead of a
+  block of CSS compiled into the app. Import one from Settings → General →
+  Theme packs — in the desktop app or in a browser — or, on the desktop, drop
+  it into `Documents/ClotoCore/themes/`. Export gives you the default theme as
+  a template; `docs/THEMES.md` is the author's guide. A file that is incomplete
+  or not a theme is refused with the reason, and so is one whose body text
+  could not be read (under it, the page that switches away could not be read
+  either). A theme whose smaller text is faint is offered with a "low contrast"
+  mark. Nothing in a theme file reaches the page as written — colours are
+  parsed into numbers and the stylesheet is generated from those.
+
+### Changed
+
+- **Theme and light/dark are two settings.** "Light / Dark / System / Legacy"
+  was one choice that mixed which palette with which face of it. They are now
+  separate: a theme (Cloto, Legacy, or one you imported) and a mode (light,
+  dark, or the device's). An existing choice carries over — Legacy stays
+  Legacy following the device, as it did. Dark, light and Legacy draw exactly
+  the colours they drew before (measured in a browser, every colour token on
+  all four faces).
+- **An agent's colour stays readable on a light theme.** The accent was
+  corrected for contrast against the dark raised surface whatever was on
+  screen. It is now corrected against the surface that is actually drawn —
+  darkened on a light one — and text set on it turns white when white reads
+  better.
+
 - **Stop stops the reply, not just the waiting.** The stop button now asks the
   kernel to stop the reply where it is being produced
   (`POST /api/chat/{agent_id}/stop`). Nothing of a stopped reply is stored, so

@@ -296,8 +296,9 @@ fn read_text_file(path: String) -> Result<String, String> {
 
 // ── Language Pack Management ──
 
-/// Resolve the languages directory path, creating it if needed.
-fn get_languages_dir_path() -> Result<std::path::PathBuf, String> {
+/// Resolve a pack directory (`Documents/ClotoCore/<kind>`), creating it if needed.
+/// `kind` is one of the literals below, never caller input.
+fn get_pack_dir_path(kind: &str) -> Result<std::path::PathBuf, String> {
     let home = if cfg!(target_os = "windows") {
         std::env::var("USERPROFILE")
     } else {
@@ -308,10 +309,20 @@ fn get_languages_dir_path() -> Result<std::path::PathBuf, String> {
     let dir = std::path::PathBuf::from(home)
         .join("Documents")
         .join("ClotoCore")
-        .join("languages");
+        .join(kind);
 
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
+}
+
+/// Resolve the languages directory path, creating it if needed.
+fn get_languages_dir_path() -> Result<std::path::PathBuf, String> {
+    get_pack_dir_path("languages")
+}
+
+/// Resolve the themes directory path, creating it if needed.
+fn get_themes_dir_path() -> Result<std::path::PathBuf, String> {
+    get_pack_dir_path("themes")
 }
 
 /// Return the path to `Documents/ClotoCore/languages`, creating it if needed.
@@ -323,10 +334,20 @@ fn get_languages_dir() -> Result<String, String> {
 /// Scan the languages directory and return all .json files as (filename, content) pairs.
 #[tauri::command]
 fn scan_languages_dir() -> Result<Vec<(String, String)>, String> {
-    let dir = get_languages_dir_path()?;
+    scan_pack_dir(&get_languages_dir_path()?)
+}
+
+/// Scan the themes directory and return all .json files as (filename, content) pairs.
+/// The dashboard validates each one; nothing here reads a pack's contents.
+#[tauri::command]
+fn scan_themes_dir() -> Result<Vec<(String, String)>, String> {
+    scan_pack_dir(&get_themes_dir_path()?)
+}
+
+fn scan_pack_dir(dir: &std::path::Path) -> Result<Vec<(String, String)>, String> {
     let mut results = Vec::new();
     if dir.exists() {
-        for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
+        for entry in std::fs::read_dir(dir).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
             let path = entry.path();
             if path.extension().map_or(false, |ext| ext == "json") {
@@ -383,6 +404,27 @@ fn save_language_pack(filename: String, content: String) -> Result<(), String> {
 #[tauri::command]
 fn remove_language_pack(filename: String) -> Result<(), String> {
     let dir = get_languages_dir_path()?;
+    let path = safe_language_pack_path(&dir, &filename)?;
+    if path.exists() {
+        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Save a theme pack JSON file to the themes directory. The filename is the
+/// pack's `id`, which is imported data: it goes through the same bare-filename
+/// check as a language code.
+#[tauri::command]
+fn save_theme_pack(filename: String, content: String) -> Result<(), String> {
+    let dir = get_themes_dir_path()?;
+    let path = safe_language_pack_path(&dir, &filename)?;
+    std::fs::write(&path, content).map_err(|e| e.to_string())
+}
+
+/// Remove a theme pack file from the themes directory.
+#[tauri::command]
+fn remove_theme_pack(filename: String) -> Result<(), String> {
+    let dir = get_themes_dir_path()?;
     let path = safe_language_pack_path(&dir, &filename)?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
@@ -764,6 +806,9 @@ pub fn run() {
             scan_languages_dir,
             save_language_pack,
             remove_language_pack,
+            scan_themes_dir,
+            save_theme_pack,
+            remove_theme_pack,
             install_default_packs,
             shutdown_app,
             updater_check,

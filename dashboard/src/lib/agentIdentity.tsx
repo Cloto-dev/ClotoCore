@@ -1,6 +1,8 @@
 import { User } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useApi } from '../hooks/useApi';
+import defaultPack from '../themes/packs/default.json';
+import { parseTriplet } from '../themes/validate';
 import type { AgentMetadata } from '../types';
 
 /** The agent's hue, 0–359. Derived from the id, which does not change when the
@@ -41,23 +43,40 @@ export function contrastRatio(a: [number, number, number], b: [number, number, n
 
 const ACCENT_SATURATION = 0.7;
 const ACCENT_BASE_LIGHTNESS = 0.58;
-/** The raised surface in dark (`--surface-primary` in index.css): the lightest
- * surface the accent is set on as text. Its hue is the scale's fixed tint. */
-const SCALE_HUE = 190;
-const RAISED_SATURATION = 0.07;
-const RAISED_LIGHTNESS = 0.16;
 const MIN_CONTRAST = 4.5;
+
+type Rgb = [number, number, number];
+
+function defaultRaisedSurface(): Rgb {
+  const [h, s, l] = parseTriplet(defaultPack.dark['surface-primary']) ?? [0, 0, 16];
+  return hslToRgb(h, s / 100, l / 100);
+}
+
+/** The raised surface (`--surface-primary`) of the face on screen: the hardest
+ * surface the accent is set on as text. The theme applier keeps it current
+ * (themes/apply.ts); until it has run, it is the default theme's dark face. */
+let raisedSurface: Rgb = defaultRaisedSurface();
+
+export function setAccentSurface(rgb: Rgb) {
+  raisedSurface = rgb;
+}
+
+/** Move a lightness away from the raised surface — up on a dark one, down on a
+ * light one — until the colour holds 4.5:1 on it. */
+function lightnessReadableOnSurface(hue: number, saturation: number, start: number): number {
+  const step = relativeLuminance(raisedSurface) < 0.5 ? 0.01 : -0.01;
+  let l = start;
+  while (l < 0.9 && l > 0.1 && contrastRatio(hslToRgb(hue, saturation, l), raisedSurface) < MIN_CONTRAST) {
+    l += step;
+  }
+  return Math.round(l * 100);
+}
 
 /** Lightness of the accent at this hue. A fixed 58% reads at cyan (7:1) but not
  * at blue (2.4:1), so the lightness rises until the accent holds 4.5:1 on the
  * raised surface. */
 export function accentLightness(hue: number): number {
-  const raised = hslToRgb(SCALE_HUE, RAISED_SATURATION, RAISED_LIGHTNESS);
-  let l = ACCENT_BASE_LIGHTNESS;
-  while (l < 0.9 && contrastRatio(hslToRgb(hue, ACCENT_SATURATION, l), raised) < MIN_CONTRAST) {
-    l += 0.01;
-  }
-  return Math.round(l * 100);
+  return lightnessReadableOnSurface(hue, ACCENT_SATURATION, ACCENT_BASE_LIGHTNESS);
 }
 
 /** An agent whose accent can be read: the id always, the metadata when the
@@ -92,12 +111,7 @@ export function parseAccentTriplet(raw: string | undefined): [number, number, nu
  * is allowed, choosing an unreadable one is not.
  */
 function readableLightness(hue: number, saturation: number, lightness: number): number {
-  const raised = hslToRgb(SCALE_HUE, RAISED_SATURATION, RAISED_LIGHTNESS);
-  let l = lightness / 100;
-  while (l < 0.9 && contrastRatio(hslToRgb(hue, saturation / 100, l), raised) < MIN_CONTRAST) {
-    l += 0.01;
-  }
-  return Math.round(l * 100);
+  return lightnessReadableOnSurface(hue, saturation / 100, lightness / 100);
 }
 
 /** The `--agent` token value for an agent: an HSL component triplet. The
@@ -113,11 +127,30 @@ export function agentAccentTriplet(agent: AccentSource): string {
   return `${hue} ${ACCENT_SATURATION * 100}% ${accentLightness(hue)}%`;
 }
 
-/** The accent colour of an agent, as a CSS colour. Under the Legacy theme every
- * agent wears the old brand blue, which the stylesheet holds in `--agent`. */
+/** Whether the theme on screen gives every agent one accent of its own
+ * (themes/apply.ts sets the flag). The stylesheet then holds `--agent`. */
+function accentIsFixed(root: HTMLElement): boolean {
+  return root.dataset.accent === 'fixed';
+}
+
+/** The accent colour of an agent, as a CSS colour. */
 export function agentColor(agent: AccentSource, root: HTMLElement = document.documentElement): string {
-  if (root.classList.contains('theme-legacy')) return 'hsl(var(--agent))';
+  if (accentIsFixed(root)) return 'hsl(var(--agent))';
   return `hsl(${agentAccentTriplet(agent)})`;
+}
+
+// HARDCODED(dashboard/src/index.css::--agent-ink): the stylesheet's ink, dark and
+// tinted; an inline style cannot read it back as numbers to compare against.
+const STYLESHEET_INK: Rgb = hslToRgb(190, 0.5, 0.1);
+const WHITE: Rgb = [1, 1, 1];
+
+/** `true` when text on this accent reads better in white than in the
+ * stylesheet's dark ink — an accent darkened to read on a light surface. */
+function accentWantsWhiteInk(triplet: string): boolean {
+  const parsed = parseAccentTriplet(triplet);
+  if (!parsed) return false;
+  const accent = hslToRgb(parsed[0], parsed[1] / 100, parsed[2] / 100);
+  return contrastRatio(WHITE, accent) > contrastRatio(STYLESHEET_INK, accent);
 }
 
 /** Make `agent` the one present: its colour becomes the accent
@@ -125,11 +158,15 @@ export function agentColor(agent: AccentSource, root: HTMLElement = document.doc
  * is fixed, so the surfaces do not change when the selection does. `null` falls
  * back to the default in index.css. */
 export function applyPresentAgent(agent: AccentSource | null, root: HTMLElement = document.documentElement) {
-  if (!agent) {
+  if (!agent || accentIsFixed(root)) {
     root.style.removeProperty('--agent');
+    root.style.removeProperty('--agent-ink');
     return;
   }
-  root.style.setProperty('--agent', agentAccentTriplet(agent));
+  const triplet = agentAccentTriplet(agent);
+  root.style.setProperty('--agent', triplet);
+  if (accentWantsWhiteInk(triplet)) root.style.setProperty('--agent-ink', '0 0% 100%');
+  else root.style.removeProperty('--agent-ink');
 }
 
 /** Render the appropriate icon for an agent (avatar image or fallback icon) */

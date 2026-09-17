@@ -2,6 +2,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useS
 import { useAgents } from '../hooks/useAgents';
 import { useProcessingAgents } from '../hooks/useProcessingAgents';
 import { applyPresentAgent } from '../lib/agentIdentity';
+import { THEME_APPLIED_EVENT } from '../themes/apply';
 import type { AgentMetadata } from '../types';
 
 interface AgentContextValue {
@@ -31,9 +32,15 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const presentAgentId = presentAgent?.id ?? null;
   const presentAccent = presentAgent?.metadata?.accent;
   useEffect(() => {
-    applyPresentAgent(
-      presentAgentId === null ? null : { id: presentAgentId, metadata: { accent: presentAccent ?? '' } },
-    );
+    const apply = () =>
+      applyPresentAgent(
+        presentAgentId === null ? null : { id: presentAgentId, metadata: { accent: presentAccent ?? '' } },
+      );
+    apply();
+    // The accent is corrected against the surface on screen, and a theme may
+    // hold the accent itself: a theme or mode change means writing it again.
+    window.addEventListener(THEME_APPLIED_EVENT, apply);
+    return () => window.removeEventListener(THEME_APPLIED_EVENT, apply);
   }, [presentAgentId, presentAccent]);
 
   const refetchAgents = useCallback(async () => {

@@ -1,0 +1,33 @@
+{
+  "schema": 1,
+  "id": "default",
+  "label": "Cloto",
+  "author": "ClotoCore Project",
+  "version": "1.0.0",
+  "license": "BSL-1.1",
+  "accent": "agent",
+  "light": {
+    "surface-base": "190 6% 92%",
+    "surface-secondary": "190 7% 88%",
+    "surface-primary": "190 7% 84%",
+    "border-default": "190 7% 78%",
+    "border-subtle": "190 7% 84%",
+    "surface-overlay": "0 0% 0% / 0.5",
+    "text-primary": "190 10% 8%",
+    "text-secondary": "190 8% 30%",
+    "text-tertiary": "190 6% 35%",
+    "text-muted": "190 6% 60%"
+  },
+  "dark": {
+    "surface-base": "190 6% 8%",
+    "surface-secondary": "190 7% 12%",
+    "surface-primary": "190 7% 16%",
+    "border-default": "190 7% 22%",
+    "border-subtle": "190 7% 16%",
+    "surface-overlay": "0 0% 0% / 0.7",
+    "text-primary": "190 10% 92%",
+    "text-secondary": "190 8% 68%",
+    "text-tertiary": "190 6% 62%",
+    "text-muted": "190 6% 40%"
+  }
+}

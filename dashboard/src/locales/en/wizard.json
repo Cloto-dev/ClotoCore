@@ -7,7 +7,6 @@
   "theme_light": "Light",
   "theme_dark": "Dark",
   "theme_system": "System",
-  "theme_legacy": "Legacy",
   "enter_name": "What should agents call you?",
   "name_placeholder": "Your name",
   "name_hint": "This name will be visible to your AI agents during conversations.",

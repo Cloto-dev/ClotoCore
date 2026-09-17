@@ -554,9 +554,14 @@ video {
   display: none;
 }
 
-/* Tokens for docs/DESIGN_PHILOSOPHY.md §4. The numbers live here and nowhere
-   * else — CLAUDE.md "Dashboard UI Rules" points at this block rather than
-   * repeating them.
+/* Tokens for docs/DESIGN_PHILOSOPHY.md §4. The non-colour numbers live here
+   * and nowhere else — CLAUDE.md "Dashboard UI Rules" points at this block
+   * rather than repeating them.
+   *
+   * The colours are a theme's (docs/THEME_PACKS_DESIGN.md): the theme on screen
+   * writes them in a stylesheet of its own (themes/apply.ts). The ones below are
+   * the default theme's, kept as the fallback for a page whose script has not
+   * run; a test holds them equal to themes/packs/default.json.
    *
    * Colour tokens are HSL component triplets ("H S% L%") so Tailwind can add an
    * alpha: `hsl(var(--surface-base) / <alpha-value>)`. */
@@ -599,8 +604,8 @@ video {
   --border-default: var(--h) 7% 78%;
   --border-subtle: var(--h) 7% 84%;
   --surface-overlay: rgba(0, 0, 0, 0.5);
-  /* Role names that resolve to the steps above. They exist so the Legacy
-     * theme can give each role back the colour it had (see .theme-legacy). */
+  /* Role names that resolve to the steps above. A theme may give a role a
+     * colour of its own (the bundled Legacy pack does). */
   --surface-panel: var(--surface-secondary);
   /* panels, sidebars, bars */
   --surface-field: var(--surface-primary);
@@ -656,79 +661,6 @@ body {
   line-height: 1.7;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-}
-
-/* Legacy: the colours the dashboard had before this redesign (Tailwind slate
-   * and the blue brand), for anyone who prefers them. Colour only — type,
-   * radius and layout are the current ones. It follows the OS between light
-   * and dark, as the old default did.
-   *
-   * Surfaces that used to be translucent (bg-glass over the base) are given the
-   * colour they showed on it. The accent is the old brand blue for every
-   * agent, so it outranks the per-agent value AgentProvider writes inline. */
-
-.theme-legacy {
-  --surface-base: 210 40% 98.04%;
-  /* rgb(248 250 252) */
-  --surface-secondary: 210 40% 96.08%;
-  /* rgb(241 245 249) */
-  --surface-primary: 0 0% 100%;
-  /* rgb(255 255 255) */
-  --border-default: 214.29 31.82% 91.37%;
-  /* rgb(226 232 240) */
-  --border-subtle: 210 40% 96.08%;
-  /* rgb(241 245 249) */
-  --text-primary: 217.24 32.58% 17.45%;
-  /* rgb(30 41 59) */
-  --text-secondary: 215.38 16.32% 46.86%;
-  /* rgb(100 116 139) */
-  --text-tertiary: 215 20.22% 65.1%;
-  /* rgb(148 163 184) */
-  --text-muted: 212.73 26.83% 83.92%;
-  /* rgb(203 213 225) */
-  --surface-panel: 210 33.33% 98.82%;
-  /* white 40% over base = rgb(251 252 253) */
-  --surface-field: 210 50% 99.22%;
-  /* white 60% over base = rgb(252 253 254) */
-  --surface-control: 0 0% 99.61%;
-  /* white 80% over base = rgb(254 254 254) */
-  --surface-card: 210 50% 99.22%;
-  /* white 50% over base = rgb(252 253 254) */
-  --agent: 229.89 78.63% 54.12% !important;
-  /* rgb(46 77 230) */
-  --agent-ink: 0 0% 100%;
-}
-
-.theme-legacy.dark {
-  --surface-base: 222.22 47.37% 11.18%;
-  /* rgb(15 23 42) */
-  --surface-secondary: 217.24 32.58% 17.45%;
-  /* rgb(30 41 59) */
-  --surface-primary: 217.24 32.58% 17.45%;
-  /* rgb(30 41 59) */
-  --border-default: 215.29 25% 26.67%;
-  /* rgb(51 65 85) */
-  --border-subtle: 217.24 32.58% 17.45%;
-  /* rgb(30 41 59) */
-  --text-primary: 210 40% 96.08%;
-  /* rgb(241 245 249) */
-  --text-secondary: 212.73 26.83% 83.92%;
-  /* rgb(203 213 225) */
-  --text-tertiary: 215 20.22% 65.1%;
-  /* rgb(148 163 184) */
-  --text-muted: 215.29 19.32% 34.51%;
-  /* rgb(71 85 105) */
-  --surface-panel: 222.22 47.37% 11.18%;
-  /* slate-900 60% over base = rgb(15 23 42) */
-  --surface-field: 222.22 47.37% 11.18%;
-  /* slate-900 80% over base = rgb(15 23 42) */
-  --surface-control: 219.31 34.94% 16.27%;
-  /* slate-800 80% over base = rgb(27 37 56) */
-  --surface-card: 220.71 37.84% 14.51%;
-  /* slate-800 50% over base = rgb(23 32 51) */
-  --agent: 228.66 100% 67.84% !important;
-  /* rgb(91 122 255) */
-  --agent-ink: 0 0% 100%;
 }
 
 .container {

@@ -1,6 +1,14 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { accentLightness, agentAccentTriplet, agentHue, applyPresentAgent, parseAccentTriplet } from '../agentIdentity';
+import {
+  accentLightness,
+  agentAccentTriplet,
+  agentColor,
+  agentHue,
+  applyPresentAgent,
+  parseAccentTriplet,
+  setAccentSurface,
+} from '../agentIdentity';
 
 // An HSL→sRGB conversion written differently from the one under test (the
 // hue-to-channel form), so a mistake in the module's version cannot agree with
@@ -60,18 +68,18 @@ describe('agent accent', () => {
     }
   });
 
-  it('agrees with the tokens in index.css', () => {
-    // The module repeats three numbers from the stylesheet (the accent's
-    // saturation and base lightness, and the raised surface in dark). If either
-    // side moves alone, the contrast guarantee above is about a colour nobody draws.
+  it('agrees with the accent token in index.css', () => {
+    // The module repeats the accent's saturation and base lightness from the
+    // stylesheet. If either side moves alone, the contrast guarantee above is
+    // about a colour nobody draws. (The raised surface is no longer repeated:
+    // the theme applier hands over the one on screen.)
     // Read from disk (relative to dashboard/, where vitest runs): a CSS import
     // resolves to an empty module under vitest.
     const css = readFileSync('src/index.css', 'utf8');
     const root = css.match(/:root\s*\{[\s\S]*?\n {2}\}/)?.[0] ?? '';
-    const dark = css.match(/\.dark\s*\{[\s\S]*?\n {2}\}/)?.[0] ?? '';
     expect(root).toMatch(/--h: 190;/);
     expect(root).toMatch(/--agent: var\(--h\) 70% 58%;/);
-    expect(dark).toMatch(/--surface-primary: var\(--h\) 7% 16%;/);
+    expect(root).toMatch(/--agent-ink: var\(--h\) 50% 10%;/);
     expect(agentAccentTriplet({ id: 'x' })).toMatch(/^\d+ 70% \d+%$/);
   });
 
@@ -84,6 +92,39 @@ describe('agent accent', () => {
 
     applyPresentAgent(null, root);
     expect(root.style.getPropertyValue('--agent')).toBe('');
+  });
+
+  it('leaves the accent to the stylesheet when the theme holds a fixed one', () => {
+    const root = document.createElement('html');
+    applyPresentAgent({ id: 'agent.sapphy' }, root);
+    root.dataset.accent = 'fixed';
+    applyPresentAgent({ id: 'agent.sapphy' }, root);
+    expect(root.style.getPropertyValue('--agent')).toBe('');
+    expect(agentColor({ id: 'agent.sapphy' }, root)).toBe('hsl(var(--agent))');
+    delete root.dataset.accent;
+    expect(agentColor({ id: 'agent.sapphy' }, root)).toMatch(/^hsl\(\d+ 70% \d+%\)$/);
+  });
+
+  it('on a light surface darkens the accent until it reads, and sets white ink on it', () => {
+    const root = document.createElement('html');
+    setAccentSurface([0.84, 0.85, 0.86]);
+    try {
+      for (let hue = 0; hue < 360; hue += 15) {
+        const [h, s, l] = agentAccentTriplet({ id: 'x', metadata: { accent: `${hue} 70% 58%` } })
+          .replace(/%/g, '')
+          .split(' ')
+          .map(Number);
+        expect(l, `hue ${hue}`).toBeLessThan(58);
+        expect(contrast(hsl(h, s / 100, l / 100), [0.84, 0.85, 0.86]), `hue ${hue}`).toBeGreaterThanOrEqual(4.5);
+      }
+      applyPresentAgent({ id: 'x', metadata: { accent: '240 70% 58%' } }, root);
+      expect(root.style.getPropertyValue('--agent-ink')).toBe('0 0% 100%');
+    } finally {
+      setAccentSurface(hsl(190, 0.07, 0.16));
+    }
+    // Back on the dark surface the stylesheet's dark ink is the better one.
+    applyPresentAgent({ id: 'x', metadata: { accent: '190 70% 58%' } }, root);
+    expect(root.style.getPropertyValue('--agent-ink')).toBe('');
   });
 });
 

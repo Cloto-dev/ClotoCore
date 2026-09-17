@@ -8,7 +8,6 @@ import {
   Copy,
   Eye,
   EyeOff,
-  History,
   Loader2,
   Monitor,
   Moon,
@@ -89,7 +88,7 @@ interface Props {
 export function SetupWizard({ onComplete }: Props) {
   const [step, setStep] = useState(0);
   const { t, i18n } = useTranslation('wizard');
-  const { preference, setPreference } = useTheme();
+  const { themes: themePacks, themeId, setThemeId, mode, setMode } = useTheme();
   const { identity, setIdentity } = useUserIdentity();
   const { apiKey, setApiKey } = useApiKey();
   const [customLangs, setCustomLangs] = useState<{ code: string; label: string }[]>([]);
@@ -385,11 +384,10 @@ export function SetupWizard({ onComplete }: Props) {
     }
   }, [step, installStarted, doInstall]);
 
-  const themes = [
+  const modes = [
     { value: 'light' as const, icon: Sun, label: t('theme_light') },
     { value: 'dark' as const, icon: Moon, label: t('theme_dark') },
     { value: 'system' as const, icon: Monitor, label: t('theme_system') },
-    { value: 'legacy' as const, icon: History, label: t('theme_legacy') },
   ];
 
   // Step 6: resolve the admin key for handover (context → sessionStorage → Tauri)
@@ -487,14 +485,15 @@ export function SetupWizard({ onComplete }: Props) {
             {step === 2 && (
               <div className="text-center space-y-6">
                 <h2 className="text-xl font-bold text-content-primary">{t('select_theme')}</h2>
-                <div className="flex gap-3">
-                  {themes.map(({ value, icon: Icon, label }) => (
+                <div className="flex gap-3 justify-center">
+                  {modes.map(({ value, icon: Icon, label }) => (
                     <button
                       key={value}
-                      onClick={() => setPreference(value)}
+                      onClick={() => setMode(value)}
                       aria-label={label}
+                      aria-pressed={mode === value}
                       className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all ${
-                        preference === value
+                        mode === value
                           ? 'bg-agent text-agent-ink shadow-md'
                           : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-agent'
                       }`}
@@ -504,6 +503,26 @@ export function SetupWizard({ onComplete }: Props) {
                     </button>
                   ))}
                 </div>
+                {/* The palettes the loader found; with one there is nothing to choose. */}
+                {themePacks.length > 1 && (
+                  <div className="flex gap-3 justify-center flex-wrap">
+                    {themePacks.map(({ theme }) => (
+                      <button
+                        key={theme.id}
+                        onClick={() => setThemeId(theme.id)}
+                        aria-label={theme.label}
+                        aria-pressed={themeId === theme.id}
+                        className={`px-4 py-2 rounded-xl text-sm transition-all ${
+                          themeId === theme.id
+                            ? 'bg-agent text-agent-ink'
+                            : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-agent'
+                        }`}
+                      >
+                        {theme.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

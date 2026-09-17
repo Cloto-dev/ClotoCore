@@ -213,6 +213,41 @@ export async function removeLanguagePack(filename: string): Promise<boolean> {
   }
 }
 
+/** Scan Documents/ClotoCore/themes/ for *.json theme packs (desktop only). */
+export async function scanThemesDir(): Promise<Array<[string, string]>> {
+  if (!isTauri) return [];
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    return await invoke<Array<[string, string]>>('scan_themes_dir');
+  } catch {
+    return [];
+  }
+}
+
+/** Save a theme pack JSON to Documents/ClotoCore/themes/{filename}.json */
+export async function saveThemePack(filename: string, content: string): Promise<boolean> {
+  if (!isTauri) return false;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('save_theme_pack', { filename, content });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Remove a theme pack file from Documents/ClotoCore/themes/ */
+export async function removeThemePack(filename: string): Promise<boolean> {
+  if (!isTauri) return false;
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    await invoke('remove_theme_pack', { filename });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Install bundled default language packs if they don't exist yet. */
 export async function installDefaultPacks(): Promise<number> {
   if (!isTauri) return 0;

@@ -1,6 +1,7 @@
 import { act, render } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { agentAccentTriplet } from '../../lib/agentIdentity';
+import { agentAccentTriplet, setAccentSurface } from '../../lib/agentIdentity';
+import { THEME_APPLIED_EVENT } from '../../themes/apply';
 
 vi.mock('../../hooks/useAgents', () => ({
   useAgents: () => ({
@@ -27,6 +28,10 @@ import { AgentProvider, useAgentContext } from '../AgentContext';
 afterEach(() => {
   document.documentElement.style.removeProperty('--h');
   document.documentElement.style.removeProperty('--agent');
+  document.documentElement.style.removeProperty('--agent-ink');
+  delete document.documentElement.dataset.accent;
+  // The default theme's raised surface in dark (themes/packs/default.json).
+  setAccentSurface([0.1488, 0.1675, 0.1712]);
 });
 
 describe('the agent provider', () => {
@@ -75,5 +80,35 @@ describe('the agent provider', () => {
     const accent = document.documentElement.style.getPropertyValue('--agent');
     expect(accent).toBe('300 60% 70%');
     expect(accent).not.toBe(agentAccentTriplet({ id: 'agent.painted' }));
+  });
+  it('writes the accent again when a theme is applied, and lets go when the theme holds the accent', () => {
+    let select: ((id: string | null) => void) | null = null;
+    function Probe() {
+      select = useAgentContext().setSelectedAgentId;
+      return null;
+    }
+    render(
+      <AgentProvider>
+        <Probe />
+      </AgentProvider>,
+    );
+    const root = document.documentElement;
+    act(() => select?.('agent.ks22'));
+    const onDark = root.style.getPropertyValue('--agent');
+
+    // A light face: the same agent's accent has to be a different colour.
+    act(() => {
+      setAccentSurface([0.84, 0.85, 0.86]);
+      window.dispatchEvent(new Event(THEME_APPLIED_EVENT));
+    });
+    expect(root.style.getPropertyValue('--agent')).toBe(agentAccentTriplet({ id: 'agent.ks22' }));
+    expect(root.style.getPropertyValue('--agent')).not.toBe(onDark);
+
+    // A theme with an accent of its own.
+    act(() => {
+      root.dataset.accent = 'fixed';
+      window.dispatchEvent(new Event(THEME_APPLIED_EVENT));
+    });
+    expect(root.style.getPropertyValue('--agent')).toBe('');
   });
 });

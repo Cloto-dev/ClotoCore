@@ -1165,9 +1165,10 @@
       "version": "0.6.1",
       "commit": "b60f329",
       "file": "dashboard/src/hooks/useTheme.ts",
-      "pattern": "\\[preference, applyTheme\\]",
+      "pattern": "\\[themeId, mode, apply\\]",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "notes": "The single preference became a theme id and a mode; the effect that applies them depends on both, which is the same guarantee in its current spelling. Behaviour is pinned by useTheme.test.tsx (switches mode and theme independently)."
     },
     {
       "id": "bug-245",

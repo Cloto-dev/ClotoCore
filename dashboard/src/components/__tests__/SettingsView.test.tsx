@@ -42,7 +42,17 @@ const stub = vi.hoisted(() => {
     conversations: { refresh: () => Promise.resolve() },
     identity: { identity: { id: 'u', name: 'User' }, setIdentity: () => {} },
     apiKeyCtx: { apiKey: 'k', setApiKey: () => {}, forgetApiKey: () => {} },
-    theme: { theme: 'dark', preference: 'dark', setPreference: () => {}, toggle: () => {} },
+    theme: {
+      face: 'dark',
+      mode: 'dark',
+      setMode: () => {},
+      themeId: 'default',
+      setThemeId: () => {},
+      themes: [],
+      rejected: [],
+      importPack: () => Promise.reject(new Error('unused')),
+      removePack: () => Promise.resolve(),
+    },
     languages: [{ code: 'en', label: 'English' }],
   };
 });
