@@ -1645,6 +1645,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             post(handlers::chat::retry_response),
         )
         .route("/chat/{agent_id}/stop", post(handlers::chat::stop_response))
+        .route("/chat/search", get(handlers::chat::search_messages))
         // Conversations (docs/CONVERSATIONS_DESIGN.md §3). The two bulk routes
         // are registered before the `{conversation_id}` route so their literal
         // segments are never read as an id.
