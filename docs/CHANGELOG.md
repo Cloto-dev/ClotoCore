@@ -7,6 +7,36 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **The chat is the living room of the design mocks.** The conversation is a
+  720px reading column: your turns sit right, on the receding surface; the
+  agent's turns carry a dot in the agent's colour and no avatar per line. Each
+  turn shows its clock, days are separated, and edit / copy / again / read
+  aloud appear on hover. The composer is a textarea that grows with the text
+  (Enter sends, Shift+Enter breaks the line, IME composition never sends), with
+  attach, who you are talking to, the engine, the context meter and a round
+  send button in one row. While a reply is being produced the send button is a
+  stop button: what was shown stays, a line says the room stopped waiting, and
+  the rest of that reply is not drawn. An empty conversation is the agent's
+  presence — face, name, state, and the threads to continue from. Scrollbars are
+  visible again and a "jump to latest" button appears when you have scrolled up.
+- The header names the agent, their state (thinking and how many tools they
+  used, or waiting and when you last spoke) and the conversation's title.
+  Agent settings and the 3D avatar window are behind the header's tools.
+
+### Removed
+
+- The microphone button in the composer. It never sent audio — it inserted a
+  note asking the agent to transcribe a recording that was not attached.
+
+Scored against the design review checklist (docs/DESIGN_PHILOSOPHY.md §6):
+0 of 21 applicable signals present, 5 partly (a rounded "latest" button, the
+greeting in the empty room, the blinking cursor, the reading column below 800px,
+the monospace context meter) — all five drawn as the mock draws them.
+
 ## [0.6.9a1] — 2026-09-08
 <!-- release-title: an agent gets files it always reads, and skills it loads when it needs them -->
 

@@ -309,7 +309,13 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
   }
 
   if (selectedAgent) {
-    return <OpenConversationConsole agent={selectedAgent} onBack={() => onSelectAgent(null)} />;
+    return (
+      <OpenConversationConsole
+        agent={selectedAgent}
+        onBack={() => onSelectAgent(null)}
+        onConfigure={() => setConfiguringAgent(selectedAgent)}
+      />
+    );
   }
 
   return (
@@ -806,7 +812,15 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh,
 
 /** Mounts the console on the conversation that is open for the agent —
  * remembered, else newest, else new — and remounts it when that changes. */
-function OpenConversationConsole({ agent, onBack }: { agent: AgentMetadata; onBack: () => void }) {
+function OpenConversationConsole({
+  agent,
+  onBack,
+  onConfigure,
+}: {
+  agent: AgentMetadata;
+  onBack: () => void;
+  onConfigure: () => void;
+}) {
   const { openFor, resolveOpen } = useConversations();
   const conversationId = openFor(agent.id);
   useEffect(() => {
@@ -818,6 +832,12 @@ function OpenConversationConsole({ agent, onBack }: { agent: AgentMetadata; onBa
   }, [agent.id, conversationId, resolveOpen]);
   if (!conversationId) return null;
   return (
-    <AgentConsole key={`${agent.id}:${conversationId}`} agent={agent} conversationId={conversationId} onBack={onBack} />
+    <AgentConsole
+      key={`${agent.id}:${conversationId}`}
+      agent={agent}
+      conversationId={conversationId}
+      onBack={onBack}
+      onConfigure={onConfigure}
+    />
   );
 }

@@ -114,7 +114,7 @@ export function AppLayout() {
                 <Suspense
                   fallback={
                     <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
-                      LOADING CLOTO...
+                      {t('loading')}
                     </div>
                   }
                 >
@@ -138,7 +138,7 @@ export function AppLayout() {
           {/* Settings modal */}
           {settingsOpen && (
             <Modal
-              title="Settings"
+              title={tNav('settings')}
               icon={Settings}
               size="lg"
               onClose={() => {
@@ -149,7 +149,7 @@ export function AppLayout() {
               <Suspense
                 fallback={
                   <div className="flex items-center justify-center h-full text-xs font-mono text-content-tertiary">
-                    SYNCHRONIZING...
+                    {t('loading')}
                   </div>
                 }
               >

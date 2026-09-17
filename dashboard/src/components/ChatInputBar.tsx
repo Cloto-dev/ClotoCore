@@ -1,7 +1,7 @@
-import { Mic, MicOff, Plus, Send, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import type { ContentBlock, McpServerInfo } from '../types';
+import { agentColor } from '../lib/agentIdentity';
+import type { AgentMetadata, ContentBlock, McpServerInfo } from '../types';
 import { EngineSelector } from './EngineSelector';
 
 interface EditMode {
@@ -12,10 +12,20 @@ interface EditMode {
 
 interface ChatInputBarProps {
   onSend: (blocks: ContentBlock[], rawText: string, engineOverride: string | null) => void;
-  disabled: boolean;
+  /** A reply is being produced: the send button becomes stop. */
+  generating?: boolean;
+  onStop?: () => void;
+  /** Nothing can be sent (the agent is off). */
+  disabled?: boolean;
   servers?: McpServerInfo[];
   editMode?: EditMode | null;
   agentId?: string;
+  agentName?: string;
+  /** Everyone who could be talked to instead; choosing one switches the room. */
+  agents?: AgentMetadata[];
+  onSwitchAgent?: (agentId: string) => void;
+  /** The context meter, drawn at the row's right. */
+  meter?: ReactNode;
 }
 
 interface PendingAttachment {
@@ -24,11 +34,29 @@ interface PendingAttachment {
   dataUrl: string;
 }
 
-export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId }: ChatInputBarProps) {
+/** The mock's textarea grows with its text, to 240px, then scrolls. */
+const MAX_TEXTAREA_PX = 240;
+
+/**
+ * The composer of docs/gui/samples/02-chat-conversation.html: a box lifted by
+ * lightness alone, a textarea that grows, and one row of tools under it.
+ */
+export function ChatInputBar({
+  onSend,
+  generating = false,
+  onStop,
+  disabled = false,
+  servers = [],
+  editMode,
+  agentId,
+  agentName,
+  agents = [],
+  onSwitchAgent,
+  meter,
+}: ChatInputBarProps) {
   const { t } = useTranslation('agents');
   const [input, setInput] = useState('');
   const [attachment, setAttachment] = useState<PendingAttachment | null>(null);
-  const [isRecording, setIsRecording] = useState(false);
   const storageKey = agentId ? `cloto-engine-${agentId}` : null;
   const [selectedEngine, setSelectedEngineRaw] = useState<string | null>(() => {
     if (!storageKey) return null;
@@ -42,10 +70,10 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
     }
   };
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const isComposingRef = useRef(false);
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const agentMenuRef = useRef<HTMLDivElement>(null);
 
   // Prefill input when entering edit mode. bug-461: depend ONLY on the stable
   // `editMode?.messageId`, not the whole `editMode` object. The parent builds
@@ -61,8 +89,34 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
     }
   }, [editMode?.messageId]);
 
+  // Grow with the text: one line at rest, up to the mock's 240px.
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, MAX_TEXTAREA_PX)}px`;
+  }, [input]);
+
+  useEffect(() => {
+    if (!agentMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!agentMenuRef.current?.contains(e.target as Node)) setAgentMenuOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setAgentMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [agentMenuOpen]);
+
+  const canSend = !disabled && !generating && (input.trim().length > 0 || attachment !== null);
+
   const handleSend = () => {
-    if ((!input.trim() && !attachment) || disabled) return;
+    if (!canSend) return;
 
     const blocks: ContentBlock[] = [];
 
@@ -83,7 +137,7 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
     let engine = selectedEngine;
     if (engine) {
       const srv = servers.find((s) => s.id === engine);
-      if (!srv || srv.status !== 'Connected') engine = null;
+      if (srv?.status !== 'Connected') engine = null;
     }
 
     onSend(blocks, input.trim(), engine);
@@ -130,143 +184,156 @@ export function ChatInputBar({ onSend, disabled, servers = [], editMode, agentId
     e.target.value = '';
   };
 
-  const toggleRecording = async () => {
-    if (isRecording) {
-      mediaRecorderRef.current?.stop();
-      setIsRecording(false);
-      return;
-    }
-
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      chunksRef.current = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunksRef.current.push(e.data);
-      };
-
-      recorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        if (chunksRef.current.length > 0) {
-          // Insert a note that audio was recorded — agent will use STT
-          const audioDuration = Math.round(chunksRef.current.reduce((acc, c) => acc + c.size, 0) / 16000);
-          setInput((prev) => prev + (prev ? ' ' : '') + `[Audio recorded: ~${audioDuration}s — please transcribe]`);
-        }
-      };
-
-      mediaRecorderRef.current = recorder;
-      recorder.start();
-      setIsRecording(true);
-    } catch (err) {
-      if (import.meta.env.DEV) console.error('Microphone access denied:', err);
-    }
-  };
+  const placeholder = editMode
+    ? t('chat_input.placeholder_edit')
+    : disabled
+      ? t('chat_input.placeholder_offline')
+      : t('chat_input.placeholder', { name: agentName ?? '' });
 
   return (
-    <div className="p-4 bg-surface-field border-t border-edge-subtle">
-      {/* Attachment preview */}
-      {attachment && (
-        <div className="mb-2 flex items-center gap-2">
-          <img
-            src={attachment.preview}
-            alt="preview"
-            className="w-16 h-16 object-cover rounded-lg border border-edge"
+    <div className="write">
+      <div className="col">
+        <div className="box">
+          {attachment && (
+            <div className="attach">
+              <img src={attachment.preview} alt="" />
+              <span className="t">{attachment.file.name}</span>
+              <button type="button" onClick={() => setAttachment(null)} aria-label={t('chat_input.remove_attachment')}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M6 6l12 12M18 6 6 18" />
+                </svg>
+              </button>
+            </div>
+          )}
+          <textarea
+            ref={inputRef}
+            rows={1}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onCompositionStart={() => {
+              isComposingRef.current = true;
+            }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false;
+            }}
+            onKeyDown={(e) => {
+              // Enter sends; Shift+Enter breaks the line; an Enter that ends
+              // IME composition is neither.
+              if (
+                e.key === 'Enter' &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing &&
+                !isComposingRef.current &&
+                e.keyCode !== 229
+              ) {
+                e.preventDefault();
+                handleSend();
+              }
+              if (e.key === 'Escape' && editMode) editMode.onCancel();
+            }}
+            onPaste={handlePaste}
+            disabled={disabled}
+            placeholder={placeholder}
+            aria-label={placeholder}
           />
-          <div className="flex-1 text-xs font-mono text-content-secondary truncate">{attachment.file.name}</div>
-          <button
-            onClick={() => setAttachment(null)}
-            className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-red-400 transition-colors"
-          >
-            <X size={14} />
-          </button>
+          <div className="row">
+            <button
+              type="button"
+              className="ib"
+              onClick={handleFileSelect}
+              disabled={disabled}
+              title={t('chat_input.attach_image')}
+              aria-label={t('chat_input.attach_image')}
+            >
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+            </button>
+            <span className="sep" />
+            {agentName && (
+              <div className="menu-anchor" ref={agentMenuRef}>
+                <button
+                  type="button"
+                  className="ctx"
+                  onClick={() => setAgentMenuOpen((v) => !v)}
+                  title={t('chat_input.switch_agent')}
+                  aria-label={t('chat_input.switch_agent')}
+                  aria-haspopup="menu"
+                  aria-expanded={agentMenuOpen}
+                >
+                  <span className="dot" />
+                  {agentName}
+                </button>
+                {agentMenuOpen && (
+                  <div className="menu up" role="menu">
+                    {agents.map((a) => (
+                      <button
+                        type="button"
+                        key={a.id}
+                        role="menuitem"
+                        className={a.id === agentId ? 'on' : ''}
+                        onClick={() => {
+                          setAgentMenuOpen(false);
+                          if (a.id !== agentId) onSwitchAgent?.(a.id);
+                        }}
+                      >
+                        <span className="dot" style={{ background: agentColor(a) }} />
+                        {a.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <EngineSelector
+              servers={servers}
+              selectedEngine={selectedEngine}
+              onSelect={setSelectedEngine}
+              disabled={disabled}
+            />
+            {editMode && (
+              <button type="button" className="ctx" onClick={editMode.onCancel}>
+                {t('chat_input.cancel_edit')}
+              </button>
+            )}
+            <span className="spacer" />
+            {meter}
+            {generating ? (
+              <button
+                type="button"
+                className="send stop"
+                onClick={onStop}
+                title={t('chat_input.stop')}
+                aria-label={t('chat_input.stop')}
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="7" y="7" width="10" height="10" rx="1.5" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="send"
+                onClick={handleSend}
+                disabled={!canSend}
+                title={t('chat_input.send')}
+                aria-label={t('chat_input.send')}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M12 19V5M5 12l7-7 7 7" />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
-      )}
-
-      {/* Input row */}
-      <div className="relative flex items-center gap-1">
-        {/* Attach button */}
-        <button
-          onClick={handleFileSelect}
-          disabled={disabled}
-          className="p-2.5 rounded-lg text-content-tertiary hover:text-agent hover:bg-surface-panel transition-colors disabled:opacity-30"
-          title={t('chat_input.attach_image')}
-        >
-          <Plus size={20} />
-        </button>
-
-        {/* Mic button */}
-        <button
-          onClick={toggleRecording}
-          disabled={disabled}
-          className={`p-2.5 rounded-lg transition-colors disabled:opacity-30 ${
-            isRecording
-              ? 'text-red-500 bg-red-500/10 animate-pulse'
-              : 'text-content-tertiary hover:text-agent hover:bg-surface-panel'
-          }`}
-          title={isRecording ? t('chat_input.stop_recording') : t('chat_input.record_audio')}
-        >
-          {isRecording ? <MicOff size={20} /> : <Mic size={20} />}
-        </button>
-
-        {/* Engine selector */}
-        <EngineSelector
-          servers={servers}
-          selectedEngine={selectedEngine}
-          onSelect={setSelectedEngine}
-          disabled={disabled}
-        />
-
-        {/* Text input */}
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onCompositionStart={() => {
-            isComposingRef.current = true;
-          }}
-          onCompositionEnd={() => {
-            isComposingRef.current = false;
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing && !isComposingRef.current && e.keyCode !== 229) {
-              handleSend();
-            }
-            if (e.key === 'Escape' && editMode) editMode.onCancel();
-          }}
-          onPaste={handlePaste}
-          disabled={disabled}
-          placeholder={
-            editMode
-              ? t('chat_input.placeholder_edit')
-              : disabled
-                ? t('chat_input.placeholder_processing')
-                : t('chat_input.placeholder')
-          }
-          className="flex-1 bg-surface-primary border rounded-lg py-3 px-4 pr-12 text-xs font-mono focus:outline-none transition-colors placeholder:text-content-tertiary disabled:opacity-50 shadow-inner border-edge focus:border-agent"
-          style={editMode ? { borderColor: '#fbbf24' } : undefined}
-        />
-
-        {/* Cancel edit button */}
-        {editMode && (
-          <button
-            onClick={editMode.onCancel}
-            className="absolute right-12 p-1.5 text-content-tertiary hover:text-red-400 transition-colors"
-            title={t('chat_input.cancel_edit')}
-          >
-            <X size={14} />
-          </button>
-        )}
-
-        {/* Send button */}
-        <button
-          onClick={handleSend}
-          disabled={disabled || (!input.trim() && !attachment)}
-          className="absolute right-2 p-2.5 text-agent hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:text-content-tertiary disabled:scale-100"
-        >
-          <Send size={20} />
-        </button>
+        <div className="hint">{t('chat_input.hint')}</div>
       </div>
 
       {/* Hidden file input for browser mode */}
