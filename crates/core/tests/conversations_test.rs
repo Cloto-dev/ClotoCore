@@ -372,7 +372,7 @@ async fn the_conversation_context_survives_a_restart() {
             .conversation_context_for(&stranger)
             .await
             .is_empty(),
-        "a message that names no conversation gets no conversation context"
+        "an id-less message continues the default conversation, which is empty here"
     );
 }
 
@@ -413,6 +413,15 @@ async fn a_message_without_an_id_lands_in_the_default_conversation_every_time() 
         .unwrap()
         .unwrap();
     assert_eq!(conv.title, "first", "titled from the first message, once");
+
+    // And the thread continues: the next id-less message reads those turns.
+    let ctx = handler
+        .conversation_context_for(&user_message("third", None))
+        .await;
+    assert!(
+        ctx.iter().any(|m| m.content == "first"),
+        "an id-less message continues the default conversation: {ctx:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------

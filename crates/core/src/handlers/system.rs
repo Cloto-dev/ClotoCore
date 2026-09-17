@@ -368,17 +368,25 @@ impl SystemHandler {
     }
 
     /// The turns of the conversation `msg` belongs to, oldest first, read
-    /// from the database — the same rows the person sees. Empty when the
-    /// message names no conversation (bridges, cron) or on a read failure,
-    /// which is logged: a missing context degrades the answer, it does not
-    /// stop it.
+    /// from the database — the same rows the person sees. Empty on a read
+    /// failure, which is logged: a missing context degrades the answer, it
+    /// does not stop it.
     pub async fn conversation_context_for(&self, msg: &ClotoMessage) -> Vec<ClotoMessage> {
-        let Some(conversation_id) = msg.metadata.get("conversation_id") else {
-            return vec![];
+        let conversation_id = if let Some(id) = msg.metadata.get("conversation_id") {
+            id.clone()
+        } else {
+            // An id-less message is filed in the default conversation, so that
+            // is the thread it continues.
+            let agent_id = msg
+                .target_agent
+                .clone()
+                .or_else(|| msg.metadata.get("target_agent_id").cloned())
+                .unwrap_or_else(|| self.default_agent_id.clone());
+            crate::db::default_conversation_id(&agent_id, Self::extract_user_id(msg))
         };
         match crate::db::get_conversation_context(
             &self.pool,
-            conversation_id,
+            &conversation_id,
             self.max_conversation_context,
         )
         .await
@@ -500,6 +508,32 @@ impl SystemHandler {
                 }
             }
         });
+    }
+
+    /// The stored row for an agent's reply — the answer and the error reply
+    /// alike, so both are filed the same way under the conversation.
+    fn agent_reply_row(
+        id: String,
+        agent_id: &str,
+        msg: &ClotoMessage,
+        text: &str,
+        parent_id: String,
+        branch_index: i32,
+        conversation_id: &str,
+    ) -> crate::db::ChatMessageRow {
+        crate::db::ChatMessageRow {
+            id,
+            agent_id: agent_id.to_string(),
+            user_id: Self::extract_user_id(msg).to_string(),
+            source: "agent".to_string(),
+            content: serde_json::to_string(&serde_json::json!([{"type": "text", "text": text}]))
+                .unwrap_or_default(),
+            metadata: None,
+            created_at: chrono::Utc::now().timestamp_millis(),
+            parent_id: Some(parent_id),
+            branch_index,
+            conversation_id: Some(conversation_id.to_string()),
+        }
     }
 
     fn extract_user_id(msg: &ClotoMessage) -> &str {
@@ -1202,21 +1236,15 @@ impl SystemHandler {
                             crate::db::get_next_branch_index(&self.pool, &response_parent)
                                 .await
                                 .unwrap_or(0);
-                        let agent_chat_msg = crate::db::ChatMessageRow {
-                            id: resp_id,
-                            agent_id: agent.id.clone(),
-                            user_id: Self::extract_user_id(&msg).to_string(),
-                            source: "agent".to_string(),
-                            content: serde_json::to_string(
-                                &serde_json::json!([{"type": "text", "text": &content}]),
-                            )
-                            .unwrap_or_default(),
-                            metadata: None,
-                            created_at: chrono::Utc::now().timestamp_millis(),
-                            parent_id: Some(response_parent),
-                            branch_index: resp_branch,
-                            conversation_id: Some(conversation_id.clone()),
-                        };
+                        let agent_chat_msg = Self::agent_reply_row(
+                            resp_id,
+                            &agent.id,
+                            &msg,
+                            &content,
+                            response_parent,
+                            resp_branch,
+                            &conversation_id,
+                        );
                         if let Err(e) =
                             crate::db::save_chat_message_reliable(&self.pool, &agent_chat_msg).await
                         {
@@ -1446,21 +1474,15 @@ impl SystemHandler {
                         crate::db::get_next_branch_index(&self.pool, &err_response_parent)
                             .await
                             .unwrap_or(0);
-                    let err_chat_msg = crate::db::ChatMessageRow {
-                        id: err_resp_id,
-                        agent_id: agent.id.clone(),
-                        user_id: Self::extract_user_id(&msg).to_string(),
-                        source: "agent".to_string(),
-                        content: serde_json::to_string(
-                            &serde_json::json!([{"type": "text", "text": &error_content}]),
-                        )
-                        .unwrap_or_default(),
-                        metadata: None,
-                        created_at: chrono::Utc::now().timestamp_millis(),
-                        parent_id: Some(err_response_parent),
-                        branch_index: err_resp_branch,
-                        conversation_id: Some(conversation_id.clone()),
-                    };
+                    let err_chat_msg = Self::agent_reply_row(
+                        err_resp_id,
+                        &agent.id,
+                        &msg,
+                        &error_content,
+                        err_response_parent,
+                        err_resp_branch,
+                        &conversation_id,
+                    );
                     if let Err(e) =
                         crate::db::save_chat_message_reliable(&self.pool, &err_chat_msg).await
                     {
