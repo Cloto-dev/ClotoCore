@@ -259,9 +259,6 @@
   color: hsl(var(--text-primary));
   background: hsl(var(--surface-primary));
 }
-.nav button.navlink.experimental {
-  color: hsl(38 90% 60%);
-}
 
 .side-foot {
   padding: 10px 10px 2px;

@@ -7,7 +7,6 @@ import { useConversations } from '../contexts/ConversationContext';
 import { useApi } from '../hooks/useApi';
 import { useModules } from '../hooks/useModules';
 import { displayTitle, groupConversations } from '../lib/conversations';
-import { isExperimentalBuild } from '../lib/tauri';
 import type { Conversation } from '../types';
 import { NotificationBell } from './NotificationBell';
 import { requestShutdown } from './ShutdownOverlay';
@@ -21,8 +20,8 @@ import './AppSidebar.css';
  * follow the mock; only the data behind them is live.
  *
  * Kept beyond the mock, because the product still has them: the cron page and
- * any runtime modules (under the same nav style), the experimental-build mark
- * and the shutdown control (in the footer).
+ * any runtime modules (under the same nav style) and the shutdown control (in
+ * the footer). The experimental-build mark sits at the window's bottom right.
  */
 
 const ICONS = {
@@ -349,11 +348,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick }) => {
             </button>
           );
         })}
-        {isExperimentalBuild && (
-          <button type="button" className="navlink experimental" title={t('experimental_tooltip')} disabled>
-            {t('experimental')}
-          </button>
-        )}
       </nav>
 
       <div className="side-foot">

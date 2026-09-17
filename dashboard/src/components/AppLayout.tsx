@@ -5,6 +5,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ActionsProvider } from '../contexts/ActionsContext';
 import { useAgentContext } from '../contexts/AgentContext';
 import { ConversationProvider } from '../contexts/ConversationContext';
+import { isExperimentalBuild } from '../lib/tauri';
 import { AgentPage } from '../pages/AgentPage';
 import { AppSidebar } from './AppSidebar';
 import { CommandApprovalDeck } from './CommandApprovalDeck';
@@ -21,6 +22,7 @@ export interface AppOutletContext {
 
 export function AppLayout() {
   const { t } = useTranslation('common');
+  const { t: tNav } = useTranslation('nav');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialSection, setSettingsInitialSection] = useState<'general' | 'about'>('general');
   const [helpOpen, setHelpOpen] = useState(false);
@@ -120,6 +122,17 @@ export function AppLayout() {
                 </Suspense>
               )}
             </main>
+            {/* Experimental-build mark (docs/RELEASE_PIPELINE_DESIGN.md §6): out of
+                the sidebar, in the window's bottom-right corner, over nothing
+                that matters. Locally derived, no network. */}
+            {isExperimentalBuild && (
+              <div
+                title={tNav('experimental_tooltip')}
+                className="pointer-events-none absolute bottom-2 right-3 z-20 text-xs text-amber-500/80 select-none"
+              >
+                {tNav('experimental')}
+              </div>
+            )}
           </div>
 
           {/* Settings modal */}
