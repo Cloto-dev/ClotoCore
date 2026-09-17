@@ -11,6 +11,22 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Changed
 
+- **The memory screen is one time axis instead of a grid of cards.** What an
+  agent remembers is listed newest first under a band for each calendar day, and
+  a run of days with nothing on them is drawn as a single compressed segment
+  saying how long it was, so silence has a size. A point takes the colour of the
+  agent who is present and no one else's; what was remembered is set in the
+  reading face rather than monospace, clamped to two lines, and opened by the
+  pointer or by keyboard focus. The right column holds the episodes — with a
+  line saying how the first one is made when there are none — over a band of
+  the last thirty days, counted from the memories already loaded. Filters across
+  the top (all, each agent, long-term only, episodes only) narrow together with
+  a search over the text, the agent's name and the date. Editing, locking,
+  deleting, export, import and refresh are all still there, as text at the
+  row's right when the row is under the pointer or holds focus. A refresh that
+  fails says so and leaves the axis on the screen. Scored against the review
+  checklist: 0 of 21 applicable signals.
+
 - **Settings is a page.** It opens at `/settings` instead of over whatever
   screen you were on, with the sections down the left and, on the right, rows
   that each say what the setting is, what it is for, and carry one control. The
