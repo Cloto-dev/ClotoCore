@@ -296,6 +296,9 @@ pub struct SystemHandler {
     /// Defaults to an orphan store so tests don't need to construct one; the
     /// production agentic loop reads from `AppState::session_manager`.
     session_manager: Arc<crate::managers::session_manager::SessionManager>,
+    /// How many of a conversation's newest messages the model reads
+    /// (`Config::max_conversation_context`).
+    max_conversation_context: usize,
 }
 
 impl SystemHandler {
@@ -339,6 +342,7 @@ impl SystemHandler {
             probe_cache: crate::managers::provider_probe::ProbeCache::new(),
             mcp_streaming_enabled,
             session_manager: Arc::new(crate::managers::session_manager::SessionManager::new()),
+            max_conversation_context: crate::config::DEFAULT_MAX_CONVERSATION_CONTEXT,
         }
     }
 
@@ -357,6 +361,34 @@ impl SystemHandler {
         sm: Arc<crate::managers::session_manager::SessionManager>,
     ) {
         self.session_manager = sm;
+    }
+
+    pub fn set_max_conversation_context(&mut self, budget: usize) {
+        self.max_conversation_context = budget;
+    }
+
+    /// The turns of the conversation `msg` belongs to, oldest first, read
+    /// from the database — the same rows the person sees. Empty when the
+    /// message names no conversation (bridges, cron) or on a read failure,
+    /// which is logged: a missing context degrades the answer, it does not
+    /// stop it.
+    pub async fn conversation_context_for(&self, msg: &ClotoMessage) -> Vec<ClotoMessage> {
+        let Some(conversation_id) = msg.metadata.get("conversation_id") else {
+            return vec![];
+        };
+        match crate::db::get_conversation_context(
+            &self.pool,
+            conversation_id,
+            self.max_conversation_context,
+        )
+        .await
+        {
+            Ok(rows) => crate::conversation_context::rows_to_messages(&rows),
+            Err(e) => {
+                error!(conversation_id = %conversation_id, error = %e, "❌ Conversation context read failed");
+                vec![]
+            }
+        }
     }
 
     /// Gate for Phase C streaming: enabled when the `CLOTO_MCP_STREAMING_ENABLED`
@@ -390,6 +422,86 @@ impl SystemHandler {
     }
 
     /// Extract user_id from a ClotoMessage's source.
+    /// After a user message is stored: keep the conversation ordered by
+    /// activity and give it its first title from that message.
+    async fn note_conversation_message(&self, conversation_id: &str, content: &str, now_ms: i64) {
+        if let Err(e) = crate::db::touch_conversation(&self.pool, conversation_id, now_ms).await {
+            warn!(conversation_id = %conversation_id, error = %e, "Conversation touch failed");
+        }
+        let first_title = crate::db::title_from_first_message(content);
+        if first_title.is_empty() {
+            return;
+        }
+        if let Err(e) =
+            crate::db::set_title_if_empty(&self.pool, conversation_id, &first_title).await
+        {
+            warn!(conversation_id = %conversation_id, error = %e, "Conversation title failed");
+        }
+    }
+
+    /// After a reply is stored: touch the conversation, and after the first
+    /// exchange ask the engine for a title. The engine's title replaces the
+    /// first-line one only while that one still stands — a name the person
+    /// typed in the meantime is theirs.
+    async fn after_reply_persisted(
+        &self,
+        agent: &AgentMetadata,
+        conversation_id: &str,
+        engine_id: &str,
+        user_text: &str,
+        reply_text: &str,
+    ) {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        if let Err(e) = crate::db::touch_conversation(&self.pool, conversation_id, now_ms).await {
+            warn!(conversation_id = %conversation_id, error = %e, "Conversation touch failed");
+        }
+        let is_first_exchange = matches!(
+            crate::db::count_messages(&self.pool, conversation_id).await,
+            Ok(2)
+        );
+        if !is_first_exchange {
+            return;
+        }
+        let first_line = crate::db::title_from_first_message(user_text);
+        let pool = self.pool.clone();
+        let mcp = self.registry.mcp_manager.clone();
+        let caller = crate::managers::Caller::Agent(agent.id.clone());
+        let engine_id = engine_id.to_string();
+        let conversation_id = conversation_id.to_string();
+        let prompt = format!(
+            "Give this conversation a title of at most eight words, in the language \
+             the person wrote in. Output the title only, no quotes.\n\nPerson: {}\n\nReply: {}",
+            user_text.chars().take(1_000).collect::<String>(),
+            reply_text.chars().take(1_000).collect::<String>()
+        );
+        tokio::spawn(async move {
+            let Some(title) = Self::call_engine_think_simple(
+                &mcp,
+                &caller,
+                &engine_id,
+                &prompt,
+                "You name conversations.",
+            )
+            .await
+            else {
+                return;
+            };
+            let title = title.trim().trim_matches('"').trim();
+            if title.is_empty() || title.chars().count() > 120 {
+                return;
+            }
+            if let Ok(Some(row)) = crate::db::get_conversation(&pool, &conversation_id).await {
+                if row.title == first_line || row.title.is_empty() {
+                    if let Err(e) =
+                        crate::db::rename_conversation(&pool, &conversation_id, title).await
+                    {
+                        warn!(conversation_id = %conversation_id, error = %e, "Conversation title failed");
+                    }
+                }
+            }
+        });
+    }
+
     fn extract_user_id(msg: &ClotoMessage) -> &str {
         match &msg.source {
             cloto_shared::MessageSource::User { id, .. }
@@ -482,6 +594,11 @@ impl SystemHandler {
             .metadata
             .get("external_session_id")
             .cloned()
+            // A message that names its conversation (the dashboard) is keyed by
+            // it, so the in-flight transcript follows the conversation; the
+            // database, not this transcript, is what the model reads for it
+            // (docs/CONVERSATIONS_DESIGN.md §2c).
+            .or_else(|| msg.metadata.get("conversation_id").cloned())
             .unwrap_or_else(|| format!("kernel:{}", msg.id));
         let session_key = crate::managers::session_manager::SessionKey::new(
             target_agent_id.clone(),
@@ -525,8 +642,30 @@ impl SystemHandler {
             warn!(agent_id = %target_agent_id, error = %e, "Failed to update last_seen");
         }
 
-        // Persist user message to chat history (backend-side persistence)
+        // The conversation this exchange belongs to (docs/CONVERSATIONS_DESIGN.md).
+        // A message that names none lands in the agent's default conversation
+        // for its user, created on demand — the same place the history from
+        // before conversations existed went. Written back onto the message so
+        // every later persist (reply, error, consensus) files under it.
         let now_ms = chrono::Utc::now().timestamp_millis();
+        let mut msg = msg;
+        let conversation_id = if let Some(id) = msg.metadata.get("conversation_id").cloned() {
+            id
+        } else {
+            let id = crate::db::ensure_default_conversation(
+                &self.pool,
+                &target_agent_id,
+                Self::extract_user_id(&msg),
+                now_ms,
+            )
+            .await?;
+            msg.metadata
+                .insert("conversation_id".to_string(), id.clone());
+            id
+        };
+        let msg = msg;
+
+        // Persist user message to chat history (backend-side persistence)
         let skip_user_persist = msg
             .metadata
             .get("skip_user_persist")
@@ -553,11 +692,14 @@ impl SystemHandler {
                 created_at: now_ms,
                 parent_id,
                 branch_index,
+                conversation_id: Some(conversation_id.clone()),
             };
             if let Err(e) = crate::db::save_chat_message_reliable(&self.pool, &user_chat_msg).await
             {
                 error!("Chat persist DROPPED user message: {}", e);
             }
+            self.note_conversation_message(&conversation_id, &msg.content, now_ms)
+                .await;
         }
 
         // 1-B. Media pre-processing: analyze images / transcribe audio before routing to engine
@@ -732,31 +874,21 @@ impl SystemHandler {
             vec![]
         };
 
-        // T1 (in-flight session) merge: short-term context is kernel-owned,
-        // long-term recall is plugin-owned. Past turns of this bridge_session
-        // come from `SessionManager::snapshot_transcript` and may overlap
-        // with what the memory plugin just returned (e.g. the immediately
-        // previous turn that's already been `store`d). Dedup by message id
-        // so the LLM sees a single coherent timeline.
+        // One timeline for the engine (docs/CONVERSATIONS_DESIGN.md §2c): the
+        // conversation's own turns from the database, long-term recall
+        // (plugin-owned), and the in-flight transcript (kernel-owned, and for
+        // a conversation only a cache of what the database holds). They
+        // overlap — the previous turn is already `store`d, and already a row —
+        // so the merge de-duplicates by message id.
         let context = {
+            let conversation_turns = self.conversation_context_for(&msg).await;
             let t1_history = self.session_manager.snapshot_transcript(&session_key);
-            if t1_history.is_empty() {
-                context
-            } else {
-                let seen: std::collections::HashSet<String> = context
-                    .iter()
-                    .map(|m| m.id.clone())
-                    .filter(|id| !id.is_empty())
-                    .collect();
-                let mut merged = context;
-                for m in t1_history {
-                    if m.id.is_empty() || !seen.contains(&m.id) {
-                        merged.push(m);
-                    }
-                }
-                merged.sort_by_key(|m| m.timestamp);
-                merged
-            }
+            crate::conversation_context::merge_context(
+                context,
+                conversation_turns,
+                t1_history,
+                &msg.id,
+            )
         };
 
         // Append the current user message to T1 so subsequent callbacks on
@@ -1083,11 +1215,21 @@ impl SystemHandler {
                             created_at: chrono::Utc::now().timestamp_millis(),
                             parent_id: Some(response_parent),
                             branch_index: resp_branch,
+                            conversation_id: Some(conversation_id.clone()),
                         };
                         if let Err(e) =
                             crate::db::save_chat_message_reliable(&self.pool, &agent_chat_msg).await
                         {
                             error!("Chat persist DROPPED agent response: {}", e);
+                        } else {
+                            self.after_reply_persisted(
+                                &agent,
+                                &conversation_id,
+                                &engine_id,
+                                &msg.content,
+                                &content,
+                            )
+                            .await;
                         }
                     }
 
@@ -1317,6 +1459,7 @@ impl SystemHandler {
                         created_at: chrono::Utc::now().timestamp_millis(),
                         parent_id: Some(err_response_parent),
                         branch_index: err_resp_branch,
+                        conversation_id: Some(conversation_id.clone()),
                     };
                     if let Err(e) =
                         crate::db::save_chat_message_reliable(&self.pool, &err_chat_msg).await
@@ -2162,9 +2305,20 @@ impl SystemHandler {
             created_at: chrono::Utc::now().timestamp_millis(),
             parent_id: Some(response_parent),
             branch_index: resp_branch,
+            conversation_id: msg.metadata.get("conversation_id").cloned(),
         };
         if let Err(e) = crate::db::save_chat_message_reliable(&self.pool, &chat_msg).await {
             error!(trace_id = %trace_id, error = %e, "Consensus chat persist DROPPED");
+        } else if let Some(cid) = msg.metadata.get("conversation_id") {
+            if let Err(e) = crate::db::touch_conversation(
+                &self.pool,
+                cid,
+                chrono::Utc::now().timestamp_millis(),
+            )
+            .await
+            {
+                warn!(conversation_id = %cid, error = %e, "Conversation touch failed");
+            }
         }
 
         // bug-419: the consensus answer must also reach long-term memory, not

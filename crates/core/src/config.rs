@@ -39,6 +39,12 @@ pub fn exe_dir() -> PathBuf {
 /// registrations. Any future rename must ship a boot-time data-migration step.
 pub const APP_DATA_DIR_NAME: &str = "cloto-system";
 
+/// Default for `CLOTO_MAX_CONVERSATION_CONTEXT`: the newest messages of a
+/// conversation the model reads as its context. Forty turns is what a long
+/// chat window shows before anyone scrolls; the value is a budget, not a
+/// window size, and an engine's own limit still applies after it.
+pub const DEFAULT_MAX_CONVERSATION_CONTEXT: usize = 40;
+
 #[must_use]
 pub fn data_dir() -> PathBuf {
     if is_dev_layout() {
@@ -167,6 +173,9 @@ pub struct AppConfig {
     pub event_concurrency_limit: usize,
     /// Maximum chat query limit per request.
     pub max_chat_query_limit: i64,
+    /// How many of a conversation's newest messages the model reads as its
+    /// context (docs/CONVERSATIONS_DESIGN.md §2c).
+    pub max_conversation_context: usize,
     /// Attachment inline threshold in bytes.
     pub attachment_inline_threshold: usize,
     /// Default max iterations for cron jobs.
@@ -653,6 +662,17 @@ impl AppConfig {
             );
         }
 
+        let max_conversation_context = env::var("CLOTO_MAX_CONVERSATION_CONTEXT")
+            .unwrap_or_else(|_| DEFAULT_MAX_CONVERSATION_CONTEXT.to_string())
+            .parse::<usize>()
+            .context("Failed to parse CLOTO_MAX_CONVERSATION_CONTEXT")?;
+        if !(1..=1_000).contains(&max_conversation_context) {
+            anyhow::bail!(
+                "CLOTO_MAX_CONVERSATION_CONTEXT must be between 1 and 1000 (got {})",
+                max_conversation_context
+            );
+        }
+
         let attachment_inline_threshold = env::var("CLOTO_ATTACHMENT_INLINE_THRESHOLD")
             .unwrap_or_else(|_| "65536".to_string())
             .parse::<usize>()
@@ -761,6 +781,7 @@ impl AppConfig {
             max_event_history,
             event_concurrency_limit,
             max_chat_query_limit,
+            max_conversation_context,
             attachment_inline_threshold,
             cron_default_max_iterations,
             memory_plugin_id,

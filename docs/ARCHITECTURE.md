@@ -180,7 +180,10 @@ ClotoCore/
 | POST | `/api/permissions/:id/approve` | Approve permission request |
 | POST | `/api/permissions/:id/deny` | Deny permission request |
 | POST | `/api/chat` | Send message to agent |
-| GET/POST/DELETE | `/api/chat/:agent_id/messages` | Chat message persistence |
+| GET/POST/DELETE | `/api/chat/:agent_id/messages` | Chat message persistence (`?conversation_id=` narrows to one conversation) |
+| GET/POST | `/api/chat/:agent_id/conversations` | List / create conversations (`docs/CONVERSATIONS_DESIGN.md`) |
+| PATCH/DELETE | `/api/chat/:agent_id/conversations/:conversation_id` | Rename, archive or unarchive / delete with messages |
+| POST | `/api/chat/:agent_id/conversations/archive-all`, `…/delete-all` | Bulk archive / delete for an agent and user |
 | GET | `/api/chat/attachments/:attachment_id` | Retrieve chat attachment |
 | POST/GET | `/api/mcp/servers` | MCP server management |
 | DELETE | `/api/mcp/servers/:name` | Delete MCP server |

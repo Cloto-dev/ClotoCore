@@ -19,6 +19,12 @@ pub struct ChatMessageRow {
     pub created_at: i64,
     pub parent_id: Option<String>,
     pub branch_index: i32,
+    /// The conversation this message belongs to (docs/CONVERSATIONS_DESIGN.md).
+    /// `None` only on a row written before the column existed and never
+    /// backfilled, which the migration leaves no room for; new rows always
+    /// carry one.
+    #[serde(default)]
+    pub conversation_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
@@ -38,8 +44,8 @@ pub struct AttachmentRow {
 /// Save a chat message to the database
 pub async fn save_chat_message(pool: &SqlitePool, msg: &ChatMessageRow) -> anyhow::Result<()> {
     let query_future = sqlx::query(
-        "INSERT INTO chat_messages (id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO chat_messages (id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index, conversation_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(&msg.id)
     .bind(&msg.agent_id)
@@ -50,6 +56,7 @@ pub async fn save_chat_message(pool: &SqlitePool, msg: &ChatMessageRow) -> anyho
     .bind(msg.created_at)
     .bind(&msg.parent_id)
     .bind(msg.branch_index)
+    .bind(&msg.conversation_id)
     .execute(pool);
 
     db_timeout(query_future).await?;
@@ -109,13 +116,50 @@ type ChatMessageTuple = (
     i64,
     Option<String>,
     i32,
+    Option<String>,
 );
 
-/// Get chat messages with cursor-based pagination (ordered by created_at DESC)
+const CHAT_MESSAGE_COLUMNS: &str =
+    "id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index, conversation_id";
+
+fn row_from_tuple(t: ChatMessageTuple) -> ChatMessageRow {
+    let (
+        id,
+        agent_id,
+        user_id,
+        source,
+        content,
+        metadata,
+        created_at,
+        parent_id,
+        branch_index,
+        conversation_id,
+    ) = t;
+    ChatMessageRow {
+        id,
+        agent_id,
+        user_id,
+        source,
+        content,
+        metadata,
+        created_at,
+        parent_id,
+        branch_index,
+        conversation_id,
+    }
+}
+
+/// Get chat messages with cursor-based pagination (ordered by created_at DESC).
+///
+/// With a `conversation_id` the list is that conversation's; without one it is
+/// the agent/user pair's whole history, which is what the list meant before
+/// conversations existed and what a caller that has not learned about them
+/// still gets.
 pub async fn get_chat_messages(
     pool: &SqlitePool,
     agent_id: &str,
     user_id: &str,
+    conversation_id: Option<&str>,
     before_ts: Option<i64>,
     limit: i64,
     max_limit: i64,
@@ -124,65 +168,61 @@ pub async fn get_chat_messages(
 
     // Include both the requesting user's messages AND system messages (CRON jobs).
     // Without this, messages persisted with user_id='system' are silently excluded (bug-317).
-    let rows: Vec<ChatMessageTuple> = if let Some(before) = before_ts {
-        let query_future = sqlx::query_as::<_, ChatMessageTuple>(
-            "SELECT id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index
-             FROM chat_messages
-             WHERE agent_id = ? AND (user_id = ? OR user_id = 'system') AND created_at < ?
-             ORDER BY created_at DESC
-             LIMIT ?",
-        )
-        .bind(agent_id)
-        .bind(user_id)
-        .bind(before)
-        .bind(limit)
-        .fetch_all(pool);
-
-        db_timeout(query_future).await?
+    let conversation_clause = if conversation_id.is_some() {
+        "AND conversation_id = ?"
     } else {
-        let query_future = sqlx::query_as::<_, ChatMessageTuple>(
-            "SELECT id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index
-             FROM chat_messages
-             WHERE agent_id = ? AND (user_id = ? OR user_id = 'system')
-             ORDER BY created_at DESC
-             LIMIT ?",
-        )
-        .bind(agent_id)
-        .bind(user_id)
-        .bind(limit)
-        .fetch_all(pool);
-
-        db_timeout(query_future).await?
+        ""
     };
+    let before_clause = if before_ts.is_some() {
+        "AND created_at < ?"
+    } else {
+        ""
+    };
+    // Both clauses are literals picked above; nothing from the caller reaches
+    // the SQL text (every value is bound below).
+    let sql = format!(
+        "SELECT {CHAT_MESSAGE_COLUMNS}
+         FROM chat_messages
+         WHERE agent_id = ? AND (user_id = ? OR user_id = 'system') {conversation_clause} {before_clause}
+         ORDER BY created_at DESC
+         LIMIT ?"
+    );
+    let mut query = sqlx::query_as::<_, ChatMessageTuple>(sqlx::AssertSqlSafe(sql))
+        .bind(agent_id)
+        .bind(user_id);
+    if let Some(cid) = conversation_id {
+        query = query.bind(cid);
+    }
+    if let Some(before) = before_ts {
+        query = query.bind(before);
+    }
+    let rows = db_timeout(query.bind(limit).fetch_all(pool)).await?;
 
-    let messages = rows
-        .into_iter()
-        .map(
-            |(
-                id,
-                agent_id,
-                user_id,
-                source,
-                content,
-                metadata,
-                created_at,
-                parent_id,
-                branch_index,
-            )| ChatMessageRow {
-                id,
-                agent_id,
-                user_id,
-                source,
-                content,
-                metadata,
-                created_at,
-                parent_id,
-                branch_index,
-            },
-        )
-        .collect();
+    Ok(rows.into_iter().map(row_from_tuple).collect())
+}
 
-    Ok(messages)
+/// The newest `limit` messages of one conversation, newest first, whoever
+/// wrote them: the rows the model reads as its context.
+pub async fn get_chat_messages_in_conversation(
+    pool: &SqlitePool,
+    conversation_id: &str,
+    limit: i64,
+) -> anyhow::Result<Vec<ChatMessageRow>> {
+    let sql = format!(
+        "SELECT {CHAT_MESSAGE_COLUMNS}
+         FROM chat_messages
+         WHERE conversation_id = ?
+         ORDER BY created_at DESC, rowid DESC
+         LIMIT ?"
+    );
+    let rows = db_timeout(
+        sqlx::query_as::<_, ChatMessageTuple>(sqlx::AssertSqlSafe(sql))
+            .bind(conversation_id)
+            .bind(limit)
+            .fetch_all(pool),
+    )
+    .await?;
+    Ok(rows.into_iter().map(row_from_tuple).collect())
 }
 
 /// Get the next available branch_index for a given parent_id
@@ -204,41 +244,15 @@ pub async fn get_chat_message_by_id(
     pool: &SqlitePool,
     message_id: &str,
 ) -> anyhow::Result<Option<ChatMessageRow>> {
+    let sql = format!("SELECT {CHAT_MESSAGE_COLUMNS} FROM chat_messages WHERE id = ?");
     let row: Option<ChatMessageTuple> = db_timeout(
-        sqlx::query_as::<_, ChatMessageTuple>(
-            "SELECT id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index
-             FROM chat_messages WHERE id = ?",
-        )
-        .bind(message_id)
-        .fetch_optional(pool),
+        sqlx::query_as::<_, ChatMessageTuple>(sqlx::AssertSqlSafe(sql))
+            .bind(message_id)
+            .fetch_optional(pool),
     )
     .await?;
 
-    Ok(row.map(
-        |(
-            id,
-            agent_id,
-            user_id,
-            source,
-            content,
-            metadata,
-            created_at,
-            parent_id,
-            branch_index,
-        )| {
-            ChatMessageRow {
-                id,
-                agent_id,
-                user_id,
-                source,
-                content,
-                metadata,
-                created_at,
-                parent_id,
-                branch_index,
-            }
-        },
-    ))
+    Ok(row.map(row_from_tuple))
 }
 
 /// Delete all chat messages (and cascade to attachments) for an agent/user pair
@@ -340,7 +354,7 @@ pub async fn get_attachment_by_id(
 }
 
 /// Helper: get disk paths for attachments belonging to given message IDs
-async fn get_disk_attachment_paths(
+pub(crate) async fn get_disk_attachment_paths(
     pool: &SqlitePool,
     message_ids: &[String],
 ) -> anyhow::Result<Vec<String>> {
