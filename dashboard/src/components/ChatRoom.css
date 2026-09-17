@@ -512,15 +512,14 @@
 }
 .presence .turn {
   position: absolute;
-  top: calc(50% - 3vh - 20px);
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  display: grid;
-  place-items: center;
-  font-size: 24px;
-  line-height: 1;
-  color: hsl(var(--text-tertiary));
+  top: calc(50% - 3vh - 42px);
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 6px;
+  border-radius: var(--radius-surface);
+  color: hsl(var(--text-secondary));
 }
 .presence .turn.prev {
   left: 0;
@@ -528,18 +527,49 @@
 .presence .turn.next {
   right: 0;
 }
-.presence .turn:hover:not(:disabled) {
+.presence .turn .arrow {
+  font-size: 26px;
+  line-height: 1;
+}
+/* The neighbour's face: there, but receding — smaller, colourless, half lit —
+   so that who is facing stays the only one in colour. */
+.presence .turn .peek {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
   background: hsl(var(--surface-primary));
+  color: hsl(var(--text-tertiary));
+  opacity: 0.55;
+  filter: grayscale(1);
+  transition: opacity 0.12s;
+}
+.presence .turn .peek svg {
+  width: 20px;
+  height: 20px;
+}
+.presence .turn .peek img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.presence .turn:hover {
   color: hsl(var(--text-primary));
 }
-.presence .turn:disabled {
-  opacity: 0.25;
-  cursor: default;
+.presence .turn:hover .peek {
+  opacity: 0.9;
 }
 /* Nobody yet: the face is empty, in no one's colour. */
 .presence .pic.nobody {
   background: hsl(var(--surface-primary));
-  color: hsl(var(--text-tertiary));
+  color: hsl(var(--text-secondary));
+  cursor: pointer;
+}
+.presence .pic.nobody:hover {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-primary));
 }
 .presence .name.create {
   border-radius: var(--radius-tool);
@@ -720,6 +750,22 @@
   opacity: 0.35;
   cursor: default;
   filter: none;
+}
+/* Nobody is present, so the button is in nobody's colour: the accent belongs
+   to an agent (docs/DESIGN_PHILOSOPHY.md §4.2), never to the product. */
+.send.nobody,
+.send.nobody:disabled {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-tertiary));
+  opacity: 1;
+}
+/* The empty box is the way in: it answers the pointer like something pressable. */
+.box.inviting,
+.box.inviting textarea {
+  cursor: pointer;
+}
+.box.inviting:hover {
+  box-shadow: 0 0 0 1px hsl(var(--border-default));
 }
 .send.stop {
   background: hsl(var(--text-primary));

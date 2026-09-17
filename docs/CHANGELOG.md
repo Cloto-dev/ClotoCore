@@ -70,6 +70,19 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   the left end, and the only one when nobody exists yet; nothing can be sent
   while it is facing, or to an agent that is off. Turning keeps what was typed.
   Turning past an agent does not mark their waiting questions as read.
+- On that screen, who is one movement away is shown: the neighbour's face
+  stands beside each arrow, small, colourless and half lit, and pressing it
+  turns to them; past an end there is no arrow. The empty face of "create an
+  agent" is a plus and is itself the button. While it is facing, the composer
+  is an empty box that says nothing — pressing it, or typing into it, opens the
+  form that makes an agent — and the send button is in no one's colour, since
+  the accent belongs to an agent and nobody is there. A face stands at the same
+  height whoever it is, and the composer does not move as the faces turn.
+- The conversation list no longer shows an empty list under a lone "show more"
+  when nothing is from the last week: the older conversations are then the list.
+- The faintest text step is a little lighter in the dark theme (62% from 58%).
+  It was already above 4.5:1, but it is almost always 12px, and thin small type
+  on a dark surface reads fainter than its ratio says.
 - The Chat link is gone from the navigation. A conversation is reached by
   pressing New chat or by choosing it in the list; the link only reopened
   whichever one had been open.

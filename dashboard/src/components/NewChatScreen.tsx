@@ -12,6 +12,13 @@ import { CreateAgentModal } from './agents/CreateAgentModal';
 import { ChatInputBar } from './ChatInputBar';
 import './ChatRoom.css';
 
+/** The mark of "nobody yet — make someone". */
+const PLUS = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+
 /** How long after one swipe turn a further wheel movement is ignored, so one
  * gesture (which keeps emitting wheel events as it decays) turns one face. */
 const SWIPE_COOLDOWN_MS = 450;
@@ -46,6 +53,11 @@ export function NewChatScreen() {
   const found = draft?.agentId ? faces.findIndex((a) => a.id === draft.agentId) : -1;
   const index = found + 1;
   const agent = found >= 0 ? faces[found] : null;
+  // Who is one movement away on either side: `undefined` past an end, `null`
+  // for "create an agent".
+  const faceAt = (i: number) => (i < 0 || i >= faceCount ? undefined : i === 0 ? null : faces[i - 1]);
+  const before = faceAt(index - 1);
+  const after = faceAt(index + 1);
 
   const turn = useCallback(
     (step: -1 | 0 | 1) => {
@@ -146,26 +158,33 @@ export function NewChatScreen() {
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
         >
-          <button
-            type="button"
-            className="turn prev"
-            aria-label={t('new_chat.previous')}
-            title={t('new_chat.previous')}
-            disabled={index === 0}
-            onClick={() => turn(-1)}
-          >
-            ‹
-          </button>
-          <button
-            type="button"
-            className="turn next"
-            aria-label={t('new_chat.next')}
-            title={t('new_chat.next')}
-            disabled={index === faceCount - 1}
-            onClick={() => turn(1)}
-          >
-            ›
-          </button>
+          {/* The neighbours, small and receding at the column's edges: that there
+              is someone to either side, and who, without a row of dots. Each
+              is the arrow's target too — pressing the face turns to it. */}
+          {before !== undefined && (
+            <button
+              type="button"
+              className="turn prev"
+              aria-label={t('new_chat.previous')}
+              title={before ? before.name : t('new_chat.create_agent')}
+              onClick={() => turn(-1)}
+            >
+              <span className="arrow">‹</span>
+              <span className="peek">{before ? <AgentIcon agent={before} size={40} /> : PLUS}</span>
+            </button>
+          )}
+          {after !== undefined && (
+            <button
+              type="button"
+              className="turn next"
+              aria-label={t('new_chat.next')}
+              title={after ? after.name : t('new_chat.create_agent')}
+              onClick={() => turn(1)}
+            >
+              <span className="peek">{after ? <AgentIcon agent={after} size={40} /> : PLUS}</span>
+              <span className="arrow">›</span>
+            </button>
+          )}
 
           {/* Keyed by who is facing, so a turn is a new face arriving, and the
               pull follows the finger while a drag is under way. */}
@@ -183,15 +202,23 @@ export function NewChatScreen() {
               </>
             ) : (
               <>
-                <div className="pic nobody">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-                    <circle cx="12" cy="9" r="4" />
-                    <path d="M5 20a7 7 0 0 1 14 0" />
-                  </svg>
-                </div>
+                {/* The empty face is the button: a plus where a person would be. */}
+                <button
+                  type="button"
+                  className="pic nobody"
+                  aria-label={t('new_chat.create_agent')}
+                  onClick={() => setCreateOpen(true)}
+                >
+                  {PLUS}
+                </button>
                 <button type="button" className="name create" onClick={() => setCreateOpen(true)}>
                   {t('new_chat.create_agent')}
                 </button>
+                {/* Nobody has a state. The line is kept so a face stands at the
+                    same height whoever it is, and turning does not jolt. */}
+                <div className="state" aria-hidden="true">
+                  {'\u00a0'}
+                </div>
                 <p className="remark">
                   {faces.length === 0 ? t('new_chat.create_first') : t('new_chat.create_another')}
                 </p>
@@ -207,6 +234,7 @@ export function NewChatScreen() {
           key={draft?.key}
           onSend={(blocks, rawText, engineOverride) => sendDraft({ blocks, rawText, engineOverride })}
           disabled={!agent?.enabled}
+          invitation={agent ? undefined : { label: t('new_chat.create_agent'), onAccept: () => setCreateOpen(true) }}
           servers={engines}
           agentId={agent?.id}
           agentName={agent?.name}

@@ -142,7 +142,10 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
 
   const groups = useMemo(() => groupConversations(conversations, now), [conversations, now]);
   const hiddenCount = groups.filter((g) => !VISIBLE_GROUPS.has(g.group)).reduce((n, g) => n + g.items.length, 0);
-  const shownGroups = showOlder ? groups : groups.filter((g) => VISIBLE_GROUPS.has(g.group));
+  // With nothing from the last week, folding the rest away leaves an empty list
+  // and a lone "show more": the older conversations are then the list.
+  const nothingRecent = hiddenCount === groups.reduce((n, g) => n + g.items.length, 0);
+  const shownGroups = showOlder || nothingRecent ? groups : groups.filter((g) => VISIBLE_GROUPS.has(g.group));
   const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
   const isAgentPage = location.pathname === '/';
   // The living room is showing: a conversation, or the new chat (which may be
@@ -292,7 +295,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
             })}
           </div>
         ))}
-        {hiddenCount > 0 && (
+        {hiddenCount > 0 && !nothingRecent && (
           <button type="button" className="more" onClick={() => setShowOlder((v) => !v)}>
             {showOlder ? t('show_less') : t('show_more')}
           </button>

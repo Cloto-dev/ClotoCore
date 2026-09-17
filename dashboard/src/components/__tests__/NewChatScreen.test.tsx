@@ -21,10 +21,22 @@ vi.mock('../../contexts/ConversationContext', () => ({ useConversations: () => c
 
 // The composer is the real one's contract, reduced to what this screen decides.
 vi.mock('../ChatInputBar', () => ({
-  ChatInputBar: (p: { disabled?: boolean; agentId?: string; onSend: (b: unknown[], t: string, e: null) => void }) => (
-    <button type="button" data-agent={p.agentId ?? ''} disabled={p.disabled} onClick={() => p.onSend([], 'hi', null)}>
-      composer
-    </button>
+  ChatInputBar: (p: {
+    disabled?: boolean;
+    agentId?: string;
+    onSend: (b: unknown[], t: string, e: null) => void;
+    invitation?: { label: string; onAccept: () => void };
+  }) => (
+    <>
+      <button type="button" data-agent={p.agentId ?? ''} disabled={p.disabled} onClick={() => p.onSend([], 'hi', null)}>
+        composer
+      </button>
+      {p.invitation && (
+        <button type="button" onClick={p.invitation.onAccept}>
+          invitation:{p.invitation.label}
+        </button>
+      )}
+    </>
   ),
 }));
 vi.mock('../agents/CreateAgentModal', () => ({
@@ -64,6 +76,9 @@ beforeEach(() => {
 describe('the new chat', () => {
   it('faces the agent the draft is turned to, and the composer is theirs', () => {
     render(<NewChatScreen />);
+    // Who is to either side is named: "create an agent" on the left, b on the right.
+    expect(screen.getByLabelText('new_chat.previous').getAttribute('title')).toBe('new_chat.create_agent');
+    expect(screen.getByLabelText('new_chat.next').getAttribute('title')).toBe('b');
     expect(screen.getByText('a')).toBeTruthy();
     expect(screen.getByText('composer').getAttribute('data-agent')).toBe('a');
     expect((screen.getByText('composer') as HTMLButtonElement).disabled).toBe(false);
@@ -76,8 +91,9 @@ describe('the new chat', () => {
 
     convCtx.draft = { key: 'draft:1', agentId: 'b' };
     rerender(<NewChatScreen />);
-    expect((screen.getByLabelText('new_chat.next') as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByLabelText('new_chat.previous') as HTMLButtonElement).disabled).toBe(false);
+    // Past the last agent there is nobody: no arrow, no face peeking.
+    expect(screen.queryByLabelText('new_chat.next')).toBeNull();
+    expect(screen.getByLabelText('new_chat.previous').getAttribute('title')).toBe('a');
   });
 
   it('reaches "create an agent" at the left end, one turn from the first agent, where nothing can be sent', () => {
@@ -90,7 +106,8 @@ describe('the new chat', () => {
     expect(screen.getByText('new_chat.create_agent')).toBeTruthy();
     expect((screen.getByText('composer') as HTMLButtonElement).disabled).toBe(true);
     // It is the end: nothing is further left, and the first agent is to its right.
-    expect((screen.getByLabelText('new_chat.previous') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByLabelText('new_chat.previous')).toBeNull();
+    expect(screen.getByLabelText('new_chat.next').getAttribute('title')).toBe('a');
     fireEvent.click(screen.getByLabelText('new_chat.next'));
     expect(convCtx.setDraftAgent).toHaveBeenLastCalledWith('a');
   });
@@ -130,8 +147,8 @@ describe('the new chat', () => {
     render(<NewChatScreen />);
     expect(screen.getByText('new_chat.create_agent')).toBeTruthy();
     expect(screen.getByText('new_chat.create_first')).toBeTruthy();
-    expect((screen.getByLabelText('new_chat.previous') as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByLabelText('new_chat.next') as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByLabelText('new_chat.previous')).toBeNull();
+    expect(screen.queryByLabelText('new_chat.next')).toBeNull();
   });
 
   it('cannot send to an agent that is off', () => {
@@ -160,5 +177,16 @@ describe('the new chat', () => {
     agentCtx.agents = [agent('a'), agent('b'), agent('agent.newcomer', { name: 'Newcomer' })];
     rerender(<NewChatScreen />);
     expect(convCtx.setDraftAgent).toHaveBeenLastCalledWith('agent.newcomer');
+  });
+
+  it('makes the empty composer the way in to creating an agent, and only while nobody is facing', () => {
+    const { rerender } = render(<NewChatScreen />);
+    expect(screen.queryByText(/^invitation:/)).toBeNull();
+
+    convCtx.draft = { key: 'draft:1', agentId: null };
+    rerender(<NewChatScreen />);
+    expect(screen.queryByText('create-modal')).toBeNull();
+    fireEvent.click(screen.getByText('invitation:new_chat.create_agent'));
+    expect(screen.getByText('create-modal')).toBeTruthy();
   });
 });

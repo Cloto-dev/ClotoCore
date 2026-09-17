@@ -118,6 +118,18 @@ describe("the sidebar's conversations", () => {
     expect(screen.getByText('KS22')).toBeTruthy();
   });
 
+  it('shows the older threads outright when nothing is recent, instead of an empty list under show more', () => {
+    const now = Date.now();
+    conversations.list = [
+      conv('old-1', 'agent.a', now - 40 * DAY, 'Long ago'),
+      conv('old-2', 'agent.b', now - 90 * DAY, 'Longer ago'),
+    ];
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.getByTitle('Long ago')).toBeTruthy();
+    expect(screen.getByTitle('Longer ago')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'show_more' })).toBeNull();
+  });
+
   it('opens a thread with its own agent, not the selected one', () => {
     render(<AppSidebar onSettingsClick={vi.fn()} />);
     fireEvent.click(screen.getByTitle('untitled_conversation'));
