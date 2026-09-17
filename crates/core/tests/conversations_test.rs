@@ -423,12 +423,15 @@ async fn archive_hides_without_losing_and_unarchive_restores_the_old_place() {
     let s = state().await;
     let older = create(&s, "agent.a").await;
     let newer = create(&s, "agent.a").await;
-    db::touch_conversation(&s.pool, &older, 1_000)
-        .await
-        .unwrap();
-    db::touch_conversation(&s.pool, &newer, 2_000)
-        .await
-        .unwrap();
+    // Pin the order explicitly: two creates in one millisecond would tie.
+    for (id, at) in [(&older, 1_000_i64), (&newer, 2_000)] {
+        sqlx::query("UPDATE conversations SET updated_at = ? WHERE id = ?")
+            .bind(at)
+            .bind(id)
+            .execute(&s.pool)
+            .await
+            .unwrap();
+    }
     db::save_chat_message(
         &s.pool,
         &row(
