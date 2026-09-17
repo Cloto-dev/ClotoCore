@@ -324,7 +324,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
           <button
             onClick={onBack}
             aria-label={tc('back')}
-            className="p-2.5 rounded-full bg-glass-subtle backdrop-blur-sm border border-edge hover:border-brand hover:text-brand transition-all"
+            className="p-2.5 rounded-full bg-surface-control border border-edge hover:border-agent hover:text-agent transition-all"
           >
             <ArrowLeft size={18} />
           </button>
@@ -335,16 +335,14 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
             <AgentIcon agent={agent} size={40} />
           </div>
           <div>
-            <h1 className="text-xl font-black tracking-tighter text-content-primary uppercase">
+            <h1 className="text-xl font-black text-content-primary">
               {agent.name} · {t('plugin_workspace.mcp_access')}
             </h1>
-            <p className="text-[10px] text-content-tertiary font-mono uppercase tracking-[0.2em]">
-              {t('plugin_workspace.server_access_control')}
-            </p>
+            <p className="text-xs text-content-tertiary font-mono">{t('plugin_workspace.server_access_control')}</p>
           </div>
         </div>
-        <div className="bg-glass-subtle backdrop-blur-sm px-4 py-2 rounded-md flex items-center gap-3 shadow-sm border border-edge">
-          <span className="text-[9px] uppercase font-bold text-content-tertiary tracking-widest">
+        <div className="bg-surface-control px-4 py-2 rounded-md flex items-center gap-3 shadow-sm border border-edge">
+          <span className="text-xs font-bold text-content-tertiary">
             {t('plugin_workspace.granted_count', { count: grantedIds.size })}
           </span>
         </div>
@@ -431,7 +429,7 @@ export function AgentPluginWorkspace({ agent, onBack }: Props) {
             onClick={handleSave}
             disabled={isSaving || isLoading}
             aria-label={tc('save')}
-            className="flex items-center gap-1.5 px-6 py-2 rounded-lg bg-brand text-white text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-50"
+            className="flex items-center gap-1.5 px-6 py-2 rounded-lg bg-agent text-agent-ink text-xs font-bold shadow-sm hover:shadow-md transition-all disabled:opacity-50"
           >
             {isSaving ? <Activity size={14} className="animate-spin" /> : <Save size={14} />}
             {tc('save')}

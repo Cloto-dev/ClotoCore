@@ -168,29 +168,49 @@ MCP access, avatar, VRM) still MUST follow the deferred pattern.
 
 ## Dashboard UI Rules
 
-- **Min text size**: `text-[9px]`. Never `text-[8px]` or smaller.
-- **Min text color**: `text-content-tertiary`. Never `text-content-muted` for readable text.
-- **Hover borders**: `hover:border-brand` (interactive), `hover:border-red-500` (destructive). Full opacity.
+The decisions are `docs/DESIGN_PHILOSOPHY.md` §4; the numbers are the tokens at the top of
+`dashboard/src/index.css` (`@layer base`), which `tailwind.config.js` reads. This section names
+the rules and points at those two files — it does not repeat a number, so there is one place to
+change one.
+
+- **Two registers, one token set.** The living room (chat, the agent's face, questions the agent
+  asks) and the workshop (MCP servers, cron, settings, memory, logs) share every token and differ
+  in density and colour only. Do not add a second palette or a per-screen surface style.
+- **Surfaces.** Four steps of one neutral scale, tinted toward the present agent's hue:
+  `bg-surface-base` (base) / `bg-surface-secondary` (receding: sidebar, panels) /
+  `bg-surface-primary` (raised: inputs, hover, cards) / `border-edge` (boundary). Separate with
+  lightness, not lines — a 1 px rule belongs inside tables. No translucent glass, no
+  `backdrop-blur`, no decorative grid or canvas background. `bg-surface-panel` /
+  `bg-surface-field` / `bg-surface-control` are role names that resolve to those steps; use them
+  for panels and bars / inputs / prominent controls, because the Legacy theme gives each role a
+  colour of its own.
+- **Accent: the present agent's colour, and nothing else.** `agent` (`text-agent`, `bg-agent`,
+  `border-agent`) is the colour of the agent who is present — `AgentProvider` sets it from the
+  selection. Use it only on what belongs to that agent (their face, the mark beside their words,
+  the edge of a question they ask, send, the selected conversation). Never as decoration; the
+  workshop has none. Text set on `bg-agent` is `text-agent-ink`, not `text-white`. The lightness
+  is corrected per hue in `lib/agentIdentity.tsx` so the accent reads at every hue — do not
+  hard-code an agent colour.
+- **Type.** `font-sans` (IBM Plex Sans JP, bundled) for everything read. `font-mono` only for
+  identifiers, code and tabular numbers. Min text size: `text-xs` (the note size); no arbitrary
+  `text-[Npx]` below it. Min text color: `text-content-tertiary`; never `text-content-muted` for
+  readable text. No `uppercase`, no `tracking-*` — sentence case, letter-spacing 0.
+- **Radius.** Three steps, enforced by the theme: `rounded` / `rounded-md` (controls),
+  `rounded-lg` (surfaces), `rounded-soft` (the composer — the one soft element). `rounded-full`
+  is for dots and round faces only.
+- **Fewer parts.** No pills. No icon on a button — icons belong to navigation and status. No
+  avatar on every message. Metadata is a sentence, not `A · B · C`. No shadow under a surface that
+  already has a border. No motion that carries no meaning.
+- **Themes change tokens, never components.** Dark (default), light, system, and Legacy (the
+  pre-redesign slate-and-blue palette, following the OS) are classes on `<html>` that redefine the
+  tokens in `index.css`. Do not branch a component on the theme; if a colour differs between
+  themes, it is a token. The one exception is `agentColor()`, which resolves the stylesheet accent
+  under Legacy because inline styles cannot read a class.
+- **Hover borders**: `hover:border-agent` in the living room, `hover:border-edge` in the
+  workshop, `hover:border-red-500` for destructive. Full opacity.
 - **Tailwind CSS**: The dashboard uses pre-compiled CSS (`src/compiled-tailwind.css`), NOT JIT. When adding or changing Tailwind utility classes in JSX, you MUST regenerate: `cd dashboard && npx tailwindcss -i src/index.css -o src/compiled-tailwind.css`. New classes will not take effect without this step.
-
-### Glass / Card Surface Policy
-
-The dashboard has two distinct surface patterns. Pick the right one for the role.
-
-- **Primary content cards** (agent cards, memory cards, marketplace cards, chat header controls, anything the user directly interacts with as a "tile"):
-  Use the `card-solid` component class (defined in `src/index.css` `@layer components`).
-  Expands to: `bg-surface-primary/50 shadow-sm hover:shadow-md transition-all duration-300`.
-  Callers add `border border-edge`, padding, `rounded-*`, and hover color on top.
-  Reference: `AgentTerminal.tsx:362`.
-
-- **Functional UI surfaces** (panels, inputs, dropdowns, bars, sidebars, modals, nav buttons, empty-state containers):
-  Use the existing `bg-glass*` + `backdrop-blur-*` utilities.
-  - `bg-glass` (60% alpha): default panel background.
-  - `bg-glass-subtle` (80% alpha, lighter): prominent glass buttons and nav bars.
-  - `bg-glass-strong` (80% alpha, darker): input fields, hover states over solid containers.
-  Reference: `AgentPluginWorkspace.tsx:250` (glass button), `KernelMonitor.tsx:16` (glass panel).
-
-- **Do not mix** the two. `bg-surface-primary/50` must not appear on functional UI, and `bg-glass*` must not appear on primary content cards. If in doubt, grep for a nearby equivalent use and follow its pattern.
+- **Before a screen ships**, score it against the review checklist and write the count down
+  (`docs/DESIGN_PHILOSOPHY.md` §6).
 
 ## Git Rules
 

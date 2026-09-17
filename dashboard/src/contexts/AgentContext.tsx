@@ -1,6 +1,7 @@
-import { createContext, type ReactNode, useCallback, useContext, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react';
 import { useAgents } from '../hooks/useAgents';
 import { useProcessingAgents } from '../hooks/useProcessingAgents';
+import { applyPresentAgent } from '../lib/agentIdentity';
 import type { AgentMetadata } from '../types';
 
 interface AgentContextValue {
@@ -21,6 +22,12 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [systemActive, setSystemActive] = useState(false);
   const processingAgentIds = useProcessingAgents();
+
+  // The selected agent is the one present: the whole app takes its hue.
+  const presentAgentId = agents.some((a) => a.id === selectedAgentId) ? selectedAgentId : null;
+  useEffect(() => {
+    applyPresentAgent(presentAgentId === null ? null : { id: presentAgentId });
+  }, [presentAgentId]);
 
   const refetchAgents = useCallback(async () => {
     await refetch();

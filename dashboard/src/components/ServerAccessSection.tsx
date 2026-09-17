@@ -50,10 +50,8 @@ export function ServerAccessSection({
       {/* Preset Selector */}
       <section>
         <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
-          <Layers className="text-brand" size={16} />
-          <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">
-            {t('plugin_workspace.preset')}
-          </h2>
+          <Layers className="text-agent" size={16} />
+          <h2 className="font-bold text-xs text-content-secondary">{t('plugin_workspace.preset')}</h2>
         </div>
         <div className="flex flex-wrap gap-2">
           {hubPresets.map((preset) => {
@@ -63,16 +61,16 @@ export function ServerAccessSection({
                 key={preset.id}
                 onClick={() => onApplyPreset(preset.servers)}
                 aria-label={t(`plugin_workspace.preset_${preset.id}`)}
-                className={`px-3 py-1.5 rounded-lg text-[11px] font-bold uppercase tracking-wider border transition-all ${
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-all ${
                   isActive
-                    ? 'border-brand bg-brand/10 text-brand'
-                    : 'border-edge bg-glass text-content-secondary hover:border-brand hover:text-brand'
+                    ? 'border-agent bg-agent/10 text-agent'
+                    : 'border-edge bg-surface-panel text-content-secondary hover:border-agent hover:text-agent'
                 }`}
               >
                 {t(`plugin_workspace.preset_${preset.id}`, {
                   defaultValue: preset.id.charAt(0).toUpperCase() + preset.id.slice(1),
                 })}
-                <span className="ml-1.5 text-[9px] font-mono text-content-tertiary">{preset.servers.length}</span>
+                <span className="ml-1.5 text-xs font-mono text-content-tertiary">{preset.servers.length}</span>
               </button>
             );
           })}
@@ -82,13 +80,11 @@ export function ServerAccessSection({
       {/* Granted Servers */}
       <section>
         <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
-          <Server className="text-brand" size={16} />
-          <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">
-            {t('plugin_workspace.granted_servers')}
-          </h2>
+          <Server className="text-agent" size={16} />
+          <h2 className="font-bold text-xs text-content-secondary">{t('plugin_workspace.granted_servers')}</h2>
         </div>
         {grantedServers.length === 0 ? (
-          <div className="py-8 text-center text-content-tertiary bg-glass rounded-lg border border-edge border-dashed font-mono text-xs">
+          <div className="py-8 text-center text-content-tertiary bg-surface-panel rounded-lg border border-edge border-dashed font-mono text-xs">
             {t('plugin_workspace.no_servers_granted')}
           </div>
         ) : (
@@ -127,13 +123,13 @@ export function ServerAccessSection({
                       </span>
                     )}
                     {server.transport === 'streamable-http' && (
-                      <span className="text-[9px] font-mono text-cyan-500/70 shrink-0" title="Remote HTTP transport">
+                      <span className="text-xs font-mono text-cyan-500/70 shrink-0" title="Remote HTTP transport">
                         HTTP
                       </span>
                     )}
                   </div>
                   <div
-                    className={`flex items-center gap-3 text-[10px] font-mono text-content-tertiary leading-none ${mgp ? 'relative' : ''}`}
+                    className={`flex items-center gap-3 text-xs font-mono text-content-tertiary leading-none ${mgp ? 'relative' : ''}`}
                   >
                     <span className="inline-flex items-center gap-1.5">
                       <StatusDot status={mcpStatusToDot(server)} size="sm" />
@@ -152,10 +148,8 @@ export function ServerAccessSection({
       {availableServers.length > 0 && (
         <section>
           <div className="flex items-center gap-3 mb-3 border-b border-edge pb-2">
-            <Plus className="text-brand" size={16} />
-            <h2 className="font-bold text-xs text-content-secondary uppercase tracking-widest">
-              {t('plugin_workspace.available')}
-            </h2>
+            <Plus className="text-agent" size={16} />
+            <h2 className="font-bold text-xs text-content-secondary">{t('plugin_workspace.available')}</h2>
           </div>
           <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
             {availableServers.map((server) => {
@@ -169,14 +163,14 @@ export function ServerAccessSection({
                   type="button"
                   className={`text-left relative p-4 rounded-xl border transition-all duration-200 group cursor-pointer ${shimmer} ${
                     mgp
-                      ? 'card-mgp hover:bg-mgp-surface/40 hover:border-brand'
-                      : 'border-edge bg-surface-primary/30 hover:bg-surface-primary/50 hover:border-brand'
+                      ? 'card-mgp hover:bg-mgp-surface/40 hover:border-agent'
+                      : 'border-edge bg-surface-primary/30 hover:bg-surface-primary/50 hover:border-agent'
                   }`}
                   aria-label={`${t('plugin_workspace.grant')} ${displayServerId(server.id)}`}
                   onClick={() => onGrant(server.id)}
                 >
                   {mgp && <div className="mgp-halo" />}
-                  <span className="absolute top-2 right-2 p-1 rounded text-content-tertiary group-hover:text-brand opacity-0 group-hover:opacity-100 transition-all">
+                  <span className="absolute top-2 right-2 p-1 rounded text-content-tertiary group-hover:text-agent opacity-0 group-hover:opacity-100 transition-all">
                     <Plus size={12} />
                   </span>
                   <div className={`flex items-center gap-2.5 mb-2 ${mgp ? 'relative' : ''}`}>
@@ -185,7 +179,7 @@ export function ServerAccessSection({
                       className={`shrink-0 transition-colors ${
                         mgp
                           ? 'text-mgp-accent group-hover:text-mgp-accent-light'
-                          : 'text-content-tertiary group-hover:text-brand'
+                          : 'text-content-tertiary group-hover:text-agent'
                       }`}
                     />
                     <span className="text-xs font-mono font-bold text-content-primary truncate">
@@ -197,13 +191,13 @@ export function ServerAccessSection({
                       </span>
                     )}
                     {server.transport === 'streamable-http' && (
-                      <span className="text-[9px] font-mono text-cyan-500/70 shrink-0" title="Remote HTTP transport">
+                      <span className="text-xs font-mono text-cyan-500/70 shrink-0" title="Remote HTTP transport">
                         HTTP
                       </span>
                     )}
                   </div>
                   <div
-                    className={`flex items-center gap-3 text-[10px] font-mono text-content-tertiary leading-none ${mgp ? 'relative' : ''}`}
+                    className={`flex items-center gap-3 text-xs font-mono text-content-tertiary leading-none ${mgp ? 'relative' : ''}`}
                   >
                     <span className="inline-flex items-center gap-1.5">
                       <StatusDot status={mcpStatusToDot(server)} size="sm" />

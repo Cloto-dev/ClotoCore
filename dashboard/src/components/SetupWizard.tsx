@@ -8,6 +8,7 @@ import {
   Copy,
   Eye,
   EyeOff,
+  History,
   Loader2,
   Monitor,
   Moon,
@@ -388,6 +389,7 @@ export function SetupWizard({ onComplete }: Props) {
     { value: 'light' as const, icon: Sun, label: t('theme_light') },
     { value: 'dark' as const, icon: Moon, label: t('theme_dark') },
     { value: 'system' as const, icon: Monitor, label: t('theme_system') },
+    { value: 'legacy' as const, icon: History, label: t('theme_legacy') },
   ];
 
   // Step 6: resolve the admin key for handover (context → sessionStorage → Tauri)
@@ -453,12 +455,12 @@ export function SetupWizard({ onComplete }: Props) {
           <div className="p-8 min-h-[340px] flex flex-col items-center justify-center">
             {step === 0 && (
               <div className="text-center space-y-6">
-                <h1 className="text-3xl font-black tracking-[0.15em] text-content-primary">CLOTOCORE</h1>
+                <h1 className="text-3xl font-black text-content-primary">CLOTOCORE</h1>
                 <p className="text-sm text-content-secondary max-w-sm">{t('welcome_desc')}</p>
                 <button
                   onClick={next}
                   aria-label={t('get_started')}
-                  className="px-8 py-3 bg-brand text-white rounded-xl text-sm font-bold hover:opacity-90 transition-opacity"
+                  className="px-8 py-3 bg-agent text-agent-ink rounded-xl text-sm font-bold hover:opacity-90 transition-opacity"
                 >
                   {t('get_started')}
                 </button>
@@ -471,7 +473,7 @@ export function SetupWizard({ onComplete }: Props) {
                 <select
                   value={i18n.language.split('-')[0]}
                   onChange={(e) => i18n.changeLanguage(e.target.value)}
-                  className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-brand focus:outline-none transition-colors"
+                  className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-agent focus:outline-none transition-colors"
                 >
                   {allLanguages.map((lang) => (
                     <option key={lang.code} value={lang.code}>
@@ -493,8 +495,8 @@ export function SetupWizard({ onComplete }: Props) {
                       aria-label={label}
                       className={`flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-bold transition-all ${
                         preference === value
-                          ? 'bg-brand text-white shadow-md'
-                          : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-brand'
+                          ? 'bg-agent text-agent-ink shadow-md'
+                          : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-agent'
                       }`}
                     >
                       <Icon size={16} />
@@ -514,9 +516,9 @@ export function SetupWizard({ onComplete }: Props) {
                   onChange={(e) => setDisplayName(e.target.value)}
                   onBlur={handleNameBlur}
                   placeholder={t('name_placeholder')}
-                  className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-brand focus:outline-none transition-colors text-center"
+                  className="w-full px-4 py-3 bg-surface-secondary border border-edge rounded-xl text-sm text-content-primary focus:border-agent focus:outline-none transition-colors text-center"
                 />
-                <p className="text-[11px] text-content-tertiary">{t('name_hint')}</p>
+                <p className="text-xs text-content-tertiary">{t('name_hint')}</p>
               </div>
             )}
 
@@ -543,8 +545,8 @@ export function SetupWizard({ onComplete }: Props) {
                 {installSteps.length > 0 && (
                   <div className="space-y-2">
                     {installSteps.map((s) => (
-                      <div key={s.step} className="flex items-center gap-2 text-[11px] font-mono">
-                        {s.status === 'running' && <Loader2 size={12} className="text-brand animate-spin shrink-0" />}
+                      <div key={s.step} className="flex items-center gap-2 text-xs font-mono">
+                        {s.status === 'running' && <Loader2 size={12} className="text-agent animate-spin shrink-0" />}
                         {s.status === 'complete' && <Check size={12} className="text-emerald-500 shrink-0" />}
                         {s.status === 'error' && <AlertTriangle size={12} className="text-red-500 shrink-0" />}
                         <span className="text-content-secondary">{s.description}</span>
@@ -560,7 +562,7 @@ export function SetupWizard({ onComplete }: Props) {
 
                 {/* Elapsed time + estimate during dependency installation */}
                 {installSteps.some((s) => s.step === 'install_deps' && s.status === 'running') && (
-                  <div className="text-[10px] text-content-tertiary font-mono text-center space-y-0.5">
+                  <div className="text-xs text-content-tertiary font-mono text-center space-y-0.5">
                     <div>
                       {t('install_elapsed', { defaultValue: 'Elapsed: {{time}}', time: formatElapsed(elapsed) })}
                     </div>
@@ -578,9 +580,9 @@ export function SetupWizard({ onComplete }: Props) {
                 {serverStatuses.length > 0 && (
                   <div className="max-h-[140px] overflow-y-auto space-y-1 border border-edge rounded-lg p-2">
                     {serverStatuses.map((s) => (
-                      <div key={s.name} className="flex items-center gap-2 text-[11px]">
+                      <div key={s.name} className="flex items-center gap-2 text-xs">
                         {s.status === 'installing' && (
-                          <Loader2 size={10} className="text-brand animate-spin shrink-0" />
+                          <Loader2 size={10} className="text-agent animate-spin shrink-0" />
                         )}
                         {s.status === 'installed' && <Check size={10} className="text-emerald-500 shrink-0" />}
                         {s.status === 'registered' && <Check size={10} className="text-amber-500 shrink-0" />}
@@ -592,7 +594,7 @@ export function SetupWizard({ onComplete }: Props) {
                           {s.name}
                         </span>
                         {s.status === 'skipped' && (
-                          <span className="text-[9px] text-content-tertiary ml-auto">
+                          <span className="text-xs text-content-tertiary ml-auto">
                             {t('step_install_skipped', { defaultValue: 'already installed' })}
                           </span>
                         )}
@@ -603,7 +605,7 @@ export function SetupWizard({ onComplete }: Props) {
 
                 {/* Error with retry */}
                 {installError && (
-                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-[11px] text-red-400 space-y-2">
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-400 space-y-2">
                     <div>{installError}</div>
                     {!installComplete && (
                       <button
@@ -612,7 +614,7 @@ export function SetupWizard({ onComplete }: Props) {
                           setInstallError(null);
                           doInstall();
                         }}
-                        className="px-3 py-1.5 bg-brand text-white rounded text-[10px] font-bold hover:opacity-90 transition-opacity"
+                        className="px-3 py-1.5 bg-agent text-agent-ink rounded text-xs font-bold hover:opacity-90 transition-opacity"
                       >
                         {t('retry', { defaultValue: 'Retry' })}
                       </button>
@@ -623,10 +625,10 @@ export function SetupWizard({ onComplete }: Props) {
                 {/* Completion */}
                 {installComplete && !installError && (
                   <div className="text-center space-y-1">
-                    <div className="text-[11px] text-emerald-500 font-sans">
+                    <div className="text-xs text-emerald-500 font-sans">
                       {t('step_install_complete', { defaultValue: 'All servers installed' })}
                     </div>
-                    <div className="text-[10px] text-content-tertiary">
+                    <div className="text-xs text-content-tertiary">
                       {t('marketplace_hint', {
                         defaultValue: 'Some servers can be installed later from the Marketplace.',
                       })}
@@ -636,7 +638,7 @@ export function SetupWizard({ onComplete }: Props) {
 
                 {/* Waiting state */}
                 {!installStarted && !installComplete && (
-                  <div className="text-center text-[11px] text-content-tertiary">
+                  <div className="text-center text-xs text-content-tertiary">
                     {t('step_install_preparing', { defaultValue: 'Preparing installation...' })}
                   </div>
                 )}
@@ -649,7 +651,7 @@ export function SetupWizard({ onComplete }: Props) {
                   <h2 className="text-xl font-bold text-content-primary">
                     {t('admin_key_title', { defaultValue: 'Administrator Key' })}
                   </h2>
-                  <p className="text-[11px] text-content-tertiary mt-1">
+                  <p className="text-xs text-content-tertiary mt-1">
                     {t('admin_key_desc', {
                       defaultValue:
                         'This is your ClotoCore administrator key. You will be asked to present it for critical operations such as a complete uninstall.',
@@ -692,7 +694,7 @@ export function SetupWizard({ onComplete }: Props) {
                     <RefreshCw size={14} className={keyRegenerating ? 'animate-spin' : ''} />
                   </button>
                 </div>
-                <p className="text-[11px] text-content-tertiary text-center">
+                <p className="text-xs text-content-tertiary text-center">
                   {t('admin_key_hint', {
                     defaultValue: 'You can view or regenerate it anytime in Settings → Security.',
                   })}
@@ -702,7 +704,7 @@ export function SetupWizard({ onComplete }: Props) {
                     type="checkbox"
                     checked={keySaved}
                     onChange={(e) => setKeySaved(e.target.checked)}
-                    className="accent-brand"
+                    className="accent-agent"
                   />
                   <span className="text-xs text-content-secondary">
                     {t('admin_key_saved_confirm', { defaultValue: 'I have saved this key in a safe place' })}
@@ -720,10 +722,10 @@ export function SetupWizard({ onComplete }: Props) {
                       key={label}
                       className="flex items-start gap-3 px-4 py-3 bg-surface-secondary rounded-xl border border-edge"
                     >
-                      <Icon size={18} className="text-brand shrink-0 mt-0.5" />
+                      <Icon size={18} className="text-agent shrink-0 mt-0.5" />
                       <div>
                         <span className="text-xs font-bold text-content-primary">{label}</span>
-                        <p className="text-[11px] text-content-secondary mt-0.5">{desc}</p>
+                        <p className="text-xs text-content-secondary mt-0.5">{desc}</p>
                       </div>
                     </div>
                   ))}
@@ -752,7 +754,7 @@ export function SetupWizard({ onComplete }: Props) {
               {Array.from({ length: TOTAL_STEPS }, (_, i) => (
                 <div
                   key={i}
-                  className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-brand' : 'bg-edge'}`}
+                  className={`w-2 h-2 rounded-full transition-colors ${i === step ? 'bg-agent' : 'bg-edge'}`}
                 />
               ))}
             </div>
@@ -764,7 +766,7 @@ export function SetupWizard({ onComplete }: Props) {
               ) : step === 4 ? (
                 <div className="flex flex-col items-end gap-1">
                   {presetError && (
-                    <div className="text-[10px] text-red-400">
+                    <div className="text-xs text-red-400">
                       {t('preset_error', { defaultValue: 'Failed to apply preset. Please retry or skip.' })}
                     </div>
                   )}
@@ -772,7 +774,7 @@ export function SetupWizard({ onComplete }: Props) {
                     <button
                       onClick={handlePresetSkip}
                       aria-label={t('preset_skip')}
-                      className="text-[11px] text-content-tertiary hover:text-content-primary transition-colors"
+                      className="text-xs text-content-tertiary hover:text-content-primary transition-colors"
                     >
                       {t('preset_skip')}
                     </button>
@@ -780,7 +782,7 @@ export function SetupWizard({ onComplete }: Props) {
                       onClick={handlePresetNext}
                       disabled={applying || getActiveServers().length === 0}
                       aria-label={t('next')}
-                      className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                      className="px-4 py-2 bg-agent text-agent-ink rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
                     >
                       {applying ? '...' : t('next')}
                     </button>
@@ -793,7 +795,7 @@ export function SetupWizard({ onComplete }: Props) {
                   onClick={next}
                   disabled={!keySaved && !!wizardKey}
                   aria-label={t('next')}
-                  className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
+                  className="px-4 py-2 bg-agent text-agent-ink rounded-lg text-xs font-bold hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                   {t('next')}
                 </button>
@@ -801,7 +803,7 @@ export function SetupWizard({ onComplete }: Props) {
                 <button
                   onClick={next}
                   aria-label={t('next')}
-                  className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
+                  className="px-4 py-2 bg-agent text-agent-ink rounded-lg text-xs font-bold hover:opacity-90 transition-opacity"
                 >
                   {t('next')}
                 </button>
@@ -809,7 +811,7 @@ export function SetupWizard({ onComplete }: Props) {
                 <button
                   onClick={handleFinish}
                   aria-label={t('finish')}
-                  className="px-4 py-2 bg-brand text-white rounded-lg text-xs font-bold hover:opacity-90 transition-opacity whitespace-nowrap"
+                  className="px-4 py-2 bg-agent text-agent-ink rounded-lg text-xs font-bold hover:opacity-90 transition-opacity whitespace-nowrap"
                 >
                   {t('finish')}
                 </button>
@@ -860,7 +862,7 @@ function PresetStep({
     <div className="space-y-4 w-full">
       <div className="text-center">
         <h2 className="text-xl font-bold text-content-primary">{t('preset_title')}</h2>
-        <p className="text-[11px] text-content-tertiary mt-1">{t('preset_desc')}</p>
+        <p className="text-xs text-content-tertiary mt-1">{t('preset_desc')}</p>
       </div>
 
       {/* Preset Cards */}
@@ -872,12 +874,12 @@ function PresetStep({
             aria-label={t(`preset_${id}`)}
             className={`flex flex-col items-center gap-1.5 p-3 rounded-xl text-center transition-all ${
               selectedPreset === id
-                ? 'bg-brand text-white shadow-md'
-                : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-brand'
+                ? 'bg-agent text-agent-ink shadow-md'
+                : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-agent'
             }`}
           >
             <Icon size={18} />
-            <span className="text-[10px] font-bold leading-tight">
+            <span className="text-xs font-bold leading-tight">
               {t(`preset_${id}`, { defaultValue: id.charAt(0).toUpperCase() + id.slice(1) })}
             </span>
           </button>
@@ -885,20 +887,18 @@ function PresetStep({
       </div>
 
       {/* Description */}
-      <p className="text-[11px] text-content-secondary text-center px-4">
+      <p className="text-xs text-content-secondary text-center px-4">
         {t(`preset_${selectedPreset}_desc`, { defaultValue: '' })}
       </p>
 
       {/* Engine selector */}
       <div className="space-y-1.5">
-        <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-wider">
-          {t('preset_engine')}
-        </label>
+        <label className="text-xs font-bold text-content-tertiary">{t('preset_engine')}</label>
         <div className="relative">
           <select
             value={selectedEngine}
             onChange={(e) => onSelectEngine(e.target.value)}
-            className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-xs text-content-primary focus:border-brand focus:outline-none appearance-none"
+            className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-xs text-content-primary focus:border-agent focus:outline-none appearance-none"
           >
             {ENGINE_IDS.map((id) => (
               <option key={id} value={id}>
@@ -915,17 +915,15 @@ function PresetStep({
 
       {/* Server list / Custom checkboxes */}
       <div className="space-y-1.5">
-        <label className="text-[10px] font-bold text-content-tertiary uppercase tracking-wider">
-          {t('preset_servers')}
-        </label>
+        <label className="text-xs font-bold text-content-tertiary">{t('preset_servers')}</label>
         {selectedPreset === 'custom' ? (
           <div className="grid grid-cols-2 gap-1.5 max-h-[120px] overflow-y-auto pr-1">
             {ALL_SELECTABLE_SERVER_IDS.map((id) => (
               <label
                 key={id}
-                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[11px] cursor-pointer transition-colors ${
+                className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-colors ${
                   customServers.has(id)
-                    ? 'bg-brand/10 text-content-primary border border-brand/30'
+                    ? 'bg-agent/10 text-content-primary border border-agent/30'
                     : 'bg-surface-secondary text-content-tertiary border border-transparent hover:border-edge'
                 }`}
               >
@@ -937,7 +935,7 @@ function PresetStep({
                 />
                 <div
                   className={`w-3 h-3 rounded border flex items-center justify-center shrink-0 ${
-                    customServers.has(id) ? 'bg-brand border-brand' : 'border-edge'
+                    customServers.has(id) ? 'bg-agent border-agent' : 'border-edge'
                   }`}
                 >
                   {customServers.has(id) && (
@@ -953,7 +951,7 @@ function PresetStep({
                   )}
                 </div>
                 <span className="truncate">{t(serverTKey(id))}</span>
-                {MANUAL_START_SERVERS.has(id) && <span className="text-[9px] text-amber-500 shrink-0">*</span>}
+                {MANUAL_START_SERVERS.has(id) && <span className="text-xs text-amber-500 shrink-0">*</span>}
               </label>
             ))}
           </div>
@@ -962,7 +960,7 @@ function PresetStep({
             {Array.from(activeServers).map((id) => (
               <span
                 key={id}
-                className="px-2 py-1 bg-surface-secondary border border-edge rounded-md text-[10px] text-content-secondary"
+                className="px-2 py-1 bg-surface-secondary border border-edge rounded-md text-xs text-content-secondary"
               >
                 {t(serverTKey(id))}
                 {MANUAL_START_SERVERS.has(id) && <span className="text-amber-500 ml-0.5">*</span>}
@@ -970,7 +968,7 @@ function PresetStep({
             ))}
           </div>
         )}
-        {hasManualStart && <p className="text-[9px] text-amber-500">* {t('preset_manual_note')}</p>}
+        {hasManualStart && <p className="text-xs text-amber-500">* {t('preset_manual_note')}</p>}
       </div>
 
       {/* Console toggle */}

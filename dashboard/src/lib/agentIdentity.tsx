@@ -3,14 +3,85 @@ import { useMemo, useState } from 'react';
 import { useApi } from '../hooks/useApi';
 import type { AgentMetadata } from '../types';
 
-/** Get current brand hex from CSS variable */
-function getBrandHex(): string {
-  return getComputedStyle(document.documentElement).getPropertyValue('--brand-hex').trim() || '#2e4de6';
+/** The agent's hue, 0–359. Derived from the id, which does not change when the
+ * agent is renamed. */
+export function agentHue(agent: Pick<AgentMetadata, 'id'>): number {
+  // FNV-1a: spreads ids that differ by one character across the circle.
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < agent.id.length; i++) {
+    hash ^= agent.id.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0) % 360;
 }
 
-/** Get the accent color for an agent */
-export function agentColor(_agent: AgentMetadata): string {
-  return getBrandHex();
+/** sRGB channels (0–1) of an HSL colour. */
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  const a = s * Math.min(l, 1 - l);
+  const f = (n: number) => {
+    const k = (n + h / 30) % 12;
+    return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+  };
+  return [f(0), f(8), f(4)];
+}
+
+function relativeLuminance([r, g, b]: [number, number, number]): number {
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+export function contrastRatio(a: [number, number, number], b: [number, number, number]): number {
+  const [hi, lo] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+const ACCENT_SATURATION = 0.7;
+const ACCENT_BASE_LIGHTNESS = 0.58;
+/** The raised surface in dark (`--surface-primary` in index.css): the lightest
+ * surface the accent is set on as text. */
+const RAISED_SATURATION = 0.07;
+const RAISED_LIGHTNESS = 0.16;
+const MIN_CONTRAST = 4.5;
+
+/** Lightness of the accent at this hue. A fixed 58% reads at cyan (7:1) but not
+ * at blue (2.4:1), so the lightness rises until the accent holds 4.5:1 on the
+ * raised surface. */
+export function accentLightness(hue: number): number {
+  const raised = hslToRgb(hue, RAISED_SATURATION, RAISED_LIGHTNESS);
+  let l = ACCENT_BASE_LIGHTNESS;
+  while (l < 0.9 && contrastRatio(hslToRgb(hue, ACCENT_SATURATION, l), raised) < MIN_CONTRAST) {
+    l += 0.01;
+  }
+  return Math.round(l * 100);
+}
+
+/** The `--agent` token value for an agent: an HSL component triplet. */
+export function agentAccentTriplet(agent: Pick<AgentMetadata, 'id'>): string {
+  const hue = agentHue(agent);
+  return `${hue} ${ACCENT_SATURATION * 100}% ${accentLightness(hue)}%`;
+}
+
+/** The accent colour of an agent, as a CSS colour. Under the Legacy theme every
+ * agent wears the old brand blue, which the stylesheet holds in `--agent`. */
+export function agentColor(agent: Pick<AgentMetadata, 'id'>, root: HTMLElement = document.documentElement): string {
+  if (root.classList.contains('theme-legacy')) return 'hsl(var(--agent))';
+  return `hsl(${agentAccentTriplet(agent)})`;
+}
+
+/** Make `agent` the one present: its hue tints the neutral scale and its colour
+ * becomes the accent (docs/DESIGN_PHILOSOPHY.md §4.1–4.2). `null` falls back to
+ * the defaults in index.css. */
+export function applyPresentAgent(
+  agent: Pick<AgentMetadata, 'id'> | null,
+  root: HTMLElement = document.documentElement,
+) {
+  if (!agent) {
+    root.style.removeProperty('--h');
+    root.style.removeProperty('--agent');
+    return;
+  }
+  root.style.setProperty('--h', String(agentHue(agent)));
+  root.style.setProperty('--agent', agentAccentTriplet(agent));
 }
 
 /** Render the appropriate icon for an agent (avatar image or fallback icon) */

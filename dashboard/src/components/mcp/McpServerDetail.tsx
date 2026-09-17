@@ -66,7 +66,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="px-4 py-3 border-b border-edge">
-        <div className="flex items-center gap-4 text-[10px] font-mono text-content-tertiary">
+        <div className="flex items-center gap-4 text-xs font-mono text-content-tertiary">
           <span className="flex items-center gap-1">
             {t('detail.status')}
             <span
@@ -100,7 +100,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             </span>
           </span>
           <span>{t('detail.tools_registered', { count: server.tools.length })}</span>
-          {server.is_cloto_sdk && <span className="text-brand">{t('detail.cloto_sdk')}</span>}
+          {server.is_cloto_sdk && <span className="text-agent">{t('detail.cloto_sdk')}</span>}
         </div>
 
         {/* Lifecycle buttons */}
@@ -110,10 +110,10 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
               onClick={() => handleAction('start', () => onStart(server.id))}
               disabled={actionLoading !== null}
               aria-label={t('detail.start')}
-              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded transition-colors border ${
+              className={`flex items-center gap-1 px-2 py-1 text-xs font-mono rounded transition-colors border ${
                 actionDone === 'start'
                   ? 'bg-green-500/10 text-green-500 border-green-500/30'
-                  : 'bg-glass hover:bg-glass-strong text-content-secondary hover:text-green-500 border-edge'
+                  : 'bg-surface-panel hover:bg-surface-field text-content-secondary hover:text-green-500 border-edge'
               }`}
             >
               {actionLoading === 'start' ? (
@@ -131,10 +131,10 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
               onClick={() => handleAction('stop', () => onStop(server.id))}
               disabled={actionLoading !== null}
               aria-label={t('detail.stop')}
-              className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded transition-colors border ${
+              className={`flex items-center gap-1 px-2 py-1 text-xs font-mono rounded transition-colors border ${
                 actionDone === 'stop'
                   ? 'bg-green-500/10 text-green-500 border-green-500/30'
-                  : 'bg-glass hover:bg-glass-strong text-content-secondary hover:text-red-500 border-edge'
+                  : 'bg-surface-panel hover:bg-surface-field text-content-secondary hover:text-red-500 border-edge'
               }`}
             >
               {actionLoading === 'stop' ? (
@@ -151,10 +151,10 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             onClick={() => handleAction('restart', () => onRestart(server.id))}
             disabled={actionLoading !== null}
             aria-label={t('detail.restart')}
-            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded transition-colors border ${
+            className={`flex items-center gap-1 px-2 py-1 text-xs font-mono rounded transition-colors border ${
               actionDone === 'restart'
                 ? 'bg-green-500/10 text-green-500 border-green-500/30'
-                : 'bg-glass hover:bg-glass-strong text-content-secondary hover:text-brand border-edge'
+                : 'bg-surface-panel hover:bg-surface-field text-content-secondary hover:text-agent border-edge'
             }`}
           >
             {actionLoading === 'restart' ? (
@@ -171,7 +171,7 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             onClick={() => setConfirmDelete(true)}
             disabled={actionLoading !== null}
             aria-label={t('detail.delete')}
-            className="flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded bg-glass hover:bg-red-500/10 text-content-secondary hover:text-red-500 transition-colors border border-edge"
+            className="flex items-center gap-1 px-2 py-1 text-xs font-mono rounded bg-surface-panel hover:bg-red-500/10 text-content-secondary hover:text-red-500 transition-colors border border-edge"
           >
             <Trash2 size={10} /> {t('detail.delete')}
           </button>
@@ -197,10 +197,10 @@ export function McpServerDetail({ server, onRefresh, onDelete, onStart, onStop, 
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
             aria-label={tab.label}
-            className={`px-4 py-2 text-[10px] font-mono uppercase tracking-wider transition-colors
+            className={`px-4 py-2 text-xs font-mono transition-colors
               ${
                 activeTab === tab.id
-                  ? 'text-content-primary border-b-2 border-brand'
+                  ? 'text-content-primary border-b-2 border-agent'
                   : 'text-content-tertiary hover:text-content-secondary'
               }`}
           >

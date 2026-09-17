@@ -156,8 +156,8 @@ function Row({ label, hint, children }: { label: string; hint: string; children:
   return (
     <div className="flex items-start justify-between gap-4">
       <div className="min-w-0">
-        <div className="text-[10px] font-bold text-content-tertiary uppercase tracking-wider">{label}</div>
-        <div className="text-[10px] text-content-tertiary/70 mt-0.5">{hint}</div>
+        <div className="text-xs font-bold text-content-tertiary">{label}</div>
+        <div className="text-xs text-content-tertiary/70 mt-0.5">{hint}</div>
       </div>
       <div className="shrink-0">{children}</div>
     </div>

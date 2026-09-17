@@ -15,7 +15,7 @@ function truncate(text: string, lines: number): { truncated: string; isTruncated
 }
 
 function StatusIcon({ status }: { status: ConsensusStep['status'] }) {
-  if (status === 'pending') return <Loader2 size={11} className="text-brand animate-spin shrink-0" />;
+  if (status === 'pending') return <Loader2 size={11} className="text-agent animate-spin shrink-0" />;
   if (status === 'error') return <XCircle size={11} className="text-red-400 shrink-0" />;
   return <CheckCircle2 size={11} className="text-emerald-400 shrink-0" />;
 }
@@ -29,22 +29,22 @@ function StepRow({ step, defaultLines }: { step: ConsensusStep; defaultLines: nu
 
   return (
     <div
-      className={`rounded-md border p-2 ${isError ? 'border-red-500/40 bg-red-500/5' : 'border-edge bg-glass-strong'}`}
+      className={`rounded-md border p-2 ${isError ? 'border-red-500/40 bg-red-500/5' : 'border-edge bg-surface-field'}`}
     >
       <div className="flex items-center justify-between gap-2 mb-1">
         <div className="flex items-center gap-1.5 min-w-0">
           <StatusIcon status={step.status} />
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-content-secondary truncate">
+          <span className="text-xs font-mono font-bold text-content-secondary truncate">
             {displayServerId(step.engine_id)}
           </span>
           {step.sample_index > 1 && (
-            <span className="text-[9px] font-mono text-content-tertiary shrink-0">
+            <span className="text-xs font-mono text-content-tertiary shrink-0">
               · {t('consensusCard.sample')} {step.sample_index}
             </span>
           )}
         </div>
         {isError && step.mgp_error_code != null && (
-          <span className="text-[9px] font-mono text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded shrink-0">
+          <span className="text-xs font-mono text-red-400 bg-red-500/10 px-1.5 py-0.5 rounded shrink-0">
             MGP-{step.mgp_error_code}
             {step.retryable ? ` · ${t('consensusCard.retryable')}` : ''}
           </span>
@@ -52,11 +52,11 @@ function StepRow({ step, defaultLines }: { step: ConsensusStep; defaultLines: nu
       </div>
 
       {isPending ? (
-        <span className="text-[10px] text-content-tertiary animate-pulse">{t('consensusCard.thinking')}</span>
+        <span className="text-xs text-content-tertiary animate-pulse">{t('consensusCard.thinking')}</span>
       ) : (
         body && (
           <div
-            className={`text-[11px] whitespace-pre-wrap break-words leading-relaxed ${
+            className={`text-xs whitespace-pre-wrap break-words leading-relaxed ${
               isError ? 'text-red-400' : 'text-content-primary'
             }`}
           >
@@ -66,7 +66,7 @@ function StepRow({ step, defaultLines }: { step: ConsensusStep; defaultLines: nu
               <button
                 type="button"
                 onClick={() => setExpanded(!expanded)}
-                className="ml-1 inline-flex items-center gap-0.5 text-[9px] font-bold uppercase tracking-wider text-content-tertiary hover:text-content-secondary transition-colors align-middle"
+                className="ml-1 inline-flex items-center gap-0.5 text-xs font-bold text-content-tertiary hover:text-content-secondary transition-colors align-middle"
               >
                 {expanded ? <ChevronDown size={10} /> : <ChevronRight size={10} />}
                 {expanded ? t('consensusCard.collapse') : t('consensusCard.expand')}
@@ -86,25 +86,23 @@ export function ConsensusCard({ round }: ConsensusCardProps) {
   const prompt = truncate(round.prompt, 2);
 
   return (
-    <div className="rounded-lg border border-edge bg-glass-subtle p-3">
+    <div className="rounded-lg border border-edge bg-surface-control p-3">
       {/* Header: consensus badge → agent */}
       <div className="flex items-center justify-between gap-2 mb-2">
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="inline-flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 bg-brand/15 text-brand">
+          <span className="inline-flex items-center gap-1 text-xs font-bold px-1.5 py-0.5 rounded shrink-0 bg-agent/15 text-agent">
             <Sparkles size={10} />
             {t('tabs.consensus')}
           </span>
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-content-secondary truncate">
-            {round.agent_name}
-          </span>
+          <span className="text-xs font-mono font-bold text-content-secondary truncate">{round.agent_name}</span>
         </div>
-        <span className="text-[9px] font-mono text-content-tertiary bg-surface-secondary px-1.5 py-0.5 rounded shrink-0">
+        <span className="text-xs font-mono text-content-tertiary bg-surface-secondary px-1.5 py-0.5 rounded shrink-0">
           {new Set(proposals.map((s) => s.engine_id)).size} {t('consensusCard.engines')}
         </span>
       </div>
 
       {/* Prompt */}
-      <div className="text-[11px] text-content-primary whitespace-pre-wrap break-words leading-relaxed mb-2">
+      <div className="text-xs text-content-primary whitespace-pre-wrap break-words leading-relaxed mb-2">
         {prompt.truncated}
         {prompt.isTruncated && <span className="text-content-tertiary">...</span>}
       </div>
@@ -112,9 +110,7 @@ export function ConsensusCard({ round }: ConsensusCardProps) {
       {/* Proposals */}
       {proposals.length > 0 && (
         <>
-          <div className="text-[9px] font-bold uppercase tracking-wider text-content-tertiary mb-1">
-            {t('consensusCard.proposals')}
-          </div>
+          <div className="text-xs font-bold text-content-tertiary mb-1">{t('consensusCard.proposals')}</div>
           <div className="space-y-1.5 mb-2">
             {proposals.map((s) => (
               <StepRow key={`proposal-${s.engine_id}-${s.sample_index}`} step={s} defaultLines={3} />
@@ -126,15 +122,13 @@ export function ConsensusCard({ round }: ConsensusCardProps) {
       {/* Synthesis */}
       {synthesis && (
         <>
-          <div className="text-[9px] font-bold uppercase tracking-wider text-brand/80 mb-1">
-            {t('consensusCard.synthesis')}
-          </div>
+          <div className="text-xs font-bold text-agent/80 mb-1">{t('consensusCard.synthesis')}</div>
           <StepRow key="synthesis" step={synthesis} defaultLines={8} />
         </>
       )}
 
       <div className="mt-2 flex justify-end">
-        <span className="text-[10px] font-mono text-content-tertiary">
+        <span className="text-xs font-mono text-content-tertiary">
           {new Date(round.timestamp).toLocaleTimeString()}
         </span>
       </div>

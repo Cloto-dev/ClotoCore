@@ -67,16 +67,16 @@ export function ActionsPanel({
     return (
       <button
         onClick={onOpen}
-        className="h-full w-8 shrink-0 border-l border-edge bg-glass backdrop-blur-sm hover:bg-glass-strong flex flex-col items-center justify-center gap-2 transition-colors group"
+        className="h-full w-8 shrink-0 border-l border-edge bg-surface-panel hover:bg-surface-field flex flex-col items-center justify-center gap-2 transition-colors group"
         title={t('open')}
       >
-        <ChevronLeft size={12} className="text-content-tertiary group-hover:text-brand transition-colors" />
-        <span className="text-[9px] font-black uppercase tracking-widest text-content-tertiary group-hover:text-content-secondary [writing-mode:vertical-rl] rotate-180">
+        <ChevronLeft size={12} className="text-content-tertiary group-hover:text-agent transition-colors" />
+        <span className="text-xs font-black text-content-tertiary group-hover:text-content-secondary [writing-mode:vertical-rl] rotate-180">
           {t('title')}
         </span>
         <div className="flex flex-col items-center gap-1">
-          <span className="text-[9px] font-mono text-brand/70">{totalCount}</span>
-          {totalUnread > 0 && <span className="w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />}
+          <span className="text-xs font-mono text-agent/70">{totalCount}</span>
+          {totalUnread > 0 && <span className="w-1.5 h-1.5 rounded-full bg-agent animate-pulse" />}
         </div>
       </button>
     );
@@ -84,18 +84,18 @@ export function ActionsPanel({
 
   return (
     <div
-      className="h-full bg-glass backdrop-blur-sm border-l border-edge flex flex-col"
+      className="h-full bg-surface-panel border-l border-edge flex flex-col"
       style={{ width: '480px', maxWidth: '50vw', minWidth: '320px' }}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-edge/50 shrink-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-black uppercase tracking-widest text-content-primary">{t('title')}</span>
-          <span className="text-[9px] font-mono text-content-tertiary">{totalCount}</span>
+          <span className="text-xs font-black text-content-primary">{t('title')}</span>
+          <span className="text-xs font-mono text-content-tertiary">{totalCount}</span>
         </div>
         <button
           onClick={onClose}
-          className="p-1.5 rounded-md hover:bg-glass-strong text-content-tertiary hover:text-content-primary transition-all"
+          className="p-1.5 rounded-md hover:bg-surface-field text-content-tertiary hover:text-content-primary transition-all"
           title={t('collapse')}
         >
           <PanelRightClose size={14} />
@@ -107,60 +107,60 @@ export function ActionsPanel({
         <div className="flex border-b border-edge/50 shrink-0">
           <button
             onClick={() => onCategoryChange('code')}
-            className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2 ${
+            className={`flex-1 px-3 py-2 text-xs font-bold transition-all border-b-2 ${
               activeCategory === 'code'
-                ? 'border-brand text-content-primary'
+                ? 'border-agent text-content-primary'
                 : 'border-transparent text-content-tertiary hover:text-content-secondary'
             }`}
           >
             {t('tabs.code')}
-            {artifacts.length > 0 && <span className="ml-1.5 text-[9px] font-mono opacity-60">{artifacts.length}</span>}
+            {artifacts.length > 0 && <span className="ml-1.5 text-xs font-mono opacity-60">{artifacts.length}</span>}
           </button>
           {hasDialogues && (
             <button
               onClick={() => onCategoryChange('dialogues')}
-              className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2 relative ${
+              className={`flex-1 px-3 py-2 text-xs font-bold transition-all border-b-2 relative ${
                 activeCategory === 'dialogues'
-                  ? 'border-brand text-content-primary'
+                  ? 'border-agent text-content-primary'
                   : 'border-transparent text-content-tertiary hover:text-content-secondary'
               }`}
             >
               {t('tabs.dialogues')}
-              <span className="ml-1.5 text-[9px] font-mono opacity-60">{dialogues.length}</span>
+              <span className="ml-1.5 text-xs font-mono opacity-60">{dialogues.length}</span>
               {unreadDialogueCount > 0 && activeCategory !== 'dialogues' && (
-                <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+                <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-agent animate-pulse" />
               )}
             </button>
           )}
           {hasExternalActions && (
             <button
               onClick={() => onCategoryChange('external')}
-              className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2 relative ${
+              className={`flex-1 px-3 py-2 text-xs font-bold transition-all border-b-2 relative ${
                 activeCategory === 'external'
-                  ? 'border-brand text-content-primary'
+                  ? 'border-agent text-content-primary'
                   : 'border-transparent text-content-tertiary hover:text-content-secondary'
               }`}
             >
               {t('tabs.external')}
-              <span className="ml-1.5 text-[9px] font-mono opacity-60">{externalActions.length}</span>
+              <span className="ml-1.5 text-xs font-mono opacity-60">{externalActions.length}</span>
               {unreadExternalCount > 0 && activeCategory !== 'external' && (
-                <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+                <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-agent animate-pulse" />
               )}
             </button>
           )}
           {hasConsensus && (
             <button
               onClick={() => onCategoryChange('consensus')}
-              className={`flex-1 px-3 py-2 text-[10px] font-bold uppercase tracking-wider transition-all border-b-2 relative ${
+              className={`flex-1 px-3 py-2 text-xs font-bold transition-all border-b-2 relative ${
                 activeCategory === 'consensus'
-                  ? 'border-brand text-content-primary'
+                  ? 'border-agent text-content-primary'
                   : 'border-transparent text-content-tertiary hover:text-content-secondary'
               }`}
             >
               {t('tabs.consensus')}
-              <span className="ml-1.5 text-[9px] font-mono opacity-60">{consensusRounds.length}</span>
+              <span className="ml-1.5 text-xs font-mono opacity-60">{consensusRounds.length}</span>
               {unreadConsensusCount > 0 && activeCategory !== 'consensus' && (
-                <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-brand animate-pulse" />
+                <span className="absolute top-1.5 right-2 w-1.5 h-1.5 rounded-full bg-agent animate-pulse" />
               )}
             </button>
           )}
@@ -177,13 +177,13 @@ export function ActionsPanel({
                 <button
                   key={artifact.id}
                   onClick={() => onArtifactTabChange(i)}
-                  className={`px-3 py-2 text-[10px] font-mono whitespace-nowrap transition-all border-b-2 ${
+                  className={`px-3 py-2 text-xs font-mono whitespace-nowrap transition-all border-b-2 ${
                     i === activeArtifactIndex
-                      ? 'border-brand text-content-primary'
+                      ? 'border-agent text-content-primary'
                       : 'border-transparent text-content-tertiary hover:text-content-secondary'
                   }`}
                 >
-                  <span className="uppercase font-bold tracking-wider mr-1.5">{artifact.language}</span>
+                  <span className="font-bold mr-1.5">{artifact.language}</span>
                   <span className="opacity-60">{getLabel(artifact.code)}</span>
                 </button>
               ))}
@@ -202,7 +202,7 @@ export function ActionsPanel({
       {/* Content: Code empty state (when on code tab but no artifacts) */}
       {activeCategory === 'code' && artifacts.length === 0 && (
         <div className="flex-1 flex items-center justify-center">
-          <span className="text-[10px] text-content-tertiary">{t('empty')}</span>
+          <span className="text-xs text-content-tertiary">{t('empty')}</span>
         </div>
       )}
 

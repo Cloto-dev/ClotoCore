@@ -1,7 +1,6 @@
 import { Activity, Info, ScrollText, Settings, Shield, Sun, Zap } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { FadingGrid } from './FadingGrid';
 import { AboutSection, AdvancedSection, GeneralSection, HealthSection, LogSection, SecuritySection } from './settings';
 import { ViewHeader } from './ViewHeader';
 
@@ -22,8 +21,6 @@ export function SettingsView({ onBack, initialSection }: { onBack?: () => void; 
 
   return (
     <div className="flex flex-col h-full bg-surface-base text-content-primary relative">
-      <FadingGrid />
-
       {onBack && (
         <div className="relative z-10">
           <ViewHeader icon={Settings} title={t('title')} onBack={onBack} />
@@ -32,14 +29,14 @@ export function SettingsView({ onBack, initialSection }: { onBack?: () => void; 
 
       <div className="relative z-10 flex flex-1 overflow-hidden">
         {/* Sidebar Navigation */}
-        <nav className="w-44 border-r border-edge bg-glass-subtle backdrop-blur-sm flex flex-col py-4">
+        <nav className="w-44 border-r border-edge bg-surface-control flex flex-col py-4">
           {NAV_ITEMS.map(({ id, labelKey, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setActiveSection(id)}
-              className={`flex items-center gap-3 px-5 py-3 text-sm font-bold tracking-widest uppercase transition-all ${
+              className={`flex items-center gap-3 px-5 py-3 text-sm font-bold transition-all ${
                 activeSection === id
-                  ? 'text-brand bg-brand/5 border-r-2 border-brand'
+                  ? 'text-agent bg-agent/5 border-r-2 border-agent'
                   : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-secondary'
               }`}
             >

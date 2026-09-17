@@ -46,7 +46,7 @@ export function VrmThumbnailDialog({ open, thumbnailUrl, onApply, onSkip }: VrmT
             onChange={(e) => setDontShowAgain(e.target.checked)}
             className="rounded border-edge"
           />
-          <span className="text-[11px] font-mono text-content-tertiary">
+          <span className="text-xs font-mono text-content-tertiary">
             {t('plugin_workspace.vrm_thumbnail_dont_show')}
           </span>
         </label>
@@ -54,13 +54,13 @@ export function VrmThumbnailDialog({ open, thumbnailUrl, onApply, onSkip }: VrmT
         <div className="flex justify-end gap-2">
           <button
             onClick={() => handleAction(false)}
-            className="px-3 py-1.5 rounded text-[11px] font-mono uppercase tracking-widest text-content-tertiary hover:text-content-secondary hover:bg-glass transition-colors"
+            className="px-3 py-1.5 rounded text-xs font-mono text-content-tertiary hover:text-content-secondary hover:bg-surface-panel transition-colors"
           >
             {t('plugin_workspace.vrm_thumbnail_skip')}
           </button>
           <button
             onClick={() => handleAction(true)}
-            className="px-3 py-1.5 rounded text-[11px] font-mono uppercase tracking-widest bg-brand/20 text-brand hover:bg-brand/30 transition-colors"
+            className="px-3 py-1.5 rounded text-xs font-mono bg-agent/20 text-agent hover:bg-agent/30 transition-colors"
           >
             {t('plugin_workspace.vrm_thumbnail_apply')}
           </button>

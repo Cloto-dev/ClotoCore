@@ -95,7 +95,7 @@ export function AboutSection() {
       <SectionCard title={t('about.clotocore')}>
         <div className="space-y-3">
           <p className="text-xs text-content-secondary leading-relaxed">{t('about.description')}</p>
-          <div className="text-2xl font-mono font-black text-brand">v{__APP_VERSION__}</div>
+          <div className="text-2xl font-mono font-black text-agent">v{__APP_VERSION__}</div>
         </div>
       </SectionCard>
 
@@ -109,7 +109,7 @@ export function AboutSection() {
                 onToggle={() => setAutoUpdateRaw(autoUpdateEnabled ? 'off' : 'on')}
                 label={t('about.auto_update')}
               />
-              <p className="text-[11px] text-content-tertiary mt-1">{t('about.auto_update_desc')}</p>
+              <p className="text-xs text-content-tertiary mt-1">{t('about.auto_update_desc')}</p>
             </div>
           )}
 
@@ -134,7 +134,7 @@ export function AboutSection() {
                   accented={channel !== 'stable'}
                 />
               </div>
-              <p className="text-[11px] text-content-tertiary">{t('about.update_channel_desc')}</p>
+              <p className="text-xs text-content-tertiary">{t('about.update_channel_desc')}</p>
             </div>
           )}
 
@@ -142,7 +142,7 @@ export function AboutSection() {
           {(updateState === 'idle' || updateState === 'error') && (
             <button
               onClick={handleCheck}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-agent hover:border-agent transition-all"
             >
               <RefreshCw size={14} />
               {t('about.check_for_updates')}
@@ -166,7 +166,7 @@ export function AboutSection() {
               </div>
               <button
                 onClick={handleCheck}
-                className="text-xs text-content-tertiary hover:text-brand transition-colors"
+                className="text-xs text-content-tertiary hover:text-agent transition-colors"
               >
                 {t('about.check_again')}
               </button>
@@ -176,7 +176,7 @@ export function AboutSection() {
           {/* Update available */}
           {updateState === 'available' && updateInfo && (
             <div className="space-y-3">
-              <div className="flex items-center gap-2 text-xs text-brand font-bold">
+              <div className="flex items-center gap-2 text-xs text-agent font-bold">
                 <Download size={14} />
                 {t('about.available', { version: updateInfo.latestVersion })}
                 {updateInfo.releaseDate && (
@@ -185,7 +185,7 @@ export function AboutSection() {
               </div>
 
               {updateInfo.releaseNotes && (
-                <div className="text-[11px] text-content-tertiary font-mono bg-glass rounded-lg p-3 border border-edge leading-relaxed max-h-32 overflow-y-auto">
+                <div className="text-xs text-content-tertiary font-mono bg-surface-panel rounded-lg p-3 border border-edge leading-relaxed max-h-32 overflow-y-auto">
                   {updateInfo.releaseNotes.slice(0, 500)}
                   {updateInfo.releaseNotes.length > 500 && '...'}
                 </div>
@@ -195,7 +195,7 @@ export function AboutSection() {
                 {isTauri && (
                   <button
                     onClick={handleUpdate}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-brand text-white text-xs font-bold shadow-sm hover:shadow-md transition-all"
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-agent text-agent-ink text-xs font-bold shadow-sm hover:shadow-md transition-all"
                   >
                     <Download size={14} />
                     {t('about.update_now')}
@@ -203,7 +203,7 @@ export function AboutSection() {
                 )}
                 <button
                   onClick={handleCheck}
-                  className="px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand transition-all"
+                  className="px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-agent transition-all"
                 >
                   {t('about.recheck')}
                 </button>
@@ -227,7 +227,7 @@ export function AboutSection() {
                 {t('about.applied')}
               </div>
               {updateOutput && (
-                <div className="text-xs text-content-tertiary font-mono bg-glass rounded-lg p-2 border border-edge">
+                <div className="text-xs text-content-tertiary font-mono bg-surface-panel rounded-lg p-2 border border-edge">
                   {updateOutput.slice(0, 300)}
                 </div>
               )}
@@ -258,14 +258,12 @@ export function AboutSection() {
             { labelKey: 'about.contact', value: 'ClotoCore@proton.me', href: 'mailto:ClotoCore@proton.me' },
           ].map((link) => (
             <div key={link.labelKey} className="flex items-center justify-between">
-              <span className="text-xs text-content-tertiary uppercase tracking-widest font-bold">
-                {t(link.labelKey)}
-              </span>
+              <span className="text-xs text-content-tertiary font-bold">{t(link.labelKey)}</span>
               <a
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-brand hover:underline font-mono"
+                className="text-xs text-agent hover:underline font-mono"
               >
                 {link.value}
               </a>
@@ -285,7 +283,7 @@ export function AboutSection() {
             <p className="text-xs text-content-tertiary">{t('about.setup_desc')}</p>
             <button
               onClick={() => setShowWizard(true)}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-brand hover:border-brand transition-all"
+              className="flex items-center gap-2 px-4 py-2 rounded-lg border border-edge text-xs font-bold text-content-secondary hover:text-agent hover:border-agent transition-all"
             >
               <RotateCcw size={14} />
               {t('about.rerun_setup')}

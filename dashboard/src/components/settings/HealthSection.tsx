@@ -178,7 +178,7 @@ export function HealthSection() {
           type="button"
           onClick={() => loadReport(true)}
           disabled={scanning}
-          className="px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg bg-surface-secondary border border-edge hover:bg-surface-secondary/80 text-content-secondary transition-colors disabled:opacity-50"
+          className="px-4 py-2 text-xs font-bold rounded-lg bg-surface-secondary border border-edge hover:bg-surface-secondary/80 text-content-secondary transition-colors disabled:opacity-50"
         >
           {scanning ? (
             <span className="flex items-center gap-2">
@@ -193,7 +193,7 @@ export function HealthSection() {
           type="button"
           onClick={handleRepair}
           disabled={repairing || repairableCount === 0}
-          className="px-4 py-2 text-xs font-bold uppercase tracking-widest rounded-lg bg-brand/10 border border-brand/30 hover:bg-brand/20 text-brand transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          className="px-4 py-2 text-xs font-bold rounded-lg bg-agent/10 border border-agent/30 hover:bg-agent/20 text-agent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
         >
           {repairing ? (
             <span className="flex items-center gap-2">

@@ -59,7 +59,7 @@ export function ViewHeader({
         <Link
           to={onBack}
           aria-label={t('back')}
-          className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+          className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
         >
           <ArrowLeft size={16} />
         </Link>
@@ -67,7 +67,7 @@ export function ViewHeader({
         <button
           onClick={onBack}
           aria-label={t('back')}
-          className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+          className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
         >
           <ArrowLeft size={16} />
         </button>
@@ -77,7 +77,7 @@ export function ViewHeader({
           <button
             onClick={navBack}
             disabled={!canGoBack}
-            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-25 disabled:pointer-events-none"
+            className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-25 disabled:pointer-events-none"
             title="Back"
           >
             <ArrowLeft size={14} />
@@ -85,15 +85,15 @@ export function ViewHeader({
           <button
             onClick={navForward}
             disabled={!canGoForward}
-            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-25 disabled:pointer-events-none"
+            className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-25 disabled:pointer-events-none"
             title="Forward"
           >
             <ArrowRight size={14} />
           </button>
         </div>
       )}
-      <Icon size={14} className="text-brand shrink-0" />
-      <h1 className="text-xs font-mono uppercase tracking-widest text-content-primary leading-none">{title}</h1>
+      <Icon size={14} className="text-agent shrink-0" />
+      <h1 className="text-xs font-mono text-content-primary leading-none">{title}</h1>
       {afterTitle}
       {right && <div className="ml-auto flex items-center gap-3">{right}</div>}
 
@@ -117,7 +117,7 @@ export function ViewHeader({
         {onHelp && (
           <button
             onClick={onHelp}
-            className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
+            className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-agent transition-colors"
             title="Help"
           >
             <HelpCircle size={14} />
@@ -131,7 +131,7 @@ export function ViewHeader({
           >
             <StatusDot status={connected ? 'online' : 'error'} />
             {/* Tooltip */}
-            <div className="absolute top-full right-0 mt-1 px-2 py-1 rounded bg-surface-primary border border-edge shadow-lg text-[9px] font-mono text-content-secondary whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+            <div className="absolute top-full right-0 mt-1 px-2 py-1 rounded bg-surface-primary border border-edge shadow-lg text-xs font-mono text-content-secondary whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
               {connected ? 'Connected' : 'Backend unreachable'}
             </div>
           </div>
@@ -143,14 +143,14 @@ export function ViewHeader({
             <button
               onClick={minimizeWindow}
               aria-label={t('minimize_window')}
-              className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+              className="p-1.5 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
             >
               <Minus size={14} />
             </button>
             <button
               onClick={toggleMaximizeWindow}
               aria-label={t('maximize_window')}
-              className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+              className="p-1.5 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
             >
               <Square size={13} />
             </button>

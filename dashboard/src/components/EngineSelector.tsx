@@ -73,10 +73,10 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
           }
         }}
         disabled={disabled}
-        className={`flex items-center gap-1.5 px-4 py-3 rounded-lg text-xs font-mono font-bold uppercase tracking-wider border transition-colors disabled:opacity-30 ${
+        className={`flex items-center gap-1.5 px-4 py-3 rounded-lg text-xs font-mono font-bold border transition-colors disabled:opacity-30 ${
           selectedEngine
-            ? 'border-brand/40 bg-brand/10 text-brand'
-            : 'border-edge bg-glass text-content-secondary hover:text-brand hover:border-brand/30'
+            ? 'border-agent/40 bg-agent/10 text-agent'
+            : 'border-edge bg-surface-panel text-content-secondary hover:text-agent hover:border-agent/30'
         }`}
         style={{ outline: 'none' }}
         title="Select engine"
@@ -92,7 +92,7 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
         createPortal(
           <div
             ref={menuRef}
-            className="fixed w-48 bg-surface-primary/95 backdrop-blur-xl border border-edge rounded-xl shadow-2xl shadow-black/40 overflow-y-auto py-1 z-[9998]"
+            className="fixed w-48 bg-surface-primary/95 border border-edge rounded-xl shadow-2xl shadow-black/40 overflow-y-auto py-1 z-[9998]"
             style={{ left: pos.left, bottom: pos.bottom, maxHeight: pos.maxHeight }}
           >
             {/* Auto option */}
@@ -103,15 +103,15 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
                 setIsOpen(false);
                 btnRef.current?.blur();
               }}
-              className={`no-focus-ring w-full flex items-center gap-2 px-3 py-2.5 text-[11px] font-mono transition-colors ${
+              className={`no-focus-ring w-full flex items-center gap-2 px-3 py-2.5 text-xs font-mono transition-colors ${
                 !selectedEngine
-                  ? 'bg-brand/10 text-brand'
-                  : 'text-content-secondary hover:bg-glass hover:text-content-primary'
+                  ? 'bg-agent/10 text-agent'
+                  : 'text-content-secondary hover:bg-surface-panel hover:text-content-primary'
               }`}
             >
               <Zap size={12} className="text-amber-400" />
               <span className="font-bold">Auto</span>
-              <span className="ml-auto text-[9px] text-content-tertiary">CFR</span>
+              <span className="ml-auto text-xs text-content-tertiary">CFR</span>
             </button>
 
             {/* Divider */}
@@ -130,11 +130,11 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
                     setIsOpen(false);
                     btnRef.current?.blur();
                   }}
-                  className={`no-focus-ring w-full flex items-center gap-2 px-3 py-2 text-[11px] font-mono transition-colors ${
+                  className={`no-focus-ring w-full flex items-center gap-2 px-3 py-2 text-xs font-mono transition-colors ${
                     isSelected
-                      ? 'bg-brand/10 text-brand'
+                      ? 'bg-agent/10 text-agent'
                       : isConnected
-                        ? 'text-content-secondary hover:bg-glass hover:text-content-primary'
+                        ? 'text-content-secondary hover:bg-surface-panel hover:text-content-primary'
                         : 'text-content-tertiary'
                   }`}
                 >
@@ -144,7 +144,7 @@ export function EngineSelector({ servers, selectedEngine, onSelect, disabled }: 
                     }`}
                   />
                   <span className={!isConnected ? 'opacity-50' : ''}>{resolveDisplayName(server)}</span>
-                  {!isConnected && <span className="ml-auto text-[9px] text-content-tertiary">offline</span>}
+                  {!isConnected && <span className="ml-auto text-xs text-content-tertiary">offline</span>}
                 </button>
               );
             })}

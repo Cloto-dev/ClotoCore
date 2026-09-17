@@ -67,7 +67,7 @@ export function SecurityGuard() {
       {error && (
         <div className="bg-red-500 text-white p-4 rounded-2xl shadow-lg flex items-center gap-3 animate-bounce">
           <AlertTriangle size={20} />
-          <p className="text-xs font-bold uppercase tracking-tight">{error}</p>
+          <p className="text-xs font-bold">{error}</p>
           <button onClick={() => setError(null)} className="ml-auto">
             <X size={14} />
           </button>
@@ -82,24 +82,25 @@ export function SecurityGuard() {
         return (
           <div
             key={req.request_id}
-            className={`bg-surface-primary/90 backdrop-blur-2xl border rounded-[2rem] shadow-2xl overflow-hidden shadow-brand/20 flex flex-col transition-all duration-500 ${
+            className={`bg-surface-primary/90 border rounded-[2rem] shadow-2xl overflow-hidden shadow-agent/20 flex flex-col transition-all duration-500 ${
               isGranted ? 'border-emerald-500 scale-95 opacity-50' : 'border-edge'
             }`}
           >
             {/* Header */}
             <div
-              className={`p-4 flex items-center justify-between text-white transition-colors duration-500 ${
-                isGranted ? 'bg-emerald-500' : 'bg-brand'
+              className={`p-4 flex items-center justify-between text-agent-ink transition-colors duration-500 ${
+                isGranted ? 'bg-emerald-500' : 'bg-agent'
               }`}
             >
               <div className="flex items-center gap-2">
                 {isGranted ? <Check size={18} /> : <ShieldAlert size={18} />}
-                <span className="text-[10px] font-black uppercase tracking-[0.2em]">
-                  {isGranted ? 'Protocol Authorized' : 'Security Protocol'}
-                </span>
+                <span className="text-xs font-black">{isGranted ? 'Protocol Authorized' : 'Security Protocol'}</span>
               </div>
               {!isGranted && (
-                <button onClick={() => handleDeny(req)} className="p-1 hover:bg-glass rounded-lg transition-colors">
+                <button
+                  onClick={() => handleDeny(req)}
+                  className="p-1 hover:bg-surface-panel rounded-lg transition-colors"
+                >
                   <X size={16} />
                 </button>
               )}
@@ -109,33 +110,29 @@ export function SecurityGuard() {
               <div className="flex items-start gap-4 mb-4">
                 <div
                   className={`p-3 rounded-2xl transition-colors ${
-                    isGranted ? 'bg-emerald-500/10 text-emerald-500' : 'bg-brand/10 text-brand'
+                    isGranted ? 'bg-emerald-500/10 text-emerald-500' : 'bg-agent/10 text-agent'
                   }`}
                 >
                   {isGranted ? <Unlock size={20} /> : <Lock size={20} />}
                 </div>
                 <div>
-                  <h4 className="text-sm font-black text-content-primary uppercase tracking-tight">
+                  <h4 className="text-sm font-black text-content-primary">
                     {isGranted ? 'Access Granted' : 'Access Request'}
                   </h4>
-                  <p className="text-[10px] text-content-tertiary font-mono mt-0.5">{req.plugin_id}</p>
+                  <p className="text-xs text-content-tertiary font-mono mt-0.5">{req.plugin_id}</p>
                 </div>
               </div>
 
               <div className="bg-surface-base border border-edge-subtle rounded-xl p-3 mb-6">
                 <div className="flex items-center gap-2 mb-2">
                   <div className={`w-1.5 h-1.5 rounded-full ${isGranted ? 'bg-emerald-500' : 'bg-amber-500'}`} />
-                  <span className="text-[9px] font-black text-content-secondary uppercase tracking-widest">
-                    Capability Status
-                  </span>
+                  <span className="text-xs font-black text-content-secondary">Capability Status</span>
                 </div>
-                <p className="text-xs font-bold text-content-primary uppercase tracking-wide mb-2">
-                  {req.permission_type}
-                </p>
+                <p className="text-xs font-bold text-content-primary mb-2">{req.permission_type}</p>
                 {req.target_resource && (
-                  <p className="text-[9px] text-content-tertiary font-mono mb-1">{req.target_resource}</p>
+                  <p className="text-xs text-content-tertiary font-mono mb-1">{req.target_resource}</p>
                 )}
-                <p className="text-[10px] text-content-secondary leading-relaxed italic">
+                <p className="text-xs text-content-secondary leading-relaxed italic">
                   {isGranted ? 'Resource has been successfully injected into agent.' : `"${req.justification}"`}
                 </p>
               </div>
@@ -145,14 +142,14 @@ export function SecurityGuard() {
                   <button
                     disabled={isAuthorizing}
                     onClick={() => handleDeny(req)}
-                    className="flex-1 py-2.5 rounded-xl border border-edge text-[10px] font-bold text-content-tertiary hover:text-content-secondary hover:bg-surface-base transition-all uppercase tracking-widest disabled:opacity-30"
+                    className="flex-1 py-2.5 rounded-xl border border-edge text-xs font-bold text-content-tertiary hover:text-content-secondary hover:bg-surface-base transition-all disabled:opacity-30"
                   >
                     Deny
                   </button>
                   <button
                     disabled={isAuthorizing}
                     onClick={() => handleGrant(req)}
-                    className="flex-1 py-2.5 rounded-xl bg-brand text-white text-[10px] font-bold shadow-lg shadow-brand/30 hover:scale-[1.02] active:scale-95 transition-all uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-50"
+                    className="flex-1 py-2.5 rounded-xl bg-agent text-agent-ink text-xs font-bold shadow-lg shadow-agent/30 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                   >
                     {isAuthorizing ? <Spinner size={3} /> : <Unlock size={14} />}
                     {isAuthorizing ? 'Authorizing...' : 'Authorize'}

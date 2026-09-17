@@ -66,7 +66,7 @@ function Badge({
   return (
     <span
       title={title}
-      className={`inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded border ${BADGE_TONE[tone]}`}
+      className={`inline-flex items-center gap-1 text-xs font-mono px-1.5 py-0.5 rounded border ${BADGE_TONE[tone]}`}
     >
       {BadgeIcon && <BadgeIcon size={11} aria-hidden="true" />}
       {label}
@@ -90,12 +90,12 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
   const isUpdate = entry.installed && entry.update_available;
 
   return (
-    <div className="card-solid border border-edge rounded-xl p-4 flex flex-col gap-2 hover:border-brand group">
+    <div className="card-solid border border-edge rounded-xl p-4 flex flex-col gap-2 hover:border-agent group">
       {/* Header */}
       <div className="flex items-center gap-2">
-        <Icon size={14} className="text-brand shrink-0" />
+        <Icon size={14} className="text-agent shrink-0" />
         <span className="text-[13px] font-sans font-bold text-content-primary truncate">{entry.name}</span>
-        <span className="ml-auto text-[11px] font-sans px-1.5 rounded bg-surface-secondary text-content-tertiary uppercase shrink-0">
+        <span className="ml-auto text-xs font-sans px-1.5 rounded bg-surface-secondary text-content-tertiary shrink-0">
           {entry.category}
         </span>
       </div>
@@ -121,7 +121,7 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
       </div>
 
       {/* Description */}
-      <p className="text-[11px] font-sans text-content-tertiary line-clamp-2 leading-relaxed">{entry.description}</p>
+      <p className="text-xs font-sans text-content-tertiary line-clamp-2 leading-relaxed">{entry.description}</p>
 
       {/* Tags */}
       {entry.tags.length > 0 && (
@@ -129,7 +129,7 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
           {entry.tags.map((tag) => (
             <span
               key={tag}
-              className="bg-surface-secondary text-content-tertiary text-[11px] px-1.5 rounded border border-edge"
+              className="bg-surface-secondary text-content-tertiary text-xs px-1.5 rounded border border-edge"
             >
               {tag}
             </span>
@@ -142,29 +142,27 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
         <div className="flex items-center gap-2">
           {/* Status indicator */}
           {isInstalled && (
-            <span className="flex items-center gap-1 text-[10px] font-sans text-emerald-500">
+            <span className="flex items-center gap-1 text-xs font-sans text-emerald-500">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
               {t('marketplace.installed')}
             </span>
           )}
           {isUpdate && (
-            <span className="flex items-center gap-1 text-[10px] font-sans text-amber-500">
+            <span className="flex items-center gap-1 text-xs font-sans text-amber-500">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
               {t('marketplace.update_available')}
             </span>
           )}
           {isUpdate && entry.changelog && (
-            <p className="text-[10px] font-sans text-amber-500/70 line-clamp-2 leading-relaxed w-full">
-              {entry.changelog}
-            </p>
+            <p className="text-xs font-sans text-amber-500/70 line-clamp-2 leading-relaxed w-full">{entry.changelog}</p>
           )}
           {!alreadyPresent && (
-            <span className="flex items-center gap-1 text-[10px] font-sans text-content-tertiary">
+            <span className="flex items-center gap-1 text-xs font-sans text-content-tertiary">
               <span className="w-1.5 h-1.5 rounded-full bg-content-tertiary/40" />
               {t('marketplace.not_installed')}
             </span>
           )}
-          <span className="text-[11px] font-sans text-content-tertiary">v{entry.version}</span>
+          <span className="text-xs font-sans text-content-tertiary">v{entry.version}</span>
         </div>
 
         {/* Action button */}
@@ -172,9 +170,9 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
           <button
             onClick={() => onUninstall(entry)}
             disabled={actionsDisabled}
-            className={`px-2 py-1 text-[11px] font-sans rounded border transition-colors ${
+            className={`px-2 py-1 text-xs font-sans rounded border transition-colors ${
               actionsDisabled
-                ? 'bg-glass text-content-tertiary border-edge cursor-not-allowed opacity-50'
+                ? 'bg-surface-panel text-content-tertiary border-edge cursor-not-allowed opacity-50'
                 : 'bg-red-500/10 hover:bg-red-500/20 text-red-500 border-red-500/30'
             }`}
           >
@@ -184,7 +182,7 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
         {isInstalled && !entry.installed && (
           <button
             disabled
-            className="px-2 py-1 text-[11px] font-sans rounded bg-glass text-content-tertiary border border-edge cursor-default"
+            className="px-2 py-1 text-xs font-sans rounded bg-surface-panel text-content-tertiary border border-edge cursor-default"
           >
             {t('marketplace.installed')}
           </button>
@@ -193,9 +191,9 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
           <button
             onClick={() => onInstall(entry)}
             disabled={actionsDisabled}
-            className={`px-2 py-1 text-[11px] font-sans rounded border transition-colors ${
+            className={`px-2 py-1 text-xs font-sans rounded border transition-colors ${
               actionsDisabled
-                ? 'bg-glass text-content-tertiary border-edge cursor-not-allowed opacity-50'
+                ? 'bg-surface-panel text-content-tertiary border-edge cursor-not-allowed opacity-50'
                 : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border-amber-500/30'
             }`}
           >
@@ -206,10 +204,10 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
           <button
             onClick={() => onInstall(entry)}
             disabled={actionsDisabled}
-            className={`px-2 py-1 text-[11px] font-sans rounded border transition-colors ${
+            className={`px-2 py-1 text-xs font-sans rounded border transition-colors ${
               actionsDisabled
-                ? 'bg-glass text-content-tertiary border-edge cursor-not-allowed opacity-50'
-                : 'bg-brand/10 hover:bg-brand/20 text-brand border-brand/30'
+                ? 'bg-surface-panel text-content-tertiary border-edge cursor-not-allowed opacity-50'
+                : 'bg-agent/10 hover:bg-agent/20 text-agent border-agent/30'
             }`}
           >
             {t('marketplace.install')}

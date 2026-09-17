@@ -52,6 +52,7 @@ test_*.html
 # Dashboard build output
 dashboard/public/*
 !dashboard/public/vrma/
+!dashboard/public/fonts/
 
 # Development notes (internal, not version controlled)
 .dev-notes/

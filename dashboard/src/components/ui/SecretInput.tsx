@@ -22,7 +22,7 @@ export function SecretInput({ value, onChange, placeholder, className, onKeyDown
         onKeyDown={onKeyDown}
         className={
           className ??
-          'w-full text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 pr-7 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-brand transition-colors'
+          'w-full text-xs font-mono bg-surface-secondary border border-edge rounded px-2 py-1 pr-7 text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-agent transition-colors'
         }
       />
       <button

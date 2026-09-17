@@ -62,7 +62,7 @@ function LongPressResetButton({ onReset }: { onReset: () => void }) {
     <button
       {...handlers}
       aria-label={progress > 0 ? t('console.hold') : t('console.reset')}
-      className="relative card-solid px-4 py-2 rounded-full border border-edge text-[13px] font-bold text-content-tertiary hover:text-amber-500 hover:border-amber-400/30 uppercase tracking-widest flex items-center gap-1.5 overflow-hidden"
+      className="relative card-solid px-4 py-2 rounded-full border border-edge text-[13px] font-bold text-content-tertiary hover:text-amber-500 hover:border-amber-400/30 flex items-center gap-1.5 overflow-hidden"
     >
       {progress > 0 && (
         <span
@@ -811,12 +811,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
   return (
     <div className="flex flex-col h-full animate-in fade-in duration-500">
       {/* Header */}
-      <div className="p-4 border-b border-edge-subtle flex items-center justify-between bg-glass">
+      <div className="p-4 border-b border-edge-subtle flex items-center justify-between bg-surface-panel">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
             aria-label={t('console.back')}
-            className="card-solid p-2.5 rounded-full border border-edge hover:border-brand hover:text-brand"
+            className="card-solid p-2.5 rounded-full border border-edge hover:border-agent hover:text-agent"
           >
             <ArrowLeft size={20} />
           </button>
@@ -827,14 +827,14 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
             <AgentIcon agent={agent} size={40} />
           </div>
           <div>
-            <h2 className="text-xl font-black text-content-primary tracking-tighter uppercase">{agent.name}</h2>
+            <h2 className="text-xl font-black text-content-primary">{agent.name}</h2>
             <div className="flex items-center gap-2">
               <StatusDot status={agent.enabled ? 'online' : 'offline'} size="sm" />
-              <span className="text-[11px] font-mono text-content-tertiary uppercase tracking-[0.2em]">
+              <span className="text-xs font-mono text-content-tertiary">
                 {agent.enabled ? t('console.connected') : t('console.offline')}
               </span>
-              <span className="text-[11px] text-content-tertiary">·</span>
-              <span className="flex items-center gap-1 text-[11px] font-mono text-content-tertiary tracking-wider">
+              <span className="text-xs text-content-tertiary">·</span>
+              <span className="flex items-center gap-1 text-xs font-mono text-content-tertiary">
                 {agent.metadata?.has_power_password === 'true' && <Lock size={9} />}
                 {agent.id}
               </span>
@@ -846,7 +846,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
           {hasVrm && (
             <button
               onClick={() => openVrmWindow(agent.id, api.apiKey)}
-              className="card-solid px-4 py-2 rounded-full border border-edge text-[13px] font-bold uppercase tracking-widest flex items-center gap-1.5 text-content-tertiary hover:text-brand hover:border-brand/30"
+              className="card-solid px-4 py-2 rounded-full border border-edge text-[13px] font-bold flex items-center gap-1.5 text-content-tertiary hover:text-agent hover:border-agent/30"
               title="Open 3D Avatar Window"
               aria-label="Open 3D Avatar Window"
             >
@@ -872,7 +872,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
             {/* Sentinel for lazy loading older messages */}
             {hasMore && <div ref={sentinelRef} className="h-1" />}
             {isLoadingMore && (
-              <div className="text-center text-[9px] font-mono text-content-tertiary py-2 animate-pulse">
+              <div className="text-center text-xs font-mono text-content-tertiary py-2 animate-pulse">
                 {t('console.loading_older')}
               </div>
             )}
@@ -880,12 +880,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
             {isLoading ? (
               <div className="h-full flex flex-col items-center justify-center text-content-tertiary space-y-4">
                 <Activity size={24} className="animate-pulse" />
-                <p className="text-[10px] font-mono tracking-[0.2em] uppercase">{t('console.loading_session')}</p>
+                <p className="text-xs font-mono">{t('console.loading_session')}</p>
               </div>
             ) : displayMessages.length === 0 && !pendingResponse && !isTyping ? (
               <div className="h-full flex flex-col items-center justify-center text-content-tertiary space-y-4">
                 <Zap size={32} strokeWidth={1} className="opacity-20" />
-                <p className="text-[10px] font-mono tracking-[0.2em] uppercase">{t('console.ready')}</p>
+                <p className="text-xs font-mono">{t('console.ready')}</p>
               </div>
             ) : (
               displayMessages.map((msg) => {
@@ -932,7 +932,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                               )}
                               <button
                                 onClick={() => speakText(msg.content as ContentBlock[])}
-                                className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
+                                className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-agent transition-colors"
                                 title={t('console.read_aloud')}
                                 aria-label={t('console.read_aloud')}
                               >
@@ -941,7 +941,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                               {!isTyping && !pendingResponse && (
                                 <button
                                   onClick={() => handleRetry(msg)}
-                                  className="p-1 rounded hover:bg-glass text-content-tertiary hover:text-brand transition-colors"
+                                  className="p-1 rounded hover:bg-surface-panel text-content-tertiary hover:text-agent transition-colors"
                                   title={t('console.retry')}
                                   aria-label={t('console.retry')}
                                 >
@@ -958,7 +958,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                               e.stopPropagation();
                               setEditingMessage(msg);
                             }}
-                            className="self-start mt-1 p-1.5 rounded-full hover:bg-glass text-content-primary/40 hover:text-brand transition-all shrink-0"
+                            className="self-start mt-1 p-1.5 rounded-full hover:bg-surface-panel text-content-primary/40 hover:text-agent transition-all shrink-0"
                             title={t('console.edit_message')}
                             aria-label={t('console.edit_message')}
                           >
@@ -1009,9 +1009,7 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                     />
                   )}
                   {pendingResponse.elapsedSecs > 0 && (
-                    <div className="mt-1 text-[10px] font-mono text-content-tertiary">
-                      {pendingResponse.elapsedSecs}s
-                    </div>
+                    <div className="mt-1 text-xs font-mono text-content-tertiary">{pendingResponse.elapsedSecs}s</div>
                   )}
                 </div>
               </div>
@@ -1029,12 +1027,12 @@ export function AgentConsole({ agent, onBack }: { agent: AgentMetadata; onBack: 
                   {thinkingSteps.map((step) => (
                     <div
                       key={step.id}
-                      className={`flex items-center gap-2 text-[10px] font-mono animate-in fade-in duration-200 ${step.status === 'thought' ? 'italic' : ''}`}
+                      className={`flex items-center gap-2 text-xs font-mono animate-in fade-in duration-200 ${step.status === 'thought' ? 'italic' : ''}`}
                     >
                       <span
                         className={`w-1.5 h-1.5 rounded-full shrink-0 ${
                           step.status === 'ok'
-                            ? 'bg-brand'
+                            ? 'bg-agent'
                             : step.status === 'fail'
                               ? 'bg-red-500'
                               : step.status === 'done'

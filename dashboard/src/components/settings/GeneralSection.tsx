@@ -1,9 +1,9 @@
-import { Download, Globe, Monitor, Moon, Sun, Upload } from 'lucide-react';
+import { Download, Globe, History, Monitor, Moon, Sun, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useUserIdentity } from '../../contexts/UserIdentityContext';
 import { useApi } from '../../hooks/useApi';
-import { useTheme } from '../../hooks/useTheme';
+import { type ThemePreference, useTheme } from '../../hooks/useTheme';
 import { BUILTIN_LANGUAGES, exportLanguageTemplate, getCustomLanguages, importLanguagePack } from '../../i18n';
 import { getLanguagesDir, isTauri, openFileDialog, readTextFile } from '../../lib/tauri';
 import { SectionCard } from './common';
@@ -66,10 +66,11 @@ export function GeneralSection() {
     ...customLangs.filter((l) => !builtinCodes.has(l.code)).map((l) => ({ ...l, custom: true })),
   ];
 
-  const themes: { value: 'light' | 'dark' | 'system'; icon: typeof Sun; labelKey: string }[] = [
+  const themes: { value: ThemePreference; icon: typeof Sun; labelKey: string }[] = [
     { value: 'light', icon: Sun, labelKey: 'general.theme_light' },
     { value: 'dark', icon: Moon, labelKey: 'general.theme_dark' },
     { value: 'system', icon: Monitor, labelKey: 'general.theme_system' },
+    { value: 'legacy', icon: History, labelKey: 'general.theme_legacy' },
   ];
 
   const handleExport = () => {
@@ -146,8 +147,8 @@ export function GeneralSection() {
               onClick={() => setPreference(value)}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all ${
                 preference === value
-                  ? 'bg-brand text-white shadow-md'
-                  : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-brand'
+                  ? 'bg-agent text-agent-ink shadow-md'
+                  : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-agent'
               }`}
             >
               <Icon size={14} />
@@ -165,7 +166,7 @@ export function GeneralSection() {
               <select
                 value={i18n.language.split('-')[0]}
                 onChange={(e) => handleLanguageChange(e.target.value)}
-                className="pl-10 pr-8 py-2.5 h-10 bg-surface-secondary border border-edge rounded-xl text-xs font-bold text-content-primary hover:border-brand focus:border-brand focus:outline-none transition-all appearance-none cursor-pointer"
+                className="pl-10 pr-8 py-2.5 h-10 bg-surface-secondary border border-edge rounded-xl text-xs font-bold text-content-primary hover:border-agent focus:border-agent focus:outline-none transition-all appearance-none cursor-pointer"
               >
                 {allLanguages.map((lang) => (
                   <option key={lang.code} value={lang.code}>
@@ -183,8 +184,8 @@ export function GeneralSection() {
                 aria-label={t('general.inject_language_to_prompt')}
                 className={`flex items-center gap-2 px-5 py-2.5 h-10 rounded-xl text-xs font-bold transition-all border ${
                   injectLangEnabled
-                    ? 'bg-brand text-white border-transparent shadow-md'
-                    : 'bg-surface-secondary text-content-secondary border-edge hover:border-brand hover:text-content-primary'
+                    ? 'bg-agent text-agent-ink border-transparent shadow-md'
+                    : 'bg-surface-secondary text-content-secondary border-edge hover:border-agent hover:text-content-primary'
                 }`}
               >
                 {t('general.inject_language_to_prompt')}
@@ -197,14 +198,14 @@ export function GeneralSection() {
           <div className="flex items-center gap-2">
             <button
               onClick={handleExport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-xs font-bold text-content-tertiary hover:text-brand hover:border-brand transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-xs font-bold text-content-tertiary hover:text-agent hover:border-agent transition-all"
             >
               <Download size={12} />
               {t('general.export_template')}
             </button>
             <button
               onClick={handleImportClick}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-xs font-bold text-content-tertiary hover:text-brand hover:border-brand transition-all"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-xs font-bold text-content-tertiary hover:text-agent hover:border-agent transition-all"
             >
               <Upload size={12} />
               {t('general.import_pack')}
@@ -224,15 +225,13 @@ export function GeneralSection() {
       <SectionCard title={t('general.user_identity')}>
         <div className="space-y-3">
           <div>
-            <label className="text-xs text-content-tertiary font-bold uppercase tracking-widest block mb-1">
-              {t('general.display_name')}
-            </label>
+            <label className="text-xs text-content-tertiary font-bold block mb-1">{t('general.display_name')}</label>
             <input
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
               onBlur={() => setIdentity(identity.id, displayName)}
-              className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-sm text-content-primary focus:border-brand focus:outline-none transition-colors"
+              className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-sm text-content-primary focus:border-agent focus:outline-none transition-colors"
               placeholder={t('general.name_placeholder')}
             />
           </div>

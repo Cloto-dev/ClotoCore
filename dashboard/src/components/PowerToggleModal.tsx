@@ -26,7 +26,7 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
 
   return (
     <div
-      className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)] backdrop-blur-sm"
+      className="absolute inset-0 z-50 flex items-center justify-center bg-[var(--surface-overlay)]"
       role="dialog"
       aria-modal="true"
       aria-label={`${agent.enabled ? 'Power Off' : 'Power On'} ${agent.name}`}
@@ -42,7 +42,7 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
             <h3 className="text-sm font-bold text-content-primary">
               {agent.enabled ? 'Power Off' : 'Power On'} {agent.name}
             </h3>
-            <p className="text-[10px] text-content-tertiary">
+            <p className="text-xs text-content-tertiary">
               {needsPassword
                 ? 'Enter power password to continue'
                 : `Are you sure you want to ${agent.enabled ? 'stop' : 'start'} this agent?`}
@@ -57,12 +57,12 @@ export function PowerToggleModal({ agent, onClose, onSuccess }: Props) {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && password && handleConfirm()}
-              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-edge text-sm focus:outline-none focus:border-brand"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-edge text-sm focus:outline-none focus:border-agent"
               placeholder="Password"
             />
           </div>
         )}
-        {action.error && <p className="text-[10px] text-red-500 font-medium">{action.error}</p>}
+        {action.error && <p className="text-xs text-red-500 font-medium">{action.error}</p>}
         <div className="flex gap-2">
           <button
             onClick={onClose}

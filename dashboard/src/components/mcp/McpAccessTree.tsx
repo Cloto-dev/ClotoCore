@@ -26,13 +26,13 @@ function PermissionSelect({
     <select
       value={inherited ? 'inherit' : (value ?? 'inherit')}
       onChange={(e) => onChange(e.target.value as AccessPermission | 'inherit')}
-      className={`text-[10px] font-mono rounded px-1.5 py-0.5 border transition-colors
+      className={`text-xs font-mono rounded px-1.5 py-0.5 border transition-colors
         ${
           value === 'allow' && !inherited
             ? 'border-green-500/30 bg-green-500/10 text-green-500'
             : value === 'deny' && !inherited
               ? 'border-red-500/30 bg-red-500/10 text-red-500'
-              : 'border-edge bg-glass text-content-tertiary'
+              : 'border-edge bg-surface-panel text-content-tertiary'
         }`}
     >
       <option value="inherit">{t('access.option_inherited')}</option>
@@ -113,7 +113,7 @@ export function McpAccessTree({ entries, tools, agentId, serverId, onChange }: P
             {t('access.capability')} {cap.justification ?? cap.server_id}
           </span>
           <span
-            className={`ml-auto text-[10px] px-1.5 py-0.5 rounded ${
+            className={`ml-auto text-xs px-1.5 py-0.5 rounded ${
               cap.permission === 'allow' ? 'bg-green-500/10 text-green-500' : 'bg-red-500/10 text-red-500'
             }`}
           >
@@ -128,7 +128,7 @@ export function McpAccessTree({ entries, tools, agentId, serverId, onChange }: P
           onClick={() => setExpanded(!expanded)}
           aria-label={expanded ? t('access.collapse_tools') : t('access.expand_tools')}
           aria-expanded={expanded}
-          className="flex items-center gap-1 py-1 px-1 w-full hover:bg-glass rounded transition-colors"
+          className="flex items-center gap-1 py-1 px-1 w-full hover:bg-surface-panel rounded transition-colors"
         >
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           <FolderOpen size={12} className="text-blue-500 flex-shrink-0" />

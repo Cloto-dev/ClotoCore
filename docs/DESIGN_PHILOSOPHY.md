@@ -1,6 +1,7 @@
 # Design Philosophy — Living Room and Workshop
 
-**Status**: Draft (direction approved 2026-09-16; not yet applied to `dashboard/`)
+**Status**: Draft (direction approved 2026-09-16). The foundation — tokens, type,
+radius — is applied to `dashboard/`; the screens are not yet redrawn.
 **Related**: `PROJECT_VISION.md` (what the product is), `DEVELOPMENT.md` §1.5
 (agents and tools must not be confused), `gui/samples/` (one static mockup per
 screen, built to this document)
@@ -81,13 +82,21 @@ are not applied until saved. One part, used everywhere it fits.
    (sidebar) L12 %, raised surface L16 %, boundary L22 %. Separation is done
    with lightness, not lines; a 1 px rule is used only inside tables. Dark is
    the default by decision — this product lives at night. A light theme is the
-   same four steps reversed, and is not yet drawn.
+   same four steps reversed, and is not yet drawn. A Legacy theme keeps the
+   colours the dashboard had before this redesign (slate, and a blue accent for
+   every agent) for anyone who prefers them; it changes colour only, and follows
+   the OS between light and dark as the old default did.
 2. **Accent.** Only the colour of the agent currently present (Sapphy:
    `hsl(190 70% 58%)`), and only on things that belong to the agent: the face,
    the mark beside their words, the edge of a question they ask, the send
    button, their name on the conversation you are in. Never decoration. The
    workshop has no accent at all. A list of agents is monochrome except the
    one selected.
+
+   An agent's hue comes from its id, so renaming it does not recolour it.
+   Saturation 70 % is fixed; lightness starts at 58 % and rises only where that
+   would not hold 4.5:1 on the raised surface — cyan reads at 58 %, blue needs
+   72 %. A fixed lightness across hues reads at some and not at others.
 3. **Type.** IBM Plex Sans JP for everything read (body 15–16, UI 13.5, notes
    12.5; headings 600, letter-spacing 0). IBM Plex Mono only for identifiers,
    code and tabular numbers. The product bundles the fonts.
@@ -128,6 +137,17 @@ review procedure (25 signals: 22 that read as generated, 3 that read as
 crafted) and write the count down. On 2026-09-16 the shipped dashboard scored
 15/20, the first redesign 13/20, the samples in `gui/samples/` 1/20 (the font
 is loaded from a CDN there).
+
+Which items those counts treated as not applicable was not recorded, so the
+foundation change was scored against a fresh re-score of the build before it,
+by the same rater, with four items marked not applicable (marketing copy,
+social proof, decorative hero, placeholder text — none of which a local app
+has): 17 of 21 signals before, 13 of 21 after, with three more partly present
+(blur and translucency are gone but glow is not; the radius steps are
+enforced but shadows remain). The four that went away are the default font,
+all-caps labels, glass surfaces and the decorative grid. The rest belong to
+the per-screen work: cards, pills, icons on buttons, monospace labels, pulses,
+focus rings and breakpoints.
 
 ## 7. What has to change underneath
 

@@ -76,7 +76,7 @@ export function MarkdownRenderer({ content, incremental = false, onCodeBlock, cl
             extractedCodesRef.current.add(code);
             onCodeBlock(code, lang, lines);
           }
-          return `<div class="artifact-placeholder"><span class="text-[9px] font-mono uppercase tracking-wider opacity-60">${lang} · ${lines} lines</span><span class="text-[10px] font-mono opacity-80">View in panel →</span></div><pre style="display:none" data-lang="${lang}" data-lines="${linesStr}">`;
+          return `<div class="artifact-placeholder"><span class="text-xs font-mono opacity-60">${lang} · ${lines} lines</span><span class="text-xs font-mono opacity-80">View in panel →</span></div><pre style="display:none" data-lang="${lang}" data-lines="${linesStr}">`;
         }
         return `<pre class="hljs-code-block" data-lang="${lang}" data-lines="${linesStr}" data-raw="${rawEncoded}">`;
       },

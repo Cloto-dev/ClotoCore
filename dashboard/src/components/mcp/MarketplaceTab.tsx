@@ -102,7 +102,7 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
   if (isLoading && servers.length === 0) {
     return (
       <div className="flex items-center justify-center h-64 text-content-tertiary">
-        <span className="text-[10px] font-mono">{t('marketplace.loading')}</span>
+        <span className="text-xs font-mono">{t('marketplace.loading')}</span>
       </div>
     );
   }
@@ -112,10 +112,10 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
     return (
       <div className="flex flex-col items-center justify-center h-64 gap-3">
         <AlertTriangle size={24} className="text-red-500 opacity-60" />
-        <span className="text-[10px] font-mono text-content-tertiary">{t('marketplace.error')}</span>
+        <span className="text-xs font-mono text-content-tertiary">{t('marketplace.error')}</span>
         <button
           onClick={refetch}
-          className="px-3 py-1.5 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand border border-brand/30 transition-colors"
+          className="px-3 py-1.5 text-xs font-mono rounded bg-agent/10 hover:bg-agent/20 text-agent border border-agent/30 transition-colors"
         >
           {t('marketplace.refresh')}
         </button>
@@ -135,7 +135,7 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder={t('marketplace.search_placeholder')}
-            className="w-full text-[12px] font-sans bg-glass border border-edge rounded pl-7 pr-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
+            className="w-full text-xs font-sans bg-surface-panel border border-edge rounded pl-7 pr-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
           />
         </div>
 
@@ -145,10 +145,10 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
             <button
               key={cat.key}
               onClick={() => setCategoryFilter(cat.key)}
-              className={`px-2 py-1 text-[11px] font-sans uppercase rounded transition-colors ${
+              className={`px-2 py-1 text-xs font-sans rounded transition-colors ${
                 categoryFilter === cat.key
-                  ? 'bg-brand/10 text-brand border border-brand/30'
-                  : 'text-content-tertiary hover:text-content-secondary hover:bg-glass border border-transparent'
+                  ? 'bg-agent/10 text-agent border border-agent/30'
+                  : 'text-content-tertiary hover:text-content-secondary hover:bg-surface-panel border border-transparent'
               }`}
             >
               {cat.key === 'all' ? t('marketplace.filter_all') : cat.label}
@@ -160,10 +160,10 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
         {IS_DEV && (
           <button
             onClick={() => setActionsEnabled((v) => !v)}
-            className={`flex items-center gap-1 px-2 py-1 text-[10px] font-mono rounded border transition-colors ${
+            className={`flex items-center gap-1 px-2 py-1 text-xs font-mono rounded border transition-colors ${
               actionsEnabled
                 ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
-                : 'bg-glass text-content-tertiary border-edge'
+                : 'bg-surface-panel text-content-tertiary border-edge'
             }`}
             title={actionsEnabled ? 'Marketplace actions enabled' : 'Marketplace actions locked (dev mode)'}
           >
@@ -176,7 +176,7 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
       {/* Grid */}
       {filtered.length === 0 ? (
         <div className="flex items-center justify-center h-48 text-content-tertiary">
-          <span className="text-[10px] font-mono">{t('marketplace.no_results')}</span>
+          <span className="text-xs font-mono">{t('marketplace.no_results')}</span>
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(240px,1fr))] gap-3">
@@ -199,9 +199,9 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
         <div className="flex flex-col gap-2 rounded-lg border border-amber-500/30 bg-amber-500/5 p-3">
           <div className="flex items-center gap-2 text-amber-400">
             <PackageX size={12} />
-            <span className="text-[11px] font-mono">{t('marketplace.unlisted_title')}</span>
+            <span className="text-xs font-mono">{t('marketplace.unlisted_title')}</span>
           </div>
-          <p className="text-[10px] font-sans text-content-tertiary">{t('marketplace.unlisted_hint')}</p>
+          <p className="text-xs font-sans text-content-tertiary">{t('marketplace.unlisted_hint')}</p>
           <div className="flex flex-col gap-1">
             {unlisted.map((item) => (
               <div
@@ -209,19 +209,19 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
                 className="flex items-center justify-between gap-3 rounded border border-border-subtle px-2 py-1.5"
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-[11px] font-mono truncate">{item.name}</span>
+                  <span className="text-xs font-mono truncate">{item.name}</span>
                   {item.installed_version && (
-                    <span className="text-[10px] font-mono text-content-tertiary">{item.installed_version}</span>
+                    <span className="text-xs font-mono text-content-tertiary">{item.installed_version}</span>
                   )}
                   {item.running && (
-                    <span className="text-[9px] font-mono text-emerald-400">{t('marketplace.unlisted_running')}</span>
+                    <span className="text-xs font-mono text-emerald-400">{t('marketplace.unlisted_running')}</span>
                   )}
                 </div>
                 <button
                   type="button"
                   disabled={!actionsEnabled}
                   onClick={() => setUninstallTarget({ id: item.name, name: item.name })}
-                  className="text-[10px] font-mono text-red-400 hover:text-red-300 disabled:opacity-40"
+                  className="text-xs font-mono text-red-400 hover:text-red-300 disabled:opacity-40"
                 >
                   {t('marketplace.uninstall')}
                 </button>
@@ -256,7 +256,7 @@ export function MarketplaceTab({ onRefetchRef }: MarketplaceTabProps) {
       {/* Toast notification */}
       {toast && (
         <div
-          className={`fixed bottom-4 right-4 z-[60] text-[11px] font-sans px-3 py-2 rounded-lg backdrop-blur-sm border ${
+          className={`fixed bottom-4 right-4 z-[60] text-xs font-sans px-3 py-2 rounded-lg border ${
             toast.type === 'success'
               ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
               : 'bg-red-500/10 border-red-500/30 text-red-500'

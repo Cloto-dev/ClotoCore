@@ -101,11 +101,11 @@ export function ShutdownOverlay() {
 
   return (
     <div className="fixed inset-0 z-[1000] bg-surface-base flex flex-col items-center justify-center select-none">
-      <Power size={28} className={stopped ? 'text-content-tertiary' : 'text-brand animate-pulse'} />
-      <h1 className="mt-4 text-2xl font-black tracking-[0.2em] text-content-primary uppercase">
+      <Power size={28} className={stopped ? 'text-content-tertiary' : 'text-agent animate-pulse'} />
+      <h1 className="mt-4 text-2xl font-black text-content-primary">
         {stopped ? t('advanced.shutdown_overlay_stopped_title') : t('advanced.shutdown_overlay_title')}
       </h1>
-      <p className="mt-3 text-[11px] font-mono text-brand/70 uppercase tracking-[0.15em]">
+      <p className="mt-3 text-xs font-mono text-agent/70">
         {stopped ? t('advanced.shutdown_overlay_stopped_hint') : t('advanced.shutdown_overlay_draining')}
       </p>
     </div>

@@ -67,7 +67,7 @@ export function McpAccessControlTab({ server }: Props) {
 
       {/* Default Policy Display */}
       {accessData && (
-        <div className="text-[10px] font-mono text-content-tertiary">
+        <div className="text-xs font-mono text-content-tertiary">
           {t('access.default_policy')} <span className="text-content-secondary">{accessData.default_policy}</span>
           {accessData.default_policy === 'opt-in'
             ? ` ${t('access.deny_by_default')}`
@@ -84,11 +84,11 @@ export function McpAccessControlTab({ server }: Props) {
 
       {/* Agent Selector */}
       <div className="flex items-center gap-2">
-        <label className="text-[10px] font-mono text-content-tertiary">{t('access.agent')}</label>
+        <label className="text-xs font-mono text-content-tertiary">{t('access.agent')}</label>
         <select
           value={selectedAgent}
           onChange={(e) => setSelectedAgent(e.target.value)}
-          className="text-xs font-mono bg-glass border border-edge rounded px-2 py-1 text-content-primary"
+          className="text-xs font-mono bg-surface-panel border border-edge rounded px-2 py-1 text-content-primary"
         >
           {agents.map((agent) => (
             <option key={agent.id} value={agent.id}>
@@ -100,7 +100,7 @@ export function McpAccessControlTab({ server }: Props) {
 
       {/* Access Tree */}
       {selectedAgent && (
-        <div className="border border-edge rounded p-2 bg-glass">
+        <div className="border border-edge rounded p-2 bg-surface-panel">
           <McpAccessTree
             entries={localEntries}
             tools={accessData?.tools ?? server.tools}
@@ -118,14 +118,14 @@ export function McpAccessControlTab({ server }: Props) {
             onClick={handleSave}
             disabled={saving}
             aria-label={t('access.save_changes')}
-            className="flex items-center gap-1 px-3 py-1.5 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand disabled:opacity-40 transition-colors border border-brand/20"
+            className="flex items-center gap-1 px-3 py-1.5 text-xs font-mono rounded bg-agent/10 hover:bg-agent/20 text-agent disabled:opacity-40 transition-colors border border-agent/20"
           >
             <Save size={10} /> {saving ? t('access.saving') : t('access.save_changes')}
           </button>
           <button
             onClick={loadData}
             aria-label={t('access.discard')}
-            className="px-3 py-1.5 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-tertiary transition-colors border border-edge"
+            className="px-3 py-1.5 text-xs font-mono rounded bg-surface-panel hover:bg-surface-field text-content-tertiary transition-colors border border-edge"
           >
             {t('access.discard')}
           </button>

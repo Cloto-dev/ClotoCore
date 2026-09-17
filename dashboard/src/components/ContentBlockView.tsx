@@ -10,7 +10,7 @@ import { MarkdownRenderer } from './MarkdownRenderer';
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
   return createPortal(
     <div
-      className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/80 backdrop-blur-sm cursor-zoom-out"
+      className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/80 cursor-zoom-out"
       onClick={onClose}
     >
       <button
@@ -83,7 +83,7 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
 
     case 'code':
       return (
-        <pre className="bg-black/10 rounded-lg p-2 mt-1 overflow-x-auto text-[10px] font-mono">
+        <pre className="bg-black/10 rounded-lg p-2 mt-1 overflow-x-auto text-xs font-mono">
           <code>{block.text}</code>
         </pre>
       );
@@ -104,12 +104,12 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
                 className="max-w-xs max-h-64 rounded-lg border border-edge object-cover"
               />
             ) : (
-              <div className="flex items-center gap-2 text-[10px] font-mono text-content-secondary bg-black/5 rounded-lg p-2">
-                <Image size={12} className="text-brand" />
+              <div className="flex items-center gap-2 text-xs font-mono text-content-secondary bg-black/5 rounded-lg p-2">
+                <Image size={12} className="text-agent" />
                 <span>{basename}</span>
               </div>
             )}
-            <div className="text-[9px] font-mono text-content-tertiary">{parsed.path as string}</div>
+            <div className="text-xs font-mono text-content-tertiary">{parsed.path as string}</div>
           </div>
         );
       }
@@ -123,12 +123,12 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
             {src ? (
               <audio controls className="max-w-md" src={src} />
             ) : (
-              <div className="flex items-center gap-2 text-[10px] font-mono text-content-secondary bg-black/5 rounded-lg p-2">
+              <div className="flex items-center gap-2 text-xs font-mono text-content-secondary bg-black/5 rounded-lg p-2">
                 <FileAudio size={12} className="text-emerald-400" />
                 <span>{basename}</span>
               </div>
             )}
-            <div className="text-[9px] font-mono text-content-tertiary">{parsed.path as string}</div>
+            <div className="text-xs font-mono text-content-tertiary">{parsed.path as string}</div>
           </div>
         );
       }
@@ -140,7 +140,7 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
           .map(([k, v]) => `${k}: ${typeof v === 'string' ? v : JSON.stringify(v)}`)
           .join('\n');
         return (
-          <div className="bg-black/10 rounded-lg p-2 mt-1 text-[10px] font-mono border-l-2 border-emerald-400 whitespace-pre-wrap">
+          <div className="bg-black/10 rounded-lg p-2 mt-1 text-xs font-mono border-l-2 border-emerald-400 whitespace-pre-wrap">
             {displayFields}
           </div>
         );
@@ -149,7 +149,7 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
       // Error tool result
       if (parsed?.error) {
         return (
-          <div className="bg-black/10 rounded-lg p-2 mt-1 text-[10px] font-mono border-l-2 border-red-400">
+          <div className="bg-black/10 rounded-lg p-2 mt-1 text-xs font-mono border-l-2 border-red-400">
             {parsed.error as string}
             {typeof parsed.hint === 'string' && <div className="text-content-tertiary mt-1">{parsed.hint}</div>}
           </div>
@@ -158,7 +158,7 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
 
       // Default text display
       return (
-        <div className="bg-black/10 rounded-lg p-2 mt-1 text-[10px] font-mono border-l-2 border-emerald-400">
+        <div className="bg-black/10 rounded-lg p-2 mt-1 text-xs font-mono border-l-2 border-emerald-400">
           {block.text}
         </div>
       );
@@ -172,7 +172,7 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
             className="max-w-md"
             src={block.attachment_id ? api.getAttachmentUrl(block.attachment_id) : block.url}
           />
-          {block.filename && <div className="text-[9px] font-mono text-content-tertiary mt-0.5">{block.filename}</div>}
+          {block.filename && <div className="text-xs font-mono text-content-tertiary mt-0.5">{block.filename}</div>}
         </div>
       );
 
@@ -182,7 +182,7 @@ export function ContentBlockView({ block }: { block: ContentBlock }) {
           href={block.attachment_id ? api.getAttachmentUrl(block.attachment_id) : block.url}
           download={block.filename}
           aria-label={`Download ${block.filename || 'file'}`}
-          className="inline-flex items-center gap-1 underline text-[10px] mt-1"
+          className="inline-flex items-center gap-1 underline text-xs mt-1"
         >
           <Download size={10} />
           {block.filename || 'Download'}

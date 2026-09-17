@@ -329,7 +329,7 @@ export function LlmProvidersSection() {
                   <span className="text-xs font-bold text-content-primary">{p.display_name}</span>
                   {p.engine_status === 'disconnected' && (
                     <span
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-amber-600 bg-amber-500/10 border border-amber-500/30"
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium text-amber-600 bg-amber-500/10 border border-amber-500/30"
                       title={t('llm_providers.engine_disconnected_hint')}
                     >
                       <AlertTriangle className="w-3 h-3" />
@@ -338,7 +338,7 @@ export function LlmProvidersSection() {
                   )}
                   {p.engine_status === 'uninstalled' && (
                     <span
-                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium text-red-600 bg-red-500/10 border border-red-500/30"
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium text-red-600 bg-red-500/10 border border-red-500/30"
                       title={t('llm_providers.engine_uninstalled_hint')}
                     >
                       <AlertTriangle className="w-3 h-3" />
@@ -353,7 +353,7 @@ export function LlmProvidersSection() {
                           value={modelInput}
                           onChange={(e) => setModelInput(e.target.value)}
                           onKeyDown={(e) => handleModelKeyDown(e, p.id)}
-                          className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary w-48"
+                          className="bg-surface-base border border-agent/50 rounded px-2 py-0.5 text-xs font-mono text-content-primary w-48"
                         >
                           {/* Preserve a currently-saved model that isn't in the list (e.g. unloaded) */}
                           {modelInput && !modelList.models.some((m) => m.id === modelInput) && (
@@ -416,7 +416,7 @@ export function LlmProvidersSection() {
                                   })
                                 : t('llm_providers.model_placeholder')
                           }
-                          className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary placeholder:text-content-tertiary w-48"
+                          className="bg-surface-base border border-agent/50 rounded px-2 py-0.5 text-xs font-mono text-content-primary placeholder:text-content-tertiary w-48"
                         />
                       )}
                       <button
@@ -425,7 +425,7 @@ export function LlmProvidersSection() {
                         disabled={modelList?.status === 'loading'}
                         aria-label={t('llm_providers.model_refresh')}
                         title={t('llm_providers.model_refresh')}
-                        className="p-0.5 text-content-tertiary hover:text-brand rounded disabled:opacity-40"
+                        className="p-0.5 text-content-tertiary hover:text-agent rounded disabled:opacity-40"
                       >
                         <RefreshCw className={`w-3 h-3 ${modelList?.status === 'loading' ? 'animate-spin' : ''}`} />
                       </button>
@@ -433,7 +433,7 @@ export function LlmProvidersSection() {
                         onClick={() => commitModelEdit(p.id)}
                         disabled={modelSaving || !modelInput.trim()}
                         aria-label={t('llm_providers.model_save')}
-                        className="px-2 py-0.5 bg-brand text-white text-[10px] font-bold rounded disabled:opacity-40"
+                        className="px-2 py-0.5 bg-agent text-agent-ink text-xs font-bold rounded disabled:opacity-40"
                       >
                         {modelSaving ? '...' : t('llm_providers.model_save')}
                       </button>
@@ -441,7 +441,7 @@ export function LlmProvidersSection() {
                         onClick={cancelModelEdit}
                         disabled={modelSaving}
                         aria-label={t('llm_providers.model_cancel')}
-                        className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-content-primary rounded"
+                        className="px-2 py-0.5 text-content-tertiary text-xs hover:text-content-primary rounded"
                       >
                         {t('llm_providers.model_cancel')}
                       </button>
@@ -451,12 +451,12 @@ export function LlmProvidersSection() {
                       type="button"
                       onClick={() => startModelEdit(p)}
                       title={t('llm_providers.model_edit_hint')}
-                      className="text-[11px] font-mono text-content-tertiary hover:text-brand hover:underline cursor-pointer bg-transparent border-0 p-0"
+                      className="text-xs font-mono text-content-tertiary hover:text-agent hover:underline cursor-pointer bg-transparent border-0 p-0"
                     >
                       {p.model_id || <span className="italic">{t('llm_providers.model_unset')}</span>}
                     </button>
                   )}
-                  <span className="text-content-tertiary text-[10px]">·</span>
+                  <span className="text-content-tertiary text-xs">·</span>
                   {editingCtxId === p.id ? (
                     <div className="flex items-center gap-1">
                       <input
@@ -469,7 +469,7 @@ export function LlmProvidersSection() {
                         onKeyDown={(e) => handleCtxKeyDown(e, p.id)}
                         aria-label={`${p.display_name} context length`}
                         placeholder={t('llm_providers.context_length_placeholder')}
-                        className="bg-surface-base border border-brand/50 rounded px-2 py-0.5 text-[11px] font-mono text-content-primary placeholder:text-content-tertiary w-24"
+                        className="bg-surface-base border border-agent/50 rounded px-2 py-0.5 text-xs font-mono text-content-primary placeholder:text-content-tertiary w-24"
                       />
                       <button
                         type="button"
@@ -477,7 +477,7 @@ export function LlmProvidersSection() {
                         disabled={ctxSaving}
                         aria-label={t('llm_providers.context_length_detect')}
                         title={t('llm_providers.context_length_detect')}
-                        className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-brand rounded disabled:opacity-40"
+                        className="px-2 py-0.5 text-content-tertiary text-xs hover:text-agent rounded disabled:opacity-40"
                       >
                         {t('llm_providers.context_length_detect')}
                       </button>
@@ -485,7 +485,7 @@ export function LlmProvidersSection() {
                         onClick={() => commitCtxEdit(p.id)}
                         disabled={ctxSaving}
                         aria-label={t('llm_providers.model_save')}
-                        className="px-2 py-0.5 bg-brand text-white text-[10px] font-bold rounded disabled:opacity-40"
+                        className="px-2 py-0.5 bg-agent text-agent-ink text-xs font-bold rounded disabled:opacity-40"
                       >
                         {ctxSaving ? '...' : t('llm_providers.model_save')}
                       </button>
@@ -493,7 +493,7 @@ export function LlmProvidersSection() {
                         onClick={cancelCtxEdit}
                         disabled={ctxSaving}
                         aria-label={t('llm_providers.model_cancel')}
-                        className="px-2 py-0.5 text-content-tertiary text-[10px] hover:text-content-primary rounded"
+                        className="px-2 py-0.5 text-content-tertiary text-xs hover:text-content-primary rounded"
                       >
                         {t('llm_providers.model_cancel')}
                       </button>
@@ -503,7 +503,7 @@ export function LlmProvidersSection() {
                       type="button"
                       onClick={() => startCtxEdit(p)}
                       title={t('llm_providers.context_length_edit_hint')}
-                      className="text-[11px] font-mono text-content-tertiary hover:text-brand hover:underline cursor-pointer bg-transparent border-0 p-0"
+                      className="text-xs font-mono text-content-tertiary hover:text-agent hover:underline cursor-pointer bg-transparent border-0 p-0"
                     >
                       {p.context_length != null ? (
                         t('llm_providers.model_ctx_suffix', {
@@ -514,12 +514,12 @@ export function LlmProvidersSection() {
                       )}
                     </button>
                   )}
-                  <span className="text-content-tertiary text-[10px]">·</span>
+                  <span className="text-content-tertiary text-xs">·</span>
                   <div
                     className="inline-flex items-center rounded border border-edge overflow-hidden"
                     title={t('llm_providers.thinking_hint')}
                   >
-                    <span className="px-2 py-0.5 text-[10px] font-mono text-content-tertiary bg-transparent">
+                    <span className="px-2 py-0.5 text-xs font-mono text-content-tertiary bg-transparent">
                       {t('llm_providers.thinking_label')}
                     </span>
                     {(['auto', 'on', 'off'] as const).map((mode) => {
@@ -531,8 +531,8 @@ export function LlmProvidersSection() {
                           onClick={() => commitThinkingMode(p.id, mode)}
                           disabled={thinkingSavingId === p.id}
                           aria-pressed={active}
-                          className={`px-2 py-0.5 text-[10px] font-mono border-l border-edge ${
-                            active ? 'bg-brand text-white' : 'bg-transparent text-content-tertiary hover:text-brand'
+                          className={`px-2 py-0.5 text-xs font-mono border-l border-edge ${
+                            active ? 'bg-agent text-agent-ink' : 'bg-transparent text-content-tertiary hover:text-agent'
                           } disabled:opacity-40`}
                         >
                           {t(`llm_providers.thinking_${mode}`)}
@@ -542,14 +542,14 @@ export function LlmProvidersSection() {
                   </div>
                 </div>
                 {editingModelId === p.id && modelError && (
-                  <p className="text-[10px] text-red-400 mt-1 ml-4">{modelError}</p>
+                  <p className="text-xs text-red-400 mt-1 ml-4">{modelError}</p>
                 )}
                 {editingModelId === p.id && modelList?.status === 'fallback' && !modelError && (
-                  <p className="text-[10px] text-content-tertiary mt-1 ml-4">
+                  <p className="text-xs text-content-tertiary mt-1 ml-4">
                     {t('llm_providers.model_dropdown_error', { code: modelList.errorCode ?? 'unknown' })}
                   </p>
                 )}
-                {editingCtxId === p.id && ctxError && <p className="text-[10px] text-red-400 mt-1 ml-4">{ctxError}</p>}
+                {editingCtxId === p.id && ctxError && <p className="text-xs text-red-400 mt-1 ml-4">{ctxError}</p>}
                 <div className="flex gap-2 mt-2">
                   <input
                     type="password"
@@ -562,7 +562,7 @@ export function LlmProvidersSection() {
                     onClick={() => handleCommitKey(p.id)}
                     disabled={!keyInputs[p.id]?.trim() || saving === p.id}
                     aria-label={`${tc('save')} ${p.display_name}`}
-                    className="px-3 py-1 bg-brand text-white text-xs font-bold rounded disabled:opacity-40"
+                    className="px-3 py-1 bg-agent text-agent-ink text-xs font-bold rounded disabled:opacity-40"
                   >
                     {saving === p.id ? '...' : tc('save')}
                   </button>
@@ -580,7 +580,7 @@ export function LlmProvidersSection() {
                     onClick={() => runConnectionTest(p.id)}
                     disabled={testStates[p.id]?.phase === 'running'}
                     aria-label={`${t('llm_providers.test')} ${p.display_name}`}
-                    className="px-2 py-1 text-xs text-content-secondary border border-edge rounded hover:border-brand hover:text-brand disabled:opacity-40"
+                    className="px-2 py-1 text-xs text-content-secondary border border-edge rounded hover:border-agent hover:text-agent disabled:opacity-40"
                   >
                     {testStates[p.id]?.phase === 'running' ? '...' : t('llm_providers.test')}
                   </button>
@@ -601,7 +601,7 @@ export function LlmProvidersSection() {
                           : ts.status === 'unreachable'
                             ? t('llm_providers.test_unreachable')
                             : t('llm_providers.test_model_list_unavailable');
-                    return <span className={`px-2 py-0.5 text-[10px] font-bold rounded border ${color}`}>{label}</span>;
+                    return <span className={`px-2 py-0.5 text-xs font-bold rounded border ${color}`}>{label}</span>;
                   })()}
                 </div>
               </div>

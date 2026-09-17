@@ -133,9 +133,9 @@ export function McpServersPage() {
     <div className="h-full flex flex-col overflow-hidden">
       {/* Header bar */}
       <div className="flex items-center gap-3 px-5 py-3 border-b border-edge shrink-0">
-        <Server size={14} className="text-brand" />
-        <span className="text-[10px] font-mono uppercase tracking-widest text-content-tertiary">{t('title')}</span>
-        <span className="text-[10px] font-mono text-content-tertiary ml-1">
+        <Server size={14} className="text-agent" />
+        <span className="text-xs font-mono text-content-tertiary">{t('title')}</span>
+        <span className="text-xs font-mono text-content-tertiary ml-1">
           {t('servers_count', { count: servers.length })} &middot; {t('running_count', { count: running })}
         </span>
         <button
@@ -143,7 +143,7 @@ export function McpServersPage() {
             refetch();
             marketplaceRefetchRef.current?.();
           }}
-          className="p-1.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors"
+          className="p-1.5 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors"
           title={t('refresh')}
           aria-label={t('refresh')}
         >
@@ -154,7 +154,7 @@ export function McpServersPage() {
             <button
               onClick={() => setAddModalOpen(true)}
               aria-label={t('add_server')}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand text-[10px] font-mono font-bold tracking-wide transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-agent/10 hover:bg-agent/20 border border-agent/30 text-agent text-xs font-mono font-bold transition-colors"
             >
               <Plus size={12} />
               {t('add_server')}
@@ -168,10 +168,10 @@ export function McpServersPage() {
         <button
           onClick={() => setActiveTab('servers')}
           aria-label={t('marketplace.tab_servers')}
-          className={`px-4 py-2 text-[12px] font-mono uppercase tracking-wider transition-colors
+          className={`px-4 py-2 text-xs font-mono transition-colors
             ${
               activeTab === 'servers'
-                ? 'text-content-primary border-b-2 border-brand'
+                ? 'text-content-primary border-b-2 border-agent'
                 : 'text-content-tertiary hover:text-content-secondary'
             }`}
         >
@@ -180,10 +180,10 @@ export function McpServersPage() {
         <button
           onClick={() => setActiveTab('marketplace')}
           aria-label={t('marketplace.tab_marketplace')}
-          className={`px-4 py-2 text-[12px] font-mono uppercase tracking-wider transition-colors
+          className={`px-4 py-2 text-xs font-mono transition-colors
             ${
               activeTab === 'marketplace'
-                ? 'text-content-primary border-b-2 border-brand'
+                ? 'text-content-primary border-b-2 border-agent'
                 : 'text-content-tertiary hover:text-content-secondary'
             }`}
         >
@@ -213,7 +213,7 @@ export function McpServersPage() {
                 <button
                   onClick={() => setAddModalOpen(true)}
                   aria-label={t('add_server')}
-                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand/10 hover:bg-brand/20 border border-brand/30 text-brand text-[10px] font-mono font-bold transition-colors"
+                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-agent/10 hover:bg-agent/20 border border-agent/30 text-agent text-xs font-mono font-bold transition-colors"
                 >
                   <Plus size={12} />
                   {t('add_server')}
@@ -234,12 +234,12 @@ export function McpServersPage() {
                     aria-label={displayServerId(server.id)}
                     // MGP servers use the `mgp` design-token palette as an identity
                     // color (see --mgp-* tokens in index.css) — exempt from the
-                    // `hover:border-brand` rule (CLAUDE.md Dashboard UI Rules).
-                    // Non-MGP cards follow the standard `card-solid` + `hover:border-brand` pattern.
+                    // `hover:border-agent` rule (CLAUDE.md Dashboard UI Rules).
+                    // Non-MGP cards follow the standard `card-solid` + `hover:border-agent` pattern.
                     className={`text-left p-4 rounded-xl border transition-all duration-200 group ${shimmer} ${
                       isMgp
                         ? 'card-mgp hover:bg-mgp-surface/40 hover:border-mgp-accent'
-                        : 'border-edge card-solid hover:bg-surface-secondary/80 hover:border-brand'
+                        : 'border-edge card-solid hover:bg-surface-secondary/80 hover:border-agent'
                     }`}
                   >
                     {isMgp && <div className="mgp-halo" />}
@@ -249,7 +249,7 @@ export function McpServersPage() {
                         className={`shrink-0 transition-colors ${
                           isMgp
                             ? 'text-mgp-accent group-hover:text-mgp-accent-light'
-                            : 'text-content-tertiary group-hover:text-brand'
+                            : 'text-content-tertiary group-hover:text-agent'
                         }`}
                       />
                       <span className="text-xs font-mono font-bold text-content-primary truncate">
@@ -261,20 +261,20 @@ export function McpServersPage() {
                         </span>
                       )}
                       {server.transport === 'streamable-http' && (
-                        <span className="text-[9px] font-mono text-cyan-500/70 shrink-0" title="Remote HTTP transport">
+                        <span className="text-xs font-mono text-cyan-500/70 shrink-0" title="Remote HTTP transport">
                           HTTP
                         </span>
                       )}
                     </div>
                     <div
-                      className={`flex items-center gap-3 text-[10px] font-mono text-content-tertiary leading-none ${isMgp ? 'relative' : ''}`}
+                      className={`flex items-center gap-3 text-xs font-mono text-content-tertiary leading-none ${isMgp ? 'relative' : ''}`}
                     >
                       <span className="inline-flex items-center gap-1.5">
                         <StatusDot status={mcpStatusToDot(server)} />
                         <span>{statusLabel(server)}</span>
                       </span>
                       <span>{t('tools_count', { count: server.tools.length })}</span>
-                      {server.is_cloto_sdk && <span className="text-brand">SDK</span>}
+                      {server.is_cloto_sdk && <span className="text-agent">SDK</span>}
                     </div>
                   </button>
                 );
@@ -315,38 +315,34 @@ export function McpServersPage() {
             {addError && <AlertCard>{addError}</AlertCard>}
 
             <div>
-              <label className="block text-[10px] font-mono text-content-tertiary mb-1">
-                {t('add_modal.server_name')}
-              </label>
+              <label className="block text-xs font-mono text-content-tertiary mb-1">{t('add_modal.server_name')}</label>
               <input
                 type="text"
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="my-server"
-                className="w-full text-xs font-mono bg-glass border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
+                className="w-full text-xs font-mono bg-surface-panel border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
               />
-              <p className="mt-0.5 text-[9px] font-mono text-content-tertiary">{t('add_modal.name_hint')}</p>
+              <p className="mt-0.5 text-xs font-mono text-content-tertiary">{t('add_modal.name_hint')}</p>
             </div>
             <div>
-              <label className="block text-[10px] font-mono text-content-tertiary mb-1">{t('add_modal.command')}</label>
+              <label className="block text-xs font-mono text-content-tertiary mb-1">{t('add_modal.command')}</label>
               <input
                 type="text"
                 value={newCommand}
                 onChange={(e) => setNewCommand(e.target.value)}
                 placeholder="python3"
-                className="w-full text-xs font-mono bg-glass border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
+                className="w-full text-xs font-mono bg-surface-panel border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
               />
             </div>
             <div>
-              <label className="block text-[10px] font-mono text-content-tertiary mb-1">
-                {t('add_modal.arguments')}
-              </label>
+              <label className="block text-xs font-mono text-content-tertiary mb-1">{t('add_modal.arguments')}</label>
               <input
                 type="text"
                 value={newArgs}
                 onChange={(e) => setNewArgs(e.target.value)}
                 placeholder="scripts/my_server.py"
-                className="w-full text-xs font-mono bg-glass border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
+                className="w-full text-xs font-mono bg-surface-panel border border-edge rounded px-2 py-1.5 text-content-primary placeholder:text-content-tertiary"
               />
             </div>
 
@@ -357,7 +353,7 @@ export function McpServersPage() {
                   setAddError(null);
                 }}
                 aria-label={tc('cancel')}
-                className="px-3 py-1.5 text-[10px] font-mono rounded bg-glass hover:bg-glass-strong text-content-tertiary transition-colors border border-edge"
+                className="px-3 py-1.5 text-xs font-mono rounded bg-surface-panel hover:bg-surface-field text-content-tertiary transition-colors border border-edge"
               >
                 {tc('cancel')}
               </button>
@@ -365,7 +361,7 @@ export function McpServersPage() {
                 onClick={handleAdd}
                 disabled={adding || !isValidServerName(newName.trim())}
                 aria-label={t('add_modal.add')}
-                className="px-3 py-1.5 text-[10px] font-mono rounded bg-brand/10 hover:bg-brand/20 text-brand disabled:opacity-40 transition-colors border border-brand/20"
+                className="px-3 py-1.5 text-xs font-mono rounded bg-agent/10 hover:bg-agent/20 text-agent disabled:opacity-40 transition-colors border border-agent/20"
               >
                 {adding ? t('add_modal.adding') : t('add_modal.add')}
               </button>

@@ -19,11 +19,11 @@ export function BranchNavigator({ count, activeIndex, indices, onNavigate }: Bra
         }}
         disabled={currentPos <= 0}
         aria-label="Previous branch"
-        className="p-0.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-30 disabled:cursor-default"
+        className="p-0.5 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-30 disabled:cursor-default"
       >
         <ChevronLeft size={12} />
       </button>
-      <span className="text-[10px] font-mono text-content-tertiary tabular-nums select-none">
+      <span className="text-xs font-mono text-content-tertiary tabular-nums select-none">
         {displayPos}/{count}
       </span>
       <button
@@ -32,7 +32,7 @@ export function BranchNavigator({ count, activeIndex, indices, onNavigate }: Bra
         }}
         disabled={currentPos >= indices.length - 1}
         aria-label="Next branch"
-        className="p-0.5 rounded hover:bg-glass text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-30 disabled:cursor-default"
+        className="p-0.5 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-30 disabled:cursor-default"
       >
         <ChevronRight size={12} />
       </button>

@@ -267,12 +267,12 @@ export function CommandApprovalDeck() {
         actionsDisabled={!armed}
         pager={
           total > 1 ? (
-            <span className="flex items-center gap-1 text-[10px] font-mono text-content-tertiary">
+            <span className="flex items-center gap-1 text-xs font-mono text-content-tertiary">
               <button
                 type="button"
                 onClick={() => dispatch({ type: 'page', delta: -1 })}
                 aria-label="Previous request"
-                className="px-1 rounded hover:bg-glass hover:text-content-primary transition-colors"
+                className="px-1 rounded hover:bg-surface-panel hover:text-content-primary transition-colors"
               >
                 ‹
               </button>
@@ -283,7 +283,7 @@ export function CommandApprovalDeck() {
                 type="button"
                 onClick={() => dispatch({ type: 'page', delta: 1 })}
                 aria-label="Next request"
-                className="px-1 rounded hover:bg-glass hover:text-content-primary transition-colors"
+                className="px-1 rounded hover:bg-surface-panel hover:text-content-primary transition-colors"
               >
                 ›
               </button>
