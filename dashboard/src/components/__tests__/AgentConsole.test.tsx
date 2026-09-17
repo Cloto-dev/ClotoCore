@@ -152,7 +152,9 @@ beforeEach(() => {
 
 describe('the living room', () => {
   it('draws the day between days, a clock beside each turn, and the actions of each side', async () => {
-    const now = Date.now();
+    // Noon today, not the present moment: between 00:00 and 01:00 "an hour ago"
+    // is yesterday, and the two turns below stop being today's and yesterday's.
+    const now = new Date().setHours(12, 0, 0, 0);
     // Newest first, as the API returns them.
     api.getChatMessages.mockResolvedValue({
       messages: [msg('a1', 'agent', 'the reply', now - HOUR), msg('u1', 'user', 'the question', now - 25 * HOUR)],
