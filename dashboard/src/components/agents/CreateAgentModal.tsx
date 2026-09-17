@@ -8,7 +8,8 @@ import { Select } from '../ui/Select';
 
 interface Props {
   onClose: () => void;
-  onCreated: () => void;
+  /** Told the name of the agent that now exists. */
+  onCreated: (name: string) => void;
 }
 
 /**

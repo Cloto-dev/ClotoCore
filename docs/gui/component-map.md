@@ -32,6 +32,7 @@ System views (non-route):
 
 #### Agent Interaction
 - `AgentTerminal.tsx` — The agent route: the roster when nobody is selected, the conversation when somebody is. Reads an agent's waiting questions once its conversation is on screen.
+- `NewChatScreen.tsx` — The new chat: the faces ("create an agent", then every agent) that turn by swipe, drag or arrow, above the composer. Creates nothing; hands the first message to the console, which creates the conversation and sends it.
 - `agents/AgentRoster.tsx` — The roster: everyone on the left (answering now / idle, state line, last conversation, unread mark), one agent in full on the right. Import preview, export, power, delete.
 - `agents/CreateAgentModal.tsx` — Create an agent (name, description, engine, memory; password and routing under Advanced).
 - `agents/DeleteAgentModal.tsx` — Delete confirmation with the password gate; shared by the roster and the settings page.

@@ -75,8 +75,15 @@ vi.mock('../../lib/agentIdentity', () => ({
   agentColor: () => 'hsl(190 70% 58%)',
 }));
 // The reply's text, without the typewriter's timers and markdown pipeline.
+// The typewriter, without the typing. By default it never finishes, which keeps
+// a reply "arriving" for the tests that look at that state; a test that needs
+// the room free again sets `typewriter.finishes`.
+const typewriter = vi.hoisted(() => ({ finishes: false }));
 vi.mock('../TypewriterMessage', () => ({
-  TypewriterMessage: ({ text }: { text: string }) => <div>{text}</div>,
+  TypewriterMessage: ({ text, onComplete }: { text: string; onComplete?: () => void }) => {
+    if (typewriter.finishes) queueMicrotask(() => onComplete?.());
+    return <div>{text}</div>;
+  },
 }));
 vi.mock('../ContentBlockView', () => ({
   MessageContent: ({ content }: { content: Array<{ type: string; text?: string }> }) => (
@@ -126,6 +133,7 @@ function reply(sourceId: string, content: string) {
 
 beforeEach(() => {
   stream.handler = null;
+  typewriter.finishes = false;
   api.getAgentAccess.mockReset().mockResolvedValue({ entries: [] });
   api.getChatMessages.mockReset().mockResolvedValue({ messages: [], has_more: false });
   api.postChat.mockReset().mockResolvedValue(undefined);
@@ -239,5 +247,75 @@ describe('the living room', () => {
     const next = await send('next question');
     reply(next, 'a fresh reply');
     expect(await screen.findByText('a fresh reply')).toBeTruthy();
+  });
+});
+
+describe('a console mounted on the new chat', () => {
+  const first = { blocks: [{ type: 'text' as const, text: 'hello' }], rawText: 'hello', engineOverride: null };
+
+  it('asks for no history, creates the conversation, and sends the first message into it', async () => {
+    const onFirstMessage = vi.fn().mockResolvedValue('made-1');
+    render(
+      <AgentConsole
+        agent={agent}
+        conversationId={null}
+        onFirstMessage={onFirstMessage}
+        initialSend={first}
+        onBack={vi.fn()}
+      />,
+    );
+    await vi.waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1));
+    expect(onFirstMessage).toHaveBeenCalledTimes(1);
+    const dispatched = api.postChat.mock.calls[0][0] as { content: string; metadata: { conversation_id: string } };
+    expect(dispatched.content).toBe('hello');
+    expect(dispatched.metadata.conversation_id).toBe('made-1');
+    // Without a conversation id the history endpoint answers with everything
+    // the agent was ever sent: a draft must not ask.
+    expect(api.getChatMessages).not.toHaveBeenCalled();
+    expect(screen.getByText('hello')).toBeTruthy();
+  });
+
+  it('creates once: the second message goes into the conversation the first one made', async () => {
+    typewriter.finishes = true;
+    const onFirstMessage = vi.fn().mockResolvedValue('made-1');
+    render(
+      <AgentConsole
+        agent={agent}
+        conversationId={null}
+        onFirstMessage={onFirstMessage}
+        initialSend={first}
+        onBack={vi.fn()}
+      />,
+    );
+    await vi.waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(1));
+    const firstId = (api.postChat.mock.calls[0][0] as { id: string }).id;
+    reply(firstId, 'hi there');
+    // The room takes a new message once the reply has finished arriving.
+    await vi.waitFor(
+      () => {
+        fireEvent.change(box(), { target: { value: 'and again' } });
+        fireEvent.keyDown(box(), { key: 'Enter' });
+        expect(api.postChat).toHaveBeenCalledTimes(2);
+      },
+      { timeout: 4000 },
+    );
+    expect(onFirstMessage).toHaveBeenCalledTimes(1);
+    const second = api.postChat.mock.calls[1][0] as { metadata: { conversation_id: string } };
+    expect(second.metadata.conversation_id).toBe('made-1');
+  });
+
+  it('says so, and sends nothing, when the conversation cannot be created', async () => {
+    const onFirstMessage = vi.fn().mockRejectedValue(new Error('kernel said no'));
+    render(
+      <AgentConsole
+        agent={agent}
+        conversationId={null}
+        onFirstMessage={onFirstMessage}
+        initialSend={first}
+        onBack={vi.fn()}
+      />,
+    );
+    await screen.findByText(/kernel said no/);
+    expect(api.postChat).not.toHaveBeenCalled();
   });
 });

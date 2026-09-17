@@ -38,11 +38,6 @@ const ICONS = {
       <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </svg>
   ),
-  chat: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-      <path d="M4 5h16v11H8l-4 4Z" />
-    </svg>
-  ),
   agents: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
       <circle cx="9" cy="8" r="3.5" />
@@ -130,7 +125,7 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
   const api = useApi();
   const { agents, selectedAgentId, setSelectedAgentId, systemActive, setSystemActive, processingAgentIds } =
     useAgentContext();
-  const { conversations, openFor, open, newChat, rename, archive, remove } = useConversations();
+  const { conversations, openFor, open, draft, startDraft, leaveDraft, rename, archive, remove } = useConversations();
   const { modules } = useModules();
   const [shutdownConfirm, setShutdownConfirm] = useState(false);
   const [showOlder, setShowOlder] = useState(false);
@@ -150,21 +145,19 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
   const shownGroups = showOlder ? groups : groups.filter((g) => VISIBLE_GROUPS.has(g.group));
   const agentName = (id: string) => agents.find((a) => a.id === id)?.name ?? id;
   const isAgentPage = location.pathname === '/';
-  const isChatOpen = isAgentPage && !systemActive && selectedAgentId !== null;
+  // The living room is showing: a conversation, or the new chat (which may be
+  // turned to "create an agent", with nobody selected).
+  const isChatOpen = isAgentPage && !systemActive && (selectedAgentId !== null || draft !== null);
   const isNavActive = (path: string) => location.pathname === path;
 
-  const handleNewChat = async () => {
-    // A chat needs someone to talk to: with an agent open, start theirs;
-    // otherwise go to the agents page to pick one.
-    const agentId = selectedAgentId ?? (agents.length === 1 ? agents[0].id : null);
-    if (!agentId) {
-      setSelectedAgentId(null);
-      setSystemActive(false);
-      navigate('/');
-      return;
-    }
-    const created = await newChat(agentId);
-    open(agentId, created.id);
+  const handleNewChat = () => {
+    // The new chat opens on whoever is present, else whoever was spoken with
+    // last, else anyone who is on — and on "create an agent" when nobody
+    // exists. Nothing is created here: the conversation exists, and appears in
+    // this list, once something is said.
+    const agentId =
+      selectedAgentId ?? conversations[0]?.agent_id ?? (agents.find((a) => a.enabled) ?? agents[0])?.id ?? null;
+    startDraft(agentId);
   };
 
   // ⌘N / Ctrl+N: the shortcut the mock prints beside New chat.
@@ -172,34 +165,21 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
         e.preventDefault();
-        void handleNewChat();
+        handleNewChat();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  const goChat = () => {
-    // The living room: the conversation last open, else the newest, else the agents.
-    const agentId = selectedAgentId ?? conversations[0]?.agent_id ?? null;
-    if (!agentId) {
-      navigate('/');
-      return;
-    }
-    const conversationId = openFor(agentId) ?? conversations.find((c) => c.agent_id === agentId)?.id ?? null;
-    if (conversationId) open(agentId, conversationId);
-    else {
-      setSystemActive(false);
-      setSelectedAgentId(agentId);
-      navigate(`/?agent=${encodeURIComponent(agentId)}`);
-    }
-  };
   const goAgents = () => {
+    leaveDraft();
     setSelectedAgentId(null);
     setSystemActive(false);
     navigate('/');
   };
   const goTo = (path: string) => {
+    leaveDraft();
     setSelectedAgentId(null);
     setSystemActive(false);
     navigate(path);
@@ -228,7 +208,9 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
           <div key={group}>
             <div className="glabel">{t(`group_${group}`)}</div>
             {items.map((c) => {
-              const isOpen = isChatOpen && selectedAgentId === c.agent_id && openFor(c.agent_id) === c.id;
+              // While the new chat is open, no conversation is.
+              const isOpen =
+                isChatOpen && draft === null && selectedAgentId === c.agent_id && openFor(c.agent_id) === c.id;
               const mine = selectedAgentId === c.agent_id;
               const live = processingAgentIds.has(c.agent_id);
               const title = displayTitle(c, t('untitled_conversation'));
@@ -318,10 +300,6 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
       </div>
 
       <nav className="nav">
-        <button type="button" className={`navlink${isChatOpen ? ' on' : ''}`} onClick={goChat}>
-          {ICONS.chat}
-          {t('chat')}
-        </button>
         <button
           type="button"
           className={`navlink${isAgentPage && !isChatOpen && !systemActive ? ' on' : ''}`}

@@ -21,7 +21,9 @@ vi.mock('../ShutdownOverlay', () => ({ requestShutdown: vi.fn() }));
 
 const conversations = vi.hoisted(() => ({
   open: vi.fn(),
-  newChat: vi.fn(),
+  startDraft: vi.fn(),
+  leaveDraft: vi.fn(),
+  draft: null as { key: string; agentId: string | null } | null,
   rename: vi.fn(),
   archive: vi.fn(),
   remove: vi.fn(),
@@ -44,7 +46,11 @@ vi.mock('../../contexts/ConversationContext', () => ({
     conversations: conversations.list,
     openFor: conversations.openFor,
     open: conversations.open,
-    newChat: conversations.newChat,
+    startDraft: conversations.startDraft,
+    leaveDraft: conversations.leaveDraft,
+    get draft() {
+      return conversations.draft;
+    },
     rename: conversations.rename,
     archive: conversations.archive,
     remove: conversations.remove,
@@ -72,7 +78,9 @@ const DAY = 24 * 60 * 60 * 1000;
 beforeEach(() => {
   navigate.mockReset();
   conversations.open.mockReset();
-  conversations.newChat.mockReset();
+  conversations.startDraft.mockReset();
+  conversations.leaveDraft.mockReset();
+  conversations.draft = null;
   conversations.archive.mockReset();
   conversations.remove.mockReset();
   conversations.openFor.mockReset().mockReturnValue('today-1');
@@ -82,7 +90,6 @@ beforeEach(() => {
     conv('yday-1', 'agent.b', now - DAY, ''),
     conv('old-1', 'agent.a', now - 40 * DAY, 'Long ago'),
   ];
-  conversations.newChat.mockResolvedValue(conv('fresh', 'agent.a', now));
 });
 
 describe("the sidebar's conversations", () => {
@@ -117,13 +124,22 @@ describe("the sidebar's conversations", () => {
     expect(conversations.open).toHaveBeenCalledWith('agent.b', 'yday-1');
   });
 
-  it('new chat — the button and ⌘N — creates for the selected agent and opens it', async () => {
+  it('new chat — the button and ⌘N — opens the new chat on the present agent, and creates nothing', () => {
     render(<AppSidebar onSettingsClick={vi.fn()} />);
     fireEvent.click(screen.getByRole('button', { name: 'new_chat' }));
-    await vi.waitFor(() => expect(conversations.open).toHaveBeenCalledWith('agent.a', 'fresh'));
-    expect(conversations.newChat).toHaveBeenCalledTimes(1);
+    expect(conversations.startDraft).toHaveBeenCalledTimes(1);
+    expect(conversations.startDraft).toHaveBeenLastCalledWith('agent.a');
     fireEvent.keyDown(window, { key: 'n', metaKey: true });
-    await vi.waitFor(() => expect(conversations.newChat).toHaveBeenCalledTimes(2));
+    expect(conversations.startDraft).toHaveBeenCalledTimes(2);
+    // Opening a conversation is what clicking a row does, not this.
+    expect(conversations.open).not.toHaveBeenCalled();
+  });
+
+  it('marks no thread as open while the new chat is, and has no Chat link to go back by', () => {
+    conversations.draft = { key: 'draft:1', agentId: 'agent.a' };
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    expect(screen.getByTitle('Plans').getAttribute('aria-current')).toBeNull();
+    expect(screen.queryByText('chat')).toBeNull();
   });
 
   it('archives from the row menu, and deletes only after confirming', async () => {

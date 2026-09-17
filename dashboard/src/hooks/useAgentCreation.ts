@@ -27,7 +27,7 @@ const INITIAL_FORM: CreationForm = {
   routingRules: [],
 };
 
-export function useAgentCreation(onCreated: () => void) {
+export function useAgentCreation(onCreated: (name: string) => void) {
   const api = useApi();
   const [form, setForm] = useState<CreationForm>(INITIAL_FORM);
   const [isCreating, setIsCreating] = useState(false);
@@ -56,8 +56,11 @@ export function useAgentCreation(onCreated: () => void) {
         metadata,
         password: form.password || undefined,
       });
+      const name = form.name;
       setForm(INITIAL_FORM);
-      onCreated();
+      // The kernel answers a creation with nothing, so the name is what a
+      // caller has to find the new agent by.
+      onCreated(name);
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Unknown error';
       setCreateError(msg);

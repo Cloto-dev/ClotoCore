@@ -58,6 +58,21 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   version and registration time, and `GET /api/mcp/servers/:name/tools`
   answers with the tools and their descriptions.
 
+- **A new chat is a screen, not an empty row.** Pressing New chat (or ⌘N) used
+  to create a conversation at once, so the list filled with untitled rows that
+  nothing was ever said in. It now opens on the agent's presence — face, name,
+  state and an opening remark, one of several — with the ordinary composer
+  under it, and nothing is created until the first message is sent; the row
+  appears in the list at that moment, and leaving without sending leaves
+  nothing. Who the chat is with is chosen there: the faces turn by a horizontal
+  swipe, a drag, or the arrow buttons, in the order you last spoke with them,
+  and the accent follows whoever is facing. "Create an agent" is the face at
+  the left end, and the only one when nobody exists yet; nothing can be sent
+  while it is facing, or to an agent that is off. Turning keeps what was typed.
+  Turning past an agent does not mark their waiting questions as read.
+- The Chat link is gone from the navigation. A conversation is reached by
+  pressing New chat or by choosing it in the list; the link only reopened
+  whichever one had been open.
 - **The window's frame is the operating system's.** The bar the dashboard drew
   across the top of the window — back and forward, the product name, "N / N
   active", help, a connection dot and its own minimise / maximise / close

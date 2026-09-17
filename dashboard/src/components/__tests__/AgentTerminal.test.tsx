@@ -10,7 +10,14 @@ const apiFns = vi.hoisted(() => ({
 const fixed = vi.hoisted(() => ({
   servers: { servers: [], refetch: () => Promise.resolve() },
   agentContext: { processingAgentIds: new Set<string>() },
-  conversations: { openFor: () => 'c1', resolveOpen: () => Promise.resolve() },
+  conversations: {
+    openFor: () => 'c1',
+    resolveOpen: () => Promise.resolve(null),
+    draft: null as { key: string; agentId: string | null; first?: unknown } | null,
+    commitDraft: () => Promise.resolve('c1'),
+    mountKeyFor: (a: string, c: string) => `${a}:${c}`,
+    leaveDraft: () => {},
+  },
 }));
 
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn(), useLocation: () => ({ pathname: '/' }) }));
@@ -21,6 +28,7 @@ vi.mock('../../contexts/AgentContext', () => ({ useAgentContext: () => fixed.age
 vi.mock('../../contexts/ConversationContext', () => ({ useConversations: () => fixed.conversations }));
 vi.mock('../AgentConsole', () => ({ AgentConsole: () => <div>console</div> }));
 vi.mock('../agents/AgentRoster', () => ({ AgentRoster: () => <div>roster</div> }));
+vi.mock('../NewChatScreen', () => ({ NewChatScreen: () => <div>new-chat</div> }));
 
 import { AgentTerminal } from '../AgentTerminal';
 
@@ -52,6 +60,7 @@ const WAITING = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fixed.conversations.draft = null;
   apiFns.getNotifications.mockResolvedValue([WAITING]);
   apiFns.markNotificationRead.mockResolvedValue(undefined);
 });
@@ -70,5 +79,25 @@ describe('the agent route', () => {
     expect(screen.getByText('roster')).toBeTruthy();
     await Promise.resolve();
     expect(apiFns.markNotificationRead).not.toHaveBeenCalled();
+  });
+
+  it("shows the new chat while someone is being chosen, and reads nobody's questions for turning past them", async () => {
+    fixed.conversations.draft = { key: 'draft:1', agentId: 'agent.a' };
+    render(<AgentTerminal agents={[AGENT]} selectedAgent={AGENT} onSelectAgent={() => {}} onRefresh={() => {}} />);
+    expect(screen.getByText('new-chat')).toBeTruthy();
+    expect(screen.queryByText('console')).toBeNull();
+    await Promise.resolve();
+    expect(apiFns.markNotificationRead).not.toHaveBeenCalled();
+  });
+
+  it('hands over to the console once the first message is written', () => {
+    fixed.conversations.draft = {
+      key: 'draft:1',
+      agentId: 'agent.a',
+      first: { blocks: [], rawText: 'hello', engineOverride: null },
+    };
+    render(<AgentTerminal agents={[AGENT]} selectedAgent={AGENT} onSelectAgent={() => {}} onRefresh={() => {}} />);
+    expect(screen.getByText('console')).toBeTruthy();
+    expect(screen.queryByText('new-chat')).toBeNull();
   });
 });

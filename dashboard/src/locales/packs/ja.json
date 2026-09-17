@@ -160,7 +160,12 @@
       "day_yesterday": "昨日",
       "date_md": "{{month}} 月 {{day}} 日",
       "continue_from": "続きから",
-      "remark": "おかえりなさい。続きでも、別の話でも大丈夫ですよ。"
+      "remark": "おかえりなさい。続きでも、別の話でも大丈夫ですよ。",
+      "remarks_0": "おかえりなさい。続きでも、別の話でも大丈夫ですよ。",
+      "remarks_1": "ここにいますよ。何から話しましょうか。",
+      "remarks_2": "ゆっくりで大丈夫です。どこからでもどうぞ。",
+      "remarks_3": "来てくれてうれしいです。今日は何を見ましょうか。",
+      "remarks_4": "いつでもどうぞ。"
     },
     "chat_input": {
       "placeholder": "{{name}}に話しかける",
@@ -407,6 +412,13 @@
       "fallback": "フォールバック",
       "routing_help": "条件: contains:キーワード、length:>N、tools_likely、default。順に評価し、最初に合ったものへ。",
       "engine_not_connected": "{{engine}} (未接続)"
+    },
+    "new_chat": {
+      "previous": "前の相手",
+      "next": "次の相手",
+      "create_agent": "エージェントを作成",
+      "create_first": "まだ誰もいません。話し相手を作りましょう。",
+      "create_another": "新しい話し相手を作ります。"
     }
   },
   "settings": {
@@ -828,7 +840,6 @@
     "delete_conversation_title": "この会話を削除しますか？",
     "delete_conversation_message": "「{{title}}」とそのメッセージを削除します。元に戻せません。話している間にエージェントが作った記憶は残ります。",
     "sidebar": "サイドバー",
-    "chat": "チャット",
     "search": "検索 (⌘K) — 検索機能と一緒に入ります",
     "notifications": "通知",
     "show_more": "もっと表示する",

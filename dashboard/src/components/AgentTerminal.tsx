@@ -10,6 +10,7 @@ import { EVENTS_URL } from '../services/api';
 import type { AgentMetadata } from '../types';
 import { AgentConsole } from './AgentConsole';
 import { AgentRoster } from './agents/AgentRoster';
+import { NewChatScreen } from './NewChatScreen';
 
 export interface AgentTerminalProps {
   agents: AgentMetadata[];
@@ -31,7 +32,12 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh 
   const navigate = useNavigate();
   const { processingAgentIds } = useAgentContext();
   const { refetch: refetchMcpServers } = useMcpServers();
-  useReadOnOpen(selectedAgent?.id ?? null);
+  const { draft, leaveDraft } = useConversations();
+  // The new chat, while someone is still being chosen. Turning through the
+  // faces selects each agent in passing, which is not opening a conversation
+  // with them: their waiting questions stay unread.
+  const choosing = draft !== null && !draft.first;
+  useReadOnOpen(choosing ? null : (selectedAgent?.id ?? null));
 
   // The agent view is persistently mounted — AppLayout hides it with CSS rather
   // than unmounting it — so useMcpServers' mount-time fetch never re-runs while
@@ -54,11 +60,16 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh 
     api.apiKey,
   );
 
+  if (choosing) return <NewChatScreen />;
+
   if (selectedAgent) {
     return (
       <OpenConversationConsole
         agent={selectedAgent}
-        onBack={() => onSelectAgent(null)}
+        onBack={() => {
+          leaveDraft();
+          onSelectAgent(null);
+        }}
         onConfigure={() => navigate(`/agents/${encodeURIComponent(selectedAgent.id)}/settings`)}
       />
     );
@@ -69,8 +80,9 @@ export function AgentTerminal({ agents, selectedAgent, onSelectAgent, onRefresh 
   );
 }
 
-/** Mounts the console on the conversation that is open for the agent —
- * remembered, else newest, else new — and remounts it when that changes. */
+/** Mounts the console on what is open for the agent — a draft if New chat was
+ * pressed, else the remembered conversation, else the newest, else a draft —
+ * and remounts it when that changes. */
 function OpenConversationConsole({
   agent,
   onBack,
@@ -80,21 +92,29 @@ function OpenConversationConsole({
   onBack: () => void;
   onConfigure: () => void;
 }) {
-  const { openFor, resolveOpen } = useConversations();
-  const conversationId = openFor(agent.id);
+  const { openFor, resolveOpen, draft, commitDraft, mountKeyFor } = useConversations();
+  // The new chat's first message was written for this agent: the console
+  // mounts on nothing, creates the conversation, and sends it.
+  const sending = draft?.first && draft.agentId === agent.id ? draft : null;
+  const draftKey = sending?.key ?? null;
+  const conversationId = draftKey ? null : openFor(agent.id);
   useEffect(() => {
-    if (!conversationId) {
+    if (!draftKey && !conversationId) {
       resolveOpen(agent.id).catch((err) => {
         if (import.meta.env.DEV) console.error('Failed to open a conversation:', err);
       });
     }
-  }, [agent.id, conversationId, resolveOpen]);
-  if (!conversationId) return null;
+  }, [agent.id, draftKey, conversationId, resolveOpen]);
+  if (!draftKey && !conversationId) return null;
   return (
     <AgentConsole
-      key={`${agent.id}:${conversationId}`}
+      // A draft and the conversation it becomes share one key, so the console
+      // is not remounted while its first message is on its way.
+      key={draftKey ?? mountKeyFor(agent.id, conversationId as string)}
       agent={agent}
       conversationId={conversationId}
+      onFirstMessage={() => commitDraft(agent.id)}
+      initialSend={sending?.first}
       onBack={onBack}
       onConfigure={onConfigure}
     />

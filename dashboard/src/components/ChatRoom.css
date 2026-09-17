@@ -475,6 +475,80 @@
   text-align: center;
   line-height: 1.8;
 }
+/* ---------- the new chat: faces that turn ---------- */
+/* The presence, with someone else one movement away. It is taken hold of
+   anywhere (grab), and the two arrows stand at the reading column's edges. */
+.presence.turning {
+  position: relative;
+  align-self: stretch;
+  cursor: grab;
+  touch-action: pan-y;
+  user-select: none;
+}
+.presence.turning.pulled {
+  cursor: grabbing;
+}
+.presence .facing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* A face arrives; it does not pop. The only motion on this screen, and it
+     says something: who is here just changed. */
+  animation: face-arrives 0.18s ease-out;
+}
+.presence.turning.pulled .facing {
+  animation: none;
+}
+@keyframes face-arrives {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .presence .facing {
+    animation: none;
+  }
+}
+.presence .turn {
+  position: absolute;
+  top: calc(50% - 3vh - 20px);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 24px;
+  line-height: 1;
+  color: hsl(var(--text-tertiary));
+}
+.presence .turn.prev {
+  left: 0;
+}
+.presence .turn.next {
+  right: 0;
+}
+.presence .turn:hover:not(:disabled) {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+.presence .turn:disabled {
+  opacity: 0.25;
+  cursor: default;
+}
+/* Nobody yet: the face is empty, in no one's colour. */
+.presence .pic.nobody {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-tertiary));
+}
+.presence .name.create {
+  border-radius: var(--radius-tool);
+  padding: 0 10px;
+}
+.presence .name.create:hover {
+  background: hsl(var(--surface-primary));
+}
+
 .presence .threads {
   width: min(520px, 100%);
   margin-top: 40px;

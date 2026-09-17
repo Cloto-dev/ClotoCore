@@ -2,7 +2,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
 import { rememberConversation, rememberedConversation } from '../lib/conversations';
-import type { Conversation } from '../types';
+import type { ContentBlock, Conversation } from '../types';
 import { useAgentContext } from './AgentContext';
 import { useUserIdentity } from './UserIdentityContext';
 
@@ -19,14 +19,52 @@ interface ConversationContextValue {
   /** The conversation open for an agent, once one has been chosen. */
   openFor: (agentId: string) => string | null;
   /** Choose the conversation to show for an agent: the remembered one if it
-   * still exists, else the newest, else a new one. */
-  resolveOpen: (agentId: string) => Promise<string>;
+   * still exists, else the newest, else a draft. Answers `null` for a draft. */
+  resolveOpen: (agentId: string) => Promise<string | null>;
   /** Open a conversation: select its agent and show it. */
   open: (agentId: string, conversationId: string) => void;
-  newChat: (agentId: string) => Promise<Conversation>;
+  /**
+   * The new chat, while it is only that: a screen to choose who to talk to and
+   * say the first thing. Nothing exists for it — in the kernel or in the
+   * sidebar — until that first thing is said; leaving leaves nothing behind.
+   * There is one at a time. `null` when no new chat is open.
+   */
+  draft: Draft | null;
+  /** Open the new chat, on this agent (or on "create an agent" with `null`). */
+  startDraft: (agentId: string | null) => void;
+  /** Turn the new chat to another agent, or to "create an agent" with `null`.
+   * The same draft: what was typed stays. */
+  setDraftAgent: (agentId: string | null) => void;
+  /** The first message was written: the console takes over and sends it. */
+  sendDraft: (first: FirstMessage) => void;
+  /** The console is sending the draft's first message: create its
+   * conversation and answer the id. The console stays mounted across this. */
+  commitDraft: (agentId: string) => Promise<string>;
+  /** Close the new chat without saying anything. */
+  leaveDraft: () => void;
+  /** The key to mount a conversation's console under. A conversation that began
+   * as a draft keeps the draft's key, so creating it does not remount the
+   * console in the middle of its first exchange. */
+  mountKeyFor: (agentId: string, conversationId: string) => string;
   rename: (agentId: string, conversationId: string, title: string) => Promise<void>;
   archive: (agentId: string, conversationId: string, archived: boolean) => Promise<void>;
   remove: (agentId: string, conversationId: string) => Promise<void>;
+}
+
+/** What the person wrote to begin a conversation, as the composer hands it over. */
+export interface FirstMessage {
+  blocks: ContentBlock[];
+  rawText: string;
+  engineOverride: string | null;
+}
+
+export interface Draft {
+  /** What the console is mounted under, before and after the conversation exists. */
+  key: string;
+  /** Who the new chat is turned to; `null` is the "create an agent" face. */
+  agentId: string | null;
+  /** Set once the first message is written: the console sends it on mount. */
+  first?: FirstMessage;
 }
 
 const ConversationContext = createContext<ConversationContextValue | null>(null);
@@ -40,6 +78,9 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [openIds, setOpenIds] = useState<Record<string, string>>({});
   const creating = useRef<Map<string, Promise<Conversation>>>(new Map());
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const draftSeq = useRef(0);
+  const mountKeys = useRef<Map<string, string>>(new Map());
 
   const agentIds = useMemo(() => agents.map((a) => a.id).join('\n'), [agents]);
 
@@ -73,23 +114,68 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
 
   const openFor = useCallback((agentId: string) => openIds[agentId] ?? null, [openIds]);
 
-  const newChat = useCallback(
+  const leaveDraft = useCallback(() => setDraft(null), []);
+
+  const beginDraft = useCallback((agentId: string | null) => {
+    draftSeq.current += 1;
+    // A fresh key every time: pressing New chat on a half-typed draft is
+    // asking for an empty one.
+    setDraft({ key: `draft:${draftSeq.current}`, agentId });
+  }, []);
+
+  /** Make an agent the one present and keep the address bar in step. */
+  const present = useCallback(
+    (agentId: string | null, replace: boolean) => {
+      setSystemActive(false);
+      setSelectedAgentId(agentId);
+      navigate(agentId ? `/?agent=${encodeURIComponent(agentId)}` : '/', { replace });
+    },
+    [navigate, setSelectedAgentId, setSystemActive],
+  );
+
+  const startDraft = useCallback(
+    (agentId: string | null) => {
+      beginDraft(agentId);
+      present(agentId, false);
+    },
+    [beginDraft, present],
+  );
+
+  const setDraftAgent = useCallback(
+    (agentId: string | null) => {
+      setDraft((prev) => (prev && !prev.first ? { ...prev, agentId } : prev));
+      present(agentId, true);
+    },
+    [present],
+  );
+
+  const sendDraft = useCallback((first: FirstMessage) => {
+    // Only a draft turned to someone can be sent.
+    setDraft((prev) => (prev?.agentId ? { ...prev, first } : prev));
+  }, []);
+
+  const commitDraft = useCallback(
     async (agentId: string) => {
-      // An empty conversation is already a new chat: reuse it rather than
-      // minting another, so pressing the button twice leaves one, not two.
-      const empty = conversations.find(
-        (c) => c.agent_id === agentId && c.message_count === 0 && c.archived_at === null,
-      );
-      if (empty) {
-        setOpen(agentId, empty.id);
-        return empty;
+      // One creation per agent at a time: a double send must not mint two.
+      let pending = creating.current.get(agentId);
+      if (!pending) {
+        pending = api.createConversation(agentId, identity.id).finally(() => creating.current.delete(agentId));
+        creating.current.set(agentId, pending);
       }
-      const created = await api.createConversation(agentId, identity.id);
+      const created = await pending;
+      if (draft) mountKeys.current.set(created.id, draft.key);
       setConversations((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
       setOpen(agentId, created.id);
-      return created;
+      setDraft(null);
+      return created.id;
     },
-    [api, conversations, identity.id, setOpen],
+    [api, draft, identity.id, setOpen],
+  );
+
+  const mountKeyFor = useCallback(
+    (agentId: string, conversationId: string) =>
+      mountKeys.current.get(conversationId) ?? `${agentId}:${conversationId}`,
+    [],
   );
 
   const resolveOpen = useCallback(
@@ -107,20 +193,19 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
         setOpen(agentId, live[0].id);
         return live[0].id;
       }
-      // One creation per agent at a time: two mounts must not mint two.
-      let pending = creating.current.get(agentId);
-      if (!pending) {
-        pending = newChat(agentId).finally(() => creating.current.delete(agentId));
-        creating.current.set(agentId, pending);
-      }
-      return (await pending).id;
+      // Nobody has spoken with this agent yet. That is a draft, not a row:
+      // nothing is created until something is said.
+      beginDraft(agentId);
+      return null;
     },
-    [api, identity.id, newChat, openIds, setOpen],
+    [api, beginDraft, identity.id, openIds, setOpen],
   );
 
   const open = useCallback(
     (agentId: string, conversationId: string) => {
       setOpen(agentId, conversationId);
+      // Choosing a conversation leaves the new chat: it held nothing to keep.
+      setDraft(null);
       setSystemActive(false);
       setSelectedAgentId(agentId);
       navigate(`/?agent=${encodeURIComponent(agentId)}`);
@@ -160,8 +245,42 @@ export function ConversationProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ conversations, loading, refresh, openFor, resolveOpen, open, newChat, rename, archive, remove }),
-    [conversations, loading, refresh, openFor, resolveOpen, open, newChat, rename, archive, remove],
+    () => ({
+      conversations,
+      loading,
+      refresh,
+      openFor,
+      resolveOpen,
+      open,
+      draft,
+      startDraft,
+      setDraftAgent,
+      sendDraft,
+      commitDraft,
+      leaveDraft,
+      mountKeyFor,
+      rename,
+      archive,
+      remove,
+    }),
+    [
+      conversations,
+      loading,
+      refresh,
+      openFor,
+      resolveOpen,
+      open,
+      draft,
+      startDraft,
+      setDraftAgent,
+      sendDraft,
+      commitDraft,
+      leaveDraft,
+      mountKeyFor,
+      rename,
+      archive,
+      remove,
+    ],
   );
 
   return <ConversationContext.Provider value={value}>{children}</ConversationContext.Provider>;
