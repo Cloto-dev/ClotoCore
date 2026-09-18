@@ -1573,6 +1573,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             axum::routing::put(handlers::put_agent_mcp_access),
         )
         .route(
+            "/agents/{id}/argument-rules",
+            get(handlers::get_agent_argument_rules).put(handlers::put_agent_argument_rules),
+        )
+        .route(
             "/agents/{id}/last-usage",
             get(handlers::get_agent_last_usage),
         )

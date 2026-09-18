@@ -276,6 +276,117 @@ pub struct AccessControlEntry {
     pub metadata: Option<String>,
 }
 
+/// Constraints on the arguments of an agent's calls to one server's tools.
+///
+/// A grant decides whether the agent may call a tool at all; a rule decides
+/// which argument values such a call must carry. `tool_name` of `None` applies
+/// the rule to every tool on the server. Stored apart from the grant rows
+/// (`mcp_argument_rules`), which the bulk grant updates delete and re-insert.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArgumentRule {
+    pub server_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    /// An argument named here must equal this value whenever it is present.
+    #[serde(default)]
+    pub equals: serde_json::Map<String, serde_json::Value>,
+    /// An argument named here must be present and not null.
+    #[serde(default)]
+    pub required: Vec<String>,
+}
+
+fn argument_rule_from_row(
+    server_id: String,
+    tool_name: String,
+    equals: &str,
+    required: &str,
+) -> anyhow::Result<ArgumentRule> {
+    Ok(ArgumentRule {
+        server_id,
+        tool_name: (!tool_name.is_empty()).then_some(tool_name),
+        equals: serde_json::from_str(equals)?,
+        required: serde_json::from_str(required)?,
+    })
+}
+
+/// Every argument rule set for `agent_id`, ordered by server then tool.
+pub async fn list_argument_rules(
+    pool: &SqlitePool,
+    agent_id: &str,
+) -> anyhow::Result<Vec<ArgumentRule>> {
+    let rows = db_timeout(
+        sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT server_id, tool_name, equals, required FROM mcp_argument_rules \
+             WHERE agent_id = ? ORDER BY server_id, tool_name",
+        )
+        .bind(agent_id)
+        .fetch_all(pool),
+    )
+    .await?;
+    rows.into_iter()
+        .map(|(server_id, tool_name, equals, required)| {
+            argument_rule_from_row(server_id, tool_name, &equals, &required)
+        })
+        .collect()
+}
+
+/// The rules that apply to one call: the server-wide rule and the rule for this
+/// tool, when either exists.
+pub async fn argument_rules_for_call(
+    pool: &SqlitePool,
+    agent_id: &str,
+    server_id: &str,
+    tool_name: &str,
+) -> anyhow::Result<Vec<ArgumentRule>> {
+    let rows = db_timeout(
+        sqlx::query_as::<_, (String, String, String, String)>(
+            "SELECT server_id, tool_name, equals, required FROM mcp_argument_rules \
+             WHERE agent_id = ? AND server_id = ? AND tool_name IN ('', ?)",
+        )
+        .bind(agent_id)
+        .bind(server_id)
+        .bind(tool_name)
+        .fetch_all(pool),
+    )
+    .await?;
+    rows.into_iter()
+        .map(|(server_id, tool_name, equals, required)| {
+            argument_rule_from_row(server_id, tool_name, &equals, &required)
+        })
+        .collect()
+}
+
+/// Replace every argument rule for `agent_id` with `rules`, in one transaction.
+pub async fn put_argument_rules(
+    pool: &SqlitePool,
+    agent_id: &str,
+    rules: &[ArgumentRule],
+) -> anyhow::Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM mcp_argument_rules WHERE agent_id = ?")
+        .bind(agent_id)
+        .execute(&mut *tx)
+        .await?;
+    for rule in rules {
+        sqlx::query(
+            "INSERT INTO mcp_argument_rules \
+             (agent_id, server_id, tool_name, equals, required, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(agent_id)
+        .bind(&rule.server_id)
+        .bind(rule.tool_name.as_deref().unwrap_or(""))
+        .bind(serde_json::to_string(&rule.equals)?)
+        .bind(serde_json::to_string(&rule.required)?)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
 /// Save a single access control entry.
 pub async fn save_access_control_entry(
     pool: &SqlitePool,

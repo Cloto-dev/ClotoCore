@@ -293,6 +293,73 @@ class AgentsMcpAccess(Operation):
 
 
 @register
+class AgentsArgumentRules(Operation):
+    """Argument rules: replace the set, read it back, restore the original.
+
+    PUT replaces the whole set, so the probe records what was there first and
+    teardown writes it back even if an assertion fails. The probe rule names a
+    server id that is not installed, so it cannot narrow any real call while it
+    exists. The assertion is on replacement: the second PUT's set is all that
+    remains, which a PUT that merged would fail.
+    """
+
+    domain = "agents"
+    name = "argument_rules"
+    covers = [
+        "GET /api/agents/{id}/argument-rules",
+        "PUT /api/agents/{id}/argument-rules",
+    ]
+    phase0 = True
+
+    _FIRST = [
+        {"server_id": "opverify.rules-probe", "equals": {"agent_id": _DEFAULT_AGENT}},
+        {"server_id": "opverify.rules-probe", "tool_name": "probe", "required": ["agent_id"]},
+    ]
+    _SECOND = [{"server_id": "opverify.rules-probe", "equals": {"project_id": "probe"}}]
+
+    def drive(self, ctx: RunContext):
+        url = f"/api/agents/{_DEFAULT_AGENT}/argument-rules"
+        original = ctx.client.get(url)["rules"]
+        ctx.scratch["argument_rules_original"] = original
+        ctx.client.put(url, body={"rules": self._FIRST})
+        after_first = ctx.client.get(url)["rules"]
+        ctx.client.put(url, body={"rules": self._SECOND})
+        after_second = ctx.client.get(url)["rules"]
+        ctx.client.put(url, body={"rules": original})
+        ctx.scratch.pop("argument_rules_original", None)
+        restored = ctx.client.get(url)["rules"]
+        return {
+            "original": original,
+            "after_first": after_first,
+            "after_second": after_second,
+            "restored": restored,
+        }
+
+    def assert_success(self, ctx: RunContext, result):
+        servers = lambda rules: [r.get("server_id") for r in rules]  # noqa: E731
+        assert servers(result["after_first"]).count("opverify.rules-probe") == 2, (
+            f"first PUT not stored as sent: {result['after_first']!r}"
+        )
+        assert result["after_second"] == [
+            {"server_id": "opverify.rules-probe", "equals": {"project_id": "probe"}, "required": []}
+        ], f"second PUT did not replace the set: {result['after_second']!r}"
+        assert result["restored"] == result["original"], (
+            f"the agent's original rules were not restored: {result['restored']!r}"
+        )
+
+    def teardown(self, ctx: RunContext):
+        original = ctx.scratch.pop("argument_rules_original", None)
+        if original is not None:
+            try:
+                ctx.client.put(
+                    f"/api/agents/{_DEFAULT_AGENT}/argument-rules",
+                    body={"rules": original},
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
+
+@register
 class AgentsLastUsage(Operation):
     """The context-usage badge's source.
 
