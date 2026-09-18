@@ -1,4 +1,3 @@
-import { Activity } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useActionsContext } from '../contexts/ActionsContext';
@@ -14,6 +13,7 @@ import { buildOutgoingChat } from '../lib/chatSend';
 import { type DayLabel, dayBreaks, dayLabel, relativeTime, timeOfDay } from '../lib/chatTime';
 import { displayTitle } from '../lib/conversations';
 import { findBranchPoints, flattenConversation } from '../lib/conversationTree';
+import { engineErrorOf } from '../lib/engineError';
 import { markInline, unmarkInline } from '../lib/inlineApprovals';
 import { mostSevere } from '../lib/notificationSeverity';
 import { sendNativeNotification } from '../lib/notifications';
@@ -41,7 +41,7 @@ import './ChatRoom.css';
 import { CommandApprovalCard } from './CommandApprovalCard';
 import { MessageContent } from './ContentBlockView';
 import { ContextUsageBadge } from './ContextUsageBadge';
-import { SystemAlertCard } from './SystemAlertCard';
+import { DiagnosticsModal } from './DiagnosticsModal';
 import { ToolRejectionCard } from './ToolRejectionCard';
 import { TypewriterMessage } from './TypewriterMessage';
 
@@ -187,6 +187,8 @@ export function AgentConsole({
   const actions = useActionsContext();
   const [activeBranches, setActiveBranches] = useState<Record<string, number>>({});
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+  // The engine error a report is being written for, while the report is open.
+  const [reportOf, setReportOf] = useState<string | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const hasVrm = agent.metadata?.has_vrm === 'true';
@@ -676,6 +678,21 @@ export function AgentConsole({
             };
             setMessages((msgs) => [...msgs, prevMsg]);
           }
+          // A turn the engine failed to produce is not typed out as if the
+          // agent were saying it: it goes into the room already in its own form.
+          if (engineErrorOf(event.data.content as string) !== null) {
+            const failedMsg: ChatMessage = {
+              id: msgId,
+              agent_id: agent.id,
+              user_id: identity.id,
+              source: 'agent',
+              content: [{ type: 'text', text: event.data.content as string }],
+              created_at: Date.now(),
+              parent_id: parentId as string | undefined,
+            };
+            setMessages((msgs) => [...msgs, failedMsg]);
+            return null;
+          }
           return {
             id: msgId,
             text: event.data.content as string,
@@ -1141,7 +1158,7 @@ export function AgentConsole({
                 const firstText = Array.isArray(msg.content)
                   ? msg.content.find((b) => b.type === 'text')?.text || ''
                   : '';
-                const isError = !isUser && firstText.startsWith('[Error]');
+                const engineError = isUser ? null : engineErrorOf(firstText);
                 // Check if this message's parent has branch siblings
                 const branchKey = msg.parent_id ? msg.parent_id + ':' + msg.source : null;
                 const branch = branchKey ? branchPoints.get(branchKey) : undefined;
@@ -1159,13 +1176,33 @@ export function AgentConsole({
                 );
                 const when = <span>{timeOfDay(msg.created_at, i18n.language)}</span>;
                 let turn: React.ReactNode;
-                if (isError) {
+                if (engineError !== null) {
+                  // Where the reply would be, quietly: the mark is hollow because
+                  // the agent said nothing, and the colour is on the engine's own
+                  // words. The actions are the ones this turn needs, always shown.
                   turn = (
-                    <SystemAlertCard icon={<Activity size={14} />} title={t('console.engine_error')}>
-                      <div className="text-xs text-content-secondary whitespace-pre-line">
-                        {firstText.replace(/^\[Error\]\s*/, '')}
+                    <div className="msg fail">
+                      <span className="mark" />
+                      <div className="b">
+                        <p className="lead">{t('console.reply_failed')}</p>
+                        <div className="err select-text">{engineError}</div>
+                        <div className="meta">
+                          {when}
+                          {navigator}
+                          <span className="acts">
+                            <button type="button" disabled={generating} onClick={() => handleRetry(msg)}>
+                              {t('console.retry')}
+                            </button>
+                            <button type="button" onClick={() => copyText([{ type: 'text', text: engineError }])}>
+                              {t('console.copy')}
+                            </button>
+                            <button type="button" onClick={() => setReportOf(engineError)}>
+                              {t('console.report_details')}
+                            </button>
+                          </span>
+                        </div>
                       </div>
-                    </SystemAlertCard>
+                    </div>
                   );
                 } else if (msg.source === 'system') {
                   turn = <div className="day">{firstText}</div>;
@@ -1377,6 +1414,10 @@ export function AgentConsole({
         unreadConsensusCount={actions.unreadConsensusCount}
         totalCount={actions.totalCount}
       />
+
+      {reportOf !== null && (
+        <DiagnosticsModal context={t('console.report_context')} message={reportOf} onClose={() => setReportOf(null)} />
+      )}
     </div>
   );
 }

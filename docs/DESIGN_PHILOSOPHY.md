@@ -116,6 +116,12 @@ are not applied until saved. One part, used everywhere it fits.
    The reasoning trace is the agent's *inner voice*, folded. A permission
    request is *a question from the agent*, in their words, with a 2 px edge in
    their colour. While they answer, send becomes stop and a cursor blinks.
+   When the engine fails, the agent did not speak: the turn sits where the
+   reply would be, with a hollow mark, one plain sentence, and the engine's own
+   words in the status colour — never in the agent's colour, never typed out as
+   if they said it — and the actions that turn needs (again, copy, a report)
+   shown without waiting for a hover. It does not borrow the question's edge:
+   a failure and a question would then differ only in colour.
 
 ## 5. What is deliberately not copied
 

@@ -36,6 +36,19 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Changed
 
+- **A reply the engine could not produce looks like it.** It used to arrive as
+  an amber card with an icon tile, a shadow and a slide-in — and, when it came
+  in live, it was first typed out as if the agent were saying `[Error] …`, then
+  swapped for the card. It is now drawn where the reply would be, straight
+  away: a hollow mark (the agent said nothing), one sentence, the engine's own
+  words in the status colour, and **Again**, **Copy** and **Details for a
+  report** — the last opens the same pasteable report as a crashed screen —
+  always shown rather than on hover. Scored against the review checklist
+  (`docs/DESIGN_PHILOSOPHY.md` §6) the old card carried 4 of the 25 signals
+  (a translucent tinted card, an icon tile, radius and shadow of its own,
+  motion with no meaning) and part of a fifth (an error state with nothing to
+  do about it); the new turn carries none.
+
 - **The box under "Create an agent" says what it is for.** On the new-chat
   screen, with nobody facing you, the composer was an empty box with a greyed
   send arrow: pressing it or typing anything opened the form, and what you had

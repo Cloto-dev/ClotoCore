@@ -309,6 +309,33 @@
   opacity: 0.4;
   cursor: default;
 }
+/* A turn the engine failed to produce, drawn where the reply would be. The agent
+ * said nothing, so its mark is hollow — a failure of the engine is not the agent
+ * speaking. The state colour is on the engine's own words and nowhere else, and
+ * the actions are shown without waiting for a hover because this turn needs one. */
+.msg.fail .mark {
+  background: none;
+  box-shadow: inset 0 0 0 1.5px hsl(var(--text-tertiary));
+}
+.msg.fail .lead {
+  font-size: 15px;
+  color: hsl(var(--text-secondary));
+}
+.msg.fail .err {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: hsl(6 70% 72%);
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-tool);
+  padding: 8px 12px;
+  margin-top: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.msg.fail .meta .acts {
+  opacity: 1;
+}
 .me .wrap {
   max-width: 76%;
   display: flex;

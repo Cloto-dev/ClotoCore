@@ -43,7 +43,7 @@ Routes (see `App.tsx`):
 - `../hooks/useShortcut.ts` + `../lib/shortcuts.ts` — Every global shortcut in one table (⌘K search, ⌘N new chat, `/` the composer), one window listener, newest registration asked first; a bare key is left alone while text is being typed.
 - `../pages/CliAgentsPage.tsx` — The CLI agents page at `/agents/cli` (opened from the roster's head, and from an agent's engine row when that engine runs a harness): the harnesses the connector's probe reports, the connection options its catalog entry declares, and the per-agent settings its probe schema describes. Knows no harness, option or field by name. Deferred save: agents are written before the options, and everything that can refuse is asked before anything is written.
 - `../pages/AgentSettingsPage.tsx` — One agent's settings at `/agents/:id/settings`: basics, engine, memory, appearance, tool permissions, danger zone. All edits use the **deferred save pattern** (pending state → apply on Save, Discard and Back make no call).
-- `AgentConsole.tsx` — Chat message display. Renders messages, thinking steps, tool calls, streaming responses. Handles SSE events (AgentThinking, ToolExecuted, etc).
+- `AgentConsole.tsx` — Chat message display. Renders messages, thinking steps, tool calls, streaming responses. Handles SSE events (AgentThinking, ToolExecuted, etc). A turn the engine failed to produce is drawn where the reply would be, with a hollow mark, the engine's own words, and again / copy / a report (`DiagnosticsModal`); it is never typed out as if the agent said it.
 - `ChatInputBar.tsx` — Message input field with send button. Supports multiline input.
 - `PowerToggleModal.tsx` — Confirmation modal when toggling agent power (with optional password).
 - `EngineSelector.tsx` — LLM engine dropdown selector. Shows available MCP engine servers.
@@ -107,7 +107,6 @@ Routes (see `App.tsx`):
 
 #### System & Status
 - `KernelMonitor.tsx` — System kernel monitoring view (CPU, memory, MCP server status).
-- `SystemAlertCard.tsx` — System alert notification cards.
 - `SkeletonThinking.tsx` — Loading/thinking animation placeholder.
 - `ErrorBoundary.tsx` — React error boundary wrapper. Release build: restarts process via `@tauri-apps/plugin-process` relaunch(). Dev build: detects Vite down state and shows guidance.
 
@@ -190,6 +189,7 @@ Routes (see `App.tsx`):
 - `markdown.ts` — Markdown parsing utilities.
 - `conversationTree.ts` — Conversation branching/fork logic.
 - `errors.ts` — Error extraction and formatting.
+- `engineError.ts` — Tells a turn the engine failed to produce from something the agent said (the kernel's `[Error]` prefix is the only mark it carries).
 - `format.ts` — Display formatting utilities (`displayServerId`, etc).
 - `json.ts` — JSON parsing utilities.
 - `notifications.ts` — Toast notification system.
