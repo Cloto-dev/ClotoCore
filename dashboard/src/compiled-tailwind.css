@@ -1114,10 +1114,6 @@ body {
   height: 18rem;
 }
 
-.h-8 {
-  height: 2rem;
-}
-
 .h-\[13px\] {
   height: 13px;
 }
@@ -1298,10 +1294,6 @@ body {
   max-width: 220px;
 }
 
-.max-w-\[80\%\] {
-  max-width: 80%;
-}
-
 .max-w-\[90vw\] {
   max-width: 90vw;
 }
@@ -1438,6 +1430,10 @@ body {
 
 .resize {
   resize: both;
+}
+
+.list-disc {
+  list-style-type: disc;
 }
 
 .appearance-none {
@@ -1594,10 +1590,6 @@ body {
 
 .whitespace-nowrap {
   white-space: nowrap;
-}
-
-.whitespace-pre-line {
-  white-space: pre-line;
 }
 
 .whitespace-pre-wrap {
@@ -1827,10 +1819,6 @@ body {
 
 .bg-amber-500\/15 {
   background-color: rgb(245 158 11 / 0.15);
-}
-
-.bg-amber-500\/20 {
-  background-color: rgb(245 158 11 / 0.2);
 }
 
 .bg-amber-500\/5 {
@@ -2155,6 +2143,10 @@ body {
   padding-left: 5rem;
 }
 
+.pl-5 {
+  padding-left: 1.25rem;
+}
+
 .pl-7 {
   padding-left: 1.75rem;
 }
@@ -2185,6 +2177,10 @@ body {
 
 .pt-2 {
   padding-top: 0.5rem;
+}
+
+.pt-4 {
+  padding-top: 1rem;
 }
 
 .text-left {

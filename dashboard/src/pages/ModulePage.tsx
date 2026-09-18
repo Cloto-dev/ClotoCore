@@ -7,6 +7,8 @@ import { useApi } from '../hooks/useApi';
 import { useModules } from '../hooks/useModules';
 import { extractError } from '../lib/errors';
 import { decideModuleCall, MODULE_RESULT } from '../lib/moduleBridge';
+import { describeWrite } from '../lib/panelWrites';
+import type { ModuleWriteAccess } from '../types';
 
 /**
  * Host for one runtime-loaded UI module.
@@ -17,6 +19,12 @@ import { decideModuleCall, MODULE_RESULT } from '../lib/moduleBridge';
  * storage, and no way to call the kernel behind the operator's back. When it
  * needs data it posts a message; `lib/moduleBridge` decides whether that call
  * is one the module's manifest declared, and only then does the host make it.
+ *
+ * A module that declares `writes` may also change kernel state, but only
+ * through the kernel's write relay, which re-checks the panel and the
+ * operator's consent on every write (docs/PANEL_WRITE_GATE_DESIGN.md). This page
+ * asks for that consent and shows that it was given; it never sends a write
+ * anywhere else.
  *
  * The cost of that isolation is that a module is one self-contained document —
  * a relative `<script src>` has no origin to resolve against. That is the trade
@@ -39,6 +47,44 @@ export function ModulePage() {
   // and rebuilt every time the module list refreshes.
   const requiresRef = useRef<string[]>([]);
   requiresRef.current = entry?.requires ?? [];
+  const writesRef = useRef<string[]>([]);
+  writesRef.current = entry?.writes ?? [];
+  const idRef = useRef(id);
+  idRef.current = id;
+
+  const declaresWrites = (entry?.writes?.length ?? 0) > 0;
+  const [access, setAccess] = useState<ModuleWriteAccess | null>(null);
+  const [consentError, setConsentError] = useState<string | null>(null);
+  const [consentDismissed, setConsentDismissed] = useState(false);
+  const [showWrites, setShowWrites] = useState(false);
+
+  const loadAccess = useCallback(async () => {
+    if (!id || !declaresWrites) {
+      setAccess(null);
+      return;
+    }
+    try {
+      setAccess(await api.getModuleWriteAccess(id));
+    } catch {
+      // Unknown is not "cannot write" and not "can": show neither the sheet nor
+      // the badge. The kernel still refuses every write it has not admitted.
+      setAccess(null);
+    }
+  }, [api, id, declaresWrites]);
+
+  useEffect(() => {
+    void loadAccess();
+  }, [loadAccess]);
+
+  const allowWrites = async () => {
+    setConsentError(null);
+    try {
+      await api.putModuleWriteConsent(id);
+      await loadAccess();
+    } catch (e) {
+      setConsentError(extractError(e, t('module_write_consent_failed')));
+    }
+  };
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -66,7 +112,7 @@ export function ModulePage() {
       // The window reference can, and is the check that matters.
       if (!frame || event.source !== frame.contentWindow) return;
 
-      const decision = decideModuleCall(event.data, requiresRef.current);
+      const decision = decideModuleCall(event.data, requiresRef.current, writesRef.current);
       // `targetOrigin: "*"` because an opaque origin cannot be named. It is safe
       // here only because the recipient is addressed by window reference, not
       // broadcast: `contentWindow` is this frame and no other.
@@ -77,9 +123,11 @@ export function ModulePage() {
         if (decision.id) reply({ id: decision.id, ok: false, error: decision.reason });
         return;
       }
-      const { id: requestId, method, path } = decision.request;
-      api
-        .callForModule(method, path)
+      const { id: requestId, method, path, write, body } = decision.request;
+      // A write goes to the kernel's relay and nowhere else; the kernel decides
+      // whether it happens.
+      const call = write ? api.writeForModule(idRef.current, method, path, body) : api.callForModule(method, path);
+      call
         .then(({ status, body }) => reply({ id: requestId, ok: status < 400, status, body }))
         .catch((e) => reply({ id: requestId, ok: false, error: extractError(e, 'Request failed') }));
     };
@@ -89,6 +137,16 @@ export function ModulePage() {
 
   const title = entry?.name || id;
   const rejected = entry?.error;
+  const canWrite = access?.eligible === true && access.consent?.valid === true;
+  const asksConsent = access?.eligible === true && access.consent?.valid !== true && !consentDismissed;
+
+  const writeLines = (access?.writes ?? []).map((w) => {
+    const d = describeWrite(w);
+    if (d.kind === 'send_messages') return { key: w, text: t('module_write_send_messages', { agent: d.agent }) };
+    if (d.kind === 'start_conversations')
+      return { key: w, text: t('module_write_start_conversations', { agent: d.agent }) };
+    return { key: w, text: d.entry };
+  });
 
   return (
     <div className="flex flex-col h-full">
@@ -97,17 +155,78 @@ export function ModulePage() {
           <h1 className="text-sm font-mono font-bold text-content-primary truncate">{title}</h1>
           {entry?.description && <p className="text-xs text-content-tertiary truncate">{entry.description}</p>}
         </div>
+        {canWrite && (
+          <button
+            type="button"
+            onClick={() => setShowWrites((v) => !v)}
+            aria-expanded={showWrites}
+            className="ml-auto px-2 py-1 rounded-md border border-edge text-xs text-content-secondary hover:border-edge"
+          >
+            {t('module_can_write')}
+          </button>
+        )}
         <button
           type="button"
           onClick={() => void load()}
           disabled={isLoading}
           aria-label={t('module_reload')}
           title={t('module_reload')}
-          className="ml-auto p-2 rounded-lg border border-edge bg-surface-panel text-content-secondary hover:text-agent hover:border-agent disabled:opacity-30"
+          className={`${canWrite ? '' : 'ml-auto '}p-2 rounded-lg border border-edge bg-surface-panel text-content-secondary hover:text-agent hover:border-agent disabled:opacity-30`}
         >
           <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
         </button>
       </div>
+
+      {canWrite && showWrites && (
+        <div className="px-4 py-3 border-b border-edge bg-surface-panel text-xs text-content-secondary">
+          <p>{t('module_write_list_title')}</p>
+          <ul className="mt-1 list-disc pl-5">
+            {writeLines.map((l) => (
+              <li key={l.key}>{l.text}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {access && !access.eligible && (
+        // A sentence, not an identifier, so not the monospace AlertCard.
+        <p className="px-4 pt-4 text-xs text-amber-400">
+          {t('module_write_ineligible', { reason: access.reason ?? '' })}
+        </p>
+      )}
+
+      {asksConsent && (
+        <section
+          aria-label={t('module_write_consent_title')}
+          className="mx-4 mt-4 p-3 rounded-lg border border-edge bg-surface-panel text-xs text-content-secondary"
+        >
+          <h2 className="text-sm font-bold text-content-primary">{t('module_write_consent_title')}</h2>
+          {access?.consent && !access.consent.valid && <p className="mt-1">{t('module_write_consent_lapsed')}</p>}
+          <p className="mt-1">{t('module_write_consent_desc')}</p>
+          <ul className="mt-2 list-disc pl-5">
+            {writeLines.map((l) => (
+              <li key={l.key}>{l.text}</li>
+            ))}
+          </ul>
+          {consentError && <p className="mt-2 text-red-400">{consentError}</p>}
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => void allowWrites()}
+              className="px-3 py-1 rounded-md border border-edge bg-surface-primary text-content-primary hover:border-edge"
+            >
+              {t('module_write_allow')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConsentDismissed(true)}
+              className="px-3 py-1 rounded-md border border-edge hover:border-edge"
+            >
+              {t('module_write_not_now')}
+            </button>
+          </div>
+        </section>
+      )}
 
       <div className="flex-1 min-h-0 p-4">
         {rejected ? (

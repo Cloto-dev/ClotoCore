@@ -20,6 +20,8 @@ import type {
   MemoryCapabilities,
   Metrics,
   ModuleInfo,
+  ModuleWriteAccess,
+  PanelWriteConsent,
   PermissionRequest,
   RecallPrecisionInfo,
   SetupStatus,
@@ -727,6 +729,63 @@ export const api = {
     return { status: res.status, body: safeJsonParse(text, text) };
   },
 
+  /** Send one write a module asked for through the kernel's write relay. The
+   * kernel re-checks everything (seal, trust, declaration, consent) and answers
+   * 403 with the reason when it refuses; the target's own status otherwise. */
+  writeForModule: async (
+    id: string,
+    method: string,
+    path: string,
+    body: unknown,
+    apiKey: string,
+  ): Promise<{ status: number; body: unknown }> => {
+    const res = await fetch(`${API_BASE}/modules/${encodeURIComponent(id)}/write`, {
+      method: 'POST',
+      headers: { 'X-API-Key': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ method, path, body }),
+    });
+    const text = await res.text();
+    return { status: res.status, body: safeJsonParse(text, text) };
+  },
+
+  getModuleWriteAccess: async (id: string, apiKey: string): Promise<ModuleWriteAccess> => {
+    const res = await fetch(`${API_BASE}/modules/${encodeURIComponent(id)}/write-access`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to read write access for ${id}: ${res.status} ${res.statusText}`);
+    return res.json().then((b) => b.data);
+  },
+
+  /** Consent to a panel's declared writes as they are now. Refused (403, with
+   * the reason) for a panel that cannot write. */
+  putModuleWriteConsent: async (id: string, apiKey: string): Promise<void> => {
+    const res = await fetch(`${API_BASE}/modules/${encodeURIComponent(id)}/write-consent`, {
+      method: 'PUT',
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      const parsed = safeJsonParse(text, null) as { error?: { message?: string } } | null;
+      throw new Error(parsed?.error?.message || `Failed to consent: ${res.status} ${res.statusText}`);
+    }
+  },
+
+  deleteModuleWriteConsent: async (id: string, apiKey: string): Promise<void> => {
+    const res = await fetch(`${API_BASE}/modules/${encodeURIComponent(id)}/write-consent`, {
+      method: 'DELETE',
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to revoke: ${res.status} ${res.statusText}`);
+  },
+
+  listModuleWriteConsents: async (apiKey: string): Promise<PanelWriteConsent[]> => {
+    const res = await fetch(`${API_BASE}/modules/write-consents`, {
+      headers: { 'X-API-Key': apiKey },
+    });
+    if (!res.ok) throw new Error(`Failed to list consents: ${res.status} ${res.statusText}`);
+    return res.json().then((b) => b.data);
+  },
+
   /** Call one MCP tool directly (MGP §5.6, §19.1).
    *
    * `serverId` may be empty: the kernel then resolves the provider out of its
@@ -1312,6 +1371,12 @@ export function createAuthenticatedApi(apiKey: string) {
     listModules: () => api.listModules(k),
     fetchModuleDocument: (id: string, entry: string) => api.fetchModuleDocument(id, entry, k),
     callForModule: (method: string, path: string) => api.callForModule(method, path, k),
+    writeForModule: (id: string, method: string, path: string, body: unknown) =>
+      api.writeForModule(id, method, path, body, k),
+    getModuleWriteAccess: (id: string) => api.getModuleWriteAccess(id, k),
+    putModuleWriteConsent: (id: string) => api.putModuleWriteConsent(id, k),
+    deleteModuleWriteConsent: (id: string) => api.deleteModuleWriteConsent(id, k),
+    listModuleWriteConsents: () => api.listModuleWriteConsents(k),
     // MCP servers
     callMcpTool: (toolName: string, args: Record<string, unknown>, serverId?: string) =>
       api.callMcpTool(toolName, args, k, serverId),
