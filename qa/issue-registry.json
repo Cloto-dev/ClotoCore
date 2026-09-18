@@ -4584,6 +4584,18 @@
       "status": "fixed",
       "notes": "FIXED on branch fix/remote-mcp-persistence. The database now stores url and auth_token with transport; legacy config migration, priority boot restore, general boot restore, and manual start all reconstruct the complete persisted connection. POST /api/mcp/servers accepts a streamable-http request with url and optional auth_token, rejects mixed stdio fields, and settings responses expose only auth_token_configured. Validation: the six focused remote tests pass; the 11 migration tests pass; cargo fmt and the repository-derived clippy gate pass; verify-issues reports 349 total, 0 stale, 0 errors. The full cloto_core library run passed 869/874; the five unrelated llm_proxy listener tests were blocked by the managed sandbox refusing TcpListener::bind(127.0.0.1:0) with Operation not permitted. Mutation proof: in one temporary run, dropping the stored URL, dropping the restored URL, dropping the parsed token, accepting a mixed command, and returning the token made the five corresponding tests fail (exit 101); restoring the files returned all six focused tests to green.",
       "github_issue": 594
+    },
+    {
+      "id": "bug-514",
+      "summary": "LOW: The skill-wiring unit tests in managers/mcp.rs create and delete a scratch directory under the real agent_instructions_root(), which is data_dir()/agents. data_dir() returns the dev path <exe_dir>/data only when a Cargo.toml is found above the test binary. When CARGO_TARGET_DIR points outside the repository, it returns the installed application's data directory (on macOS, ~/Library/Application Support/cloto-system), so running the unit tests writes into the data directory of an installed ClotoCore. Cleanup happens only in Drop, so a test process that is killed (timeout, SIGKILL, panic=abort) leaves agent.test-skills-<pid>-<tag>/ behind in that directory. Inside the repository the same tests write into target/debug/data/agents, the dev kernel's own data directory.",
+      "severity": "LOW",
+      "discovered": "2026-09-18T14:54:31Z",
+      "version": "0.6.9-a.1",
+      "file": "crates/core/src/managers/mcp.rs",
+      "pattern": "let dir = agent_instructions_root\\(\\)\\.join\\(&agent_id\\);",
+      "expected": "present",
+      "status": "open",
+      "notes": "Observed 2026-09-18 while running cargo test --workspace --exclude app with CARGO_TARGET_DIR outside the repo: config::tests::test_data_dir_dev_layout_uses_exe_dir failed with data_dir() = ~/Library/Application Support/cloto-system, and that directory's agents/ subdirectory had its mtime updated during the run, with no file left behind. Existing files there were untouched. The tests use the real root on purpose (the ScratchSkills doc comment explains that a test handing the production code its own base would stay green with the enricher pointed at the wrong root), so the fix should keep that property. Two directions: skip or fail loudly when !config::is_dev_layout(), so that a test never resolves to an installed data directory; or give agent_instructions_root() a test-only override that the wiring tests set to a temp directory, provided the override itself is exercised through the production call path."
     }
   ]
 }
