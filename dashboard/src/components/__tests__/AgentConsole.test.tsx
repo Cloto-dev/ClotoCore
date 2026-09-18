@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentMetadata, ChatMessage } from '../../types';
 
@@ -89,6 +89,12 @@ vi.mock('../TypewriterMessage', () => ({
 vi.mock('../ContentBlockView', () => ({
   MessageContent: ({ content }: { content: Array<{ type: string; text?: string }> }) => (
     <p>{content.map((b) => b.text).join('')}</p>
+  ),
+}));
+// The report itself is the kernel's; what is asked here is what the room hands it.
+vi.mock('../DiagnosticsModal', () => ({
+  DiagnosticsModal: ({ context, message }: { context?: string; message?: string }) => (
+    <div role="dialog">{`${context} / ${message}`}</div>
   ),
 }));
 
@@ -301,6 +307,95 @@ describe('the living room', () => {
     });
     expect(screen.getByRole('button', { name: 'chat_input.send' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'chat_input.stop' })).toBeNull();
+  });
+});
+
+describe('a turn the engine could not produce', () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  beforeEach(() => {
+    writeText.mockClear();
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+  });
+
+  it("is drawn where the reply would be, with the engine's words and what the turn needs", async () => {
+    const now = new Date().setHours(12, 0, 0, 0);
+    api.getChatMessages.mockResolvedValue({
+      messages: [
+        { ...msg('u1-resp', 'agent', '[Error] Provider returned 402', now), parent_id: 'u1' },
+        msg('u1', 'user', '[Error] is what I typed', now - 1000),
+      ],
+      has_more: false,
+    });
+    draw();
+
+    const words = await screen.findByText('Provider returned 402');
+    expect(screen.getByText('console.reply_failed')).toBeTruthy();
+    // The kernel's marker is not part of what went wrong.
+    expect(screen.queryByText(/Provider returned 402/, { selector: '.err' })?.textContent).toBe(
+      'Provider returned 402',
+    );
+    // Not the agent speaking: its own form, and no reading aloud.
+    expect(words.closest('.msg')?.classList.contains('fail')).toBe(true);
+    expect(screen.queryByRole('button', { name: 'console.read_aloud' })).toBeNull();
+    // The user's own words are theirs, whatever they start with.
+    expect(screen.getByText('[Error] is what I typed').closest('.me')).toBeTruthy();
+
+    const turn = within(words.closest('.msg') as HTMLElement);
+    fireEvent.click(turn.getByRole('button', { name: 'console.copy' }));
+    expect(writeText).toHaveBeenCalledWith('Provider returned 402');
+
+    fireEvent.click(turn.getByRole('button', { name: 'console.report_details' }));
+    expect(screen.getByRole('dialog').textContent).toBe('console.report_context / Provider returned 402');
+
+    fireEvent.click(turn.getByRole('button', { name: 'console.retry' }));
+    await vi.waitFor(() => expect(api.retryResponse).toHaveBeenCalledWith('agent.a', 'u1'));
+  });
+
+  it('arrives in that form, and is never typed out as if the agent were saying it', async () => {
+    draw();
+    await screen.findByText('console.remark');
+    const id = await send('hello');
+    reply(id, '[Error] engine down');
+    expect(await screen.findByText('console.reply_failed')).toBeTruthy();
+    expect(screen.getByText('engine down')).toBeTruthy();
+    // The typewriter (which never finishes here) was not handed the text.
+    expect(screen.queryByText('[Error] engine down')).toBeNull();
+  });
+});
+
+describe('a message that could not be sent', () => {
+  async function failToSend(text: string): Promise<HTMLElement> {
+    draw();
+    await screen.findByText('console.remark');
+    api.postChat.mockRejectedValueOnce(new Error('kernel unreachable'));
+    await send(text);
+    const turn = (await screen.findByText(text)).closest('.me') as HTMLElement;
+    await vi.waitFor(() => expect(turn.classList.contains('failed')).toBe(true));
+    return turn;
+  }
+
+  it('stays where it was written, says why, and is sent again from there', async () => {
+    const turn = await failToSend('are you there');
+    expect(within(turn).getByText(/console\.send_failed kernel unreachable/)).toBeTruthy();
+
+    fireEvent.click(within(turn).getByRole('button', { name: 'console.send_again' }));
+    await vi.waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(2));
+    expect((api.postChat.mock.calls[1][0] as { content: string }).content).toBe('are you there');
+    // Sent once more, not twice over: one copy, and it is no longer marked.
+    expect(screen.getAllByText('are you there')).toHaveLength(1);
+    expect(document.querySelector('.me.failed')).toBeNull();
+  });
+
+  it('is edited into a new message in its place, not a branch of one the kernel never had', async () => {
+    const turn = await failToSend('first try');
+    fireEvent.click(within(turn).getByRole('button', { name: 'console.edit_message' }));
+    fireEvent.change(box(), { target: { value: 'second try' } });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    await vi.waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(2));
+    const sent = api.postChat.mock.calls[1][0] as { content: string; metadata: Record<string, string> };
+    expect(sent.content).toBe('second try');
+    expect(sent.metadata.parent_id).toBeUndefined();
+    expect(screen.queryByText('first try')).toBeNull();
   });
 });
 

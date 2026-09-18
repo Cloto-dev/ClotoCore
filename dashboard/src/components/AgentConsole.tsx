@@ -1,4 +1,3 @@
-import { Activity } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useActionsContext } from '../contexts/ActionsContext';
@@ -14,6 +13,7 @@ import { buildOutgoingChat } from '../lib/chatSend';
 import { type DayLabel, dayBreaks, dayLabel, relativeTime, timeOfDay } from '../lib/chatTime';
 import { displayTitle } from '../lib/conversations';
 import { findBranchPoints, flattenConversation } from '../lib/conversationTree';
+import { engineErrorOf } from '../lib/engineError';
 import { markInline, unmarkInline } from '../lib/inlineApprovals';
 import { mostSevere } from '../lib/notificationSeverity';
 import { sendNativeNotification } from '../lib/notifications';
@@ -41,13 +41,12 @@ import './ChatRoom.css';
 import { CommandApprovalCard } from './CommandApprovalCard';
 import { MessageContent } from './ContentBlockView';
 import { ContextUsageBadge } from './ContextUsageBadge';
-import { SystemAlertCard } from './SystemAlertCard';
+import { DiagnosticsModal } from './DiagnosticsModal';
 import { ToolRejectionCard } from './ToolRejectionCard';
 import { TypewriterMessage } from './TypewriterMessage';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
-const ERROR_DISPLAY_MS = 5000;
 /** How many earlier threads the empty room offers to continue from. */
 const CONTINUE_FROM_COUNT = 3;
 
@@ -187,6 +186,13 @@ export function AgentConsole({
   const actions = useActionsContext();
   const [activeBranches, setActiveBranches] = useState<Record<string, number>>({});
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
+  // The engine error a report is being written for, while the report is open.
+  const [reportOf, setReportOf] = useState<string | null>(null);
+  // Messages that never reached the kernel, by id: why, and what to send again.
+  // They stay in the room where they were written; nothing here is stored.
+  const [failedSends, setFailedSends] = useState<
+    Record<string, { reason: string; blocks: ContentBlock[]; engineOverride: string | null }>
+  >({});
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const hasVrm = agent.metadata?.has_vrm === 'true';
@@ -676,6 +682,21 @@ export function AgentConsole({
             };
             setMessages((msgs) => [...msgs, prevMsg]);
           }
+          // A turn the engine failed to produce is not typed out as if the
+          // agent were saying it: it goes into the room already in its own form.
+          if (engineErrorOf(event.data.content as string) !== null) {
+            const failedMsg: ChatMessage = {
+              id: msgId,
+              agent_id: agent.id,
+              user_id: identity.id,
+              source: 'agent',
+              content: [{ type: 'text', text: event.data.content as string }],
+              created_at: Date.now(),
+              parent_id: parentId as string | undefined,
+            };
+            setMessages((msgs) => [...msgs, failedMsg]);
+            return null;
+          }
           return {
             id: msgId,
             text: event.data.content as string,
@@ -769,23 +790,35 @@ export function AgentConsole({
       await api.postChat(outgoing.dispatched);
       refreshConversations();
     } catch (err) {
-      setMessages((prev) => prev.filter((m) => m.id !== msgId));
+      // The message stays where it was written — taking it away took what the
+      // user typed with it — marked as not sent, with the reason, until it is
+      // sent again or edited.
       setIsTyping(false);
       inflightSourceIdRef.current = null;
-      const errMsg = err instanceof Error ? err.message : 'Failed to send message';
-      if (import.meta.env.DEV) console.error('Failed to send message:', errMsg);
-      const errId = `err-${msgId}`;
-      const errBubble: ChatMessage = {
-        id: errId,
-        agent_id: agent.id,
-        user_id: identity.id,
-        source: 'system',
-        content: [{ type: 'text', text: `⚠ ${errMsg}` }],
-        created_at: Date.now(),
-      };
-      setMessages((prev) => [...prev, errBubble]);
-      setTimeout(() => setMessages((prev) => prev.filter((m) => m.id !== errId)), ERROR_DISPLAY_MS);
+      const reason = err instanceof Error ? err.message : '';
+      if (import.meta.env.DEV) console.error('Failed to send message:', reason);
+      setFailedSends((prev) => ({
+        ...prev,
+        [msgId]: { reason, blocks: contentBlocks, engineOverride: engineOverride ?? null },
+      }));
     }
+  };
+
+  // Take a message that was never sent out of the room (it is sent again, or
+  // replaced by its edit, as a new message).
+  const dropFailedSend = (id: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+    setFailedSends((prev) => {
+      const { [id]: _, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const sendAgain = (msg: ChatMessage) => {
+    const failed = failedSends[msg.id];
+    if (!failed || isTyping || pendingResponse) return;
+    dropFailedSend(msg.id);
+    sendMessage(failed.blocks, undefined, failed.engineOverride);
   };
 
   // The new chat screen hands its first message over by mounting this console
@@ -940,13 +973,19 @@ export function AgentConsole({
 
   const handleChatSend = useCallback(
     (blocks: ContentBlock[], rawText: string, engineOverride: string | null) => {
-      if (editingMessage) {
+      if (editingMessage && failedSends[editingMessage.id]) {
+        // A message the kernel never received has nothing to branch from: its
+        // edit is sent as a new message in its place.
+        dropFailedSend(editingMessage.id);
+        setEditingMessage(null);
+        sendMessage(blocks, rawText, engineOverride);
+      } else if (editingMessage) {
         handleEditMessage(blocks, rawText, engineOverride);
       } else {
         sendMessage(blocks, rawText, engineOverride);
       }
     },
-    [editingMessage, handleEditMessage, sendMessage],
+    [editingMessage, failedSends, dropFailedSend, handleEditMessage, sendMessage],
   );
 
   // Retry handler: remove old response immediately, re-generate in place
@@ -1141,7 +1180,7 @@ export function AgentConsole({
                 const firstText = Array.isArray(msg.content)
                   ? msg.content.find((b) => b.type === 'text')?.text || ''
                   : '';
-                const isError = !isUser && firstText.startsWith('[Error]');
+                const engineError = isUser ? null : engineErrorOf(firstText);
                 // Check if this message's parent has branch siblings
                 const branchKey = msg.parent_id ? msg.parent_id + ':' + msg.source : null;
                 const branch = branchKey ? branchPoints.get(branchKey) : undefined;
@@ -1159,25 +1198,56 @@ export function AgentConsole({
                 );
                 const when = <span>{timeOfDay(msg.created_at, i18n.language)}</span>;
                 let turn: React.ReactNode;
-                if (isError) {
+                if (engineError !== null) {
+                  // Where the reply would be, quietly: the mark is hollow because
+                  // the agent said nothing, and the colour is on the engine's own
+                  // words. The actions are the ones this turn needs, always shown.
                   turn = (
-                    <SystemAlertCard icon={<Activity size={14} />} title={t('console.engine_error')}>
-                      <div className="text-xs text-content-secondary whitespace-pre-line">
-                        {firstText.replace(/^\[Error\]\s*/, '')}
+                    <div className="msg fail">
+                      <span className="mark" />
+                      <div className="b">
+                        <p className="lead">{t('console.reply_failed')}</p>
+                        <div className="err select-text">{engineError}</div>
+                        <div className="meta">
+                          {when}
+                          {navigator}
+                          <span className="acts">
+                            <button type="button" disabled={generating} onClick={() => handleRetry(msg)}>
+                              {t('console.retry')}
+                            </button>
+                            <button type="button" onClick={() => copyText([{ type: 'text', text: engineError }])}>
+                              {t('console.copy')}
+                            </button>
+                            <button type="button" onClick={() => setReportOf(engineError)}>
+                              {t('console.report_details')}
+                            </button>
+                          </span>
+                        </div>
                       </div>
-                    </SystemAlertCard>
+                    </div>
                   );
                 } else if (msg.source === 'system') {
                   turn = <div className="day">{firstText}</div>;
                 } else if (isUser) {
+                  const failed = failedSends[msg.id];
                   turn = (
-                    <div className={`me${editingMessage?.id === msg.id ? ' editing' : ''}`}>
+                    <div className={`me${failed ? ' failed' : ''}${editingMessage?.id === msg.id ? ' editing' : ''}`}>
                       <div className="wrap">
                         <div className="b select-text">
                           <MessageContent content={msg.content} />
                         </div>
                         <div className="meta">
+                          {failed && (
+                            <span className="why">
+                              {t('console.send_failed')} {failed.reason}
+                            </span>
+                          )}
                           <span className="acts">
+                            {failed && (
+                              <button type="button" disabled={generating} onClick={() => sendAgain(msg)}>
+                                {t('console.send_again')}
+                              </button>
+                            )}
                             <button
                               type="button"
                               disabled={generating}
@@ -1188,9 +1258,11 @@ export function AgentConsole({
                             >
                               {t('console.edit_message')}
                             </button>
-                            <button type="button" onClick={() => copyText(msg.content as ContentBlock[])}>
-                              {t('console.copy')}
-                            </button>
+                            {!failed && (
+                              <button type="button" onClick={() => copyText(msg.content as ContentBlock[])}>
+                                {t('console.copy')}
+                              </button>
+                            )}
                           </span>
                           {navigator}
                           {when}
@@ -1377,6 +1449,10 @@ export function AgentConsole({
         unreadConsensusCount={actions.unreadConsensusCount}
         totalCount={actions.totalCount}
       />
+
+      {reportOf !== null && (
+        <DiagnosticsModal context={t('console.report_context')} message={reportOf} onClose={() => setReportOf(null)} />
+      )}
     </div>
   );
 }
