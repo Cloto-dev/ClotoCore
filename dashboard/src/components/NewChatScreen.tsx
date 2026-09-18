@@ -22,8 +22,6 @@ const PLUS = (
 /** How long after one swipe turn a further wheel movement is ignored, so one
  * gesture (which keeps emitting wheel events as it decays) turns one face. */
 const SWIPE_COOLDOWN_MS = 450;
-/** How many opening remarks the locale carries (`console.remarks_0` …). */
-const REMARK_COUNT = 5;
 
 /**
  * The new chat: who to talk to, and the first thing to say.
@@ -142,14 +140,6 @@ export function NewChatScreen() {
     turn(turnOf(dx));
   };
 
-  // A remark per new chat, not per render: the draft's key picks it.
-  const remarkIndex = useMemo(() => {
-    const key = draft?.key ?? '';
-    let sum = 0;
-    for (let i = 0; i < key.length; i++) sum += key.charCodeAt(i);
-    return sum % REMARK_COUNT;
-  }, [draft?.key]);
-
   return (
     <div className="room flex-1 min-w-0">
       <div className="stream empty">
@@ -202,7 +192,9 @@ export function NewChatScreen() {
                 <div className="state">
                   {agent.enabled ? <b>{t('console.state_idle')}</b> : t('roster.state_stopped')}
                 </div>
-                <p className="remark">{t(`console.remarks_${remarkIndex}`)}</p>
+                {/* What pressing send here does — the same for every agent. A line
+                    in the agent's voice would be the interface speaking for them. */}
+                <p className="remark">{t('console.remark')}</p>
               </>
             ) : (
               <>
@@ -223,9 +215,7 @@ export function NewChatScreen() {
                 <div className="state" aria-hidden="true">
                   {'\u00a0'}
                 </div>
-                <p className="remark">
-                  {faces.length === 0 ? t('new_chat.create_first') : t('new_chat.create_another')}
-                </p>
+                <p className="remark">{t('new_chat.create_remark')}</p>
               </>
             )}
           </div>

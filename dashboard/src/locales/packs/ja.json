@@ -164,12 +164,7 @@
       "day_yesterday": "昨日",
       "date_md": "{{month}} 月 {{day}} 日",
       "continue_from": "続きから",
-      "remark": "おかえりなさい。続きでも、別の話でも大丈夫ですよ。",
-      "remarks_0": "おかえりなさい。続きでも、別の話でも大丈夫ですよ。",
-      "remarks_1": "ここにいますよ。何から話しましょうか。",
-      "remarks_2": "ゆっくりで大丈夫です。どこからでもどうぞ。",
-      "remarks_3": "来てくれてうれしいです。今日は何を見ましょうか。",
-      "remarks_4": "いつでもどうぞ。"
+      "remark": "エージェントとの会話を開始します。"
     },
     "chat_input": {
       "placeholder": "{{name}}に話しかける",
@@ -458,8 +453,7 @@
       "previous": "前の相手",
       "next": "次の相手",
       "create_agent": "エージェントを作成",
-      "create_first": "まだ誰もいません。話し相手を作りましょう。",
-      "create_another": "新しい話し相手を作ります。",
+      "create_remark": "新しいエージェントを作成します。",
       "name_placeholder": "新しい話し相手の名前"
     }
   },

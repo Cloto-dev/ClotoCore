@@ -66,12 +66,7 @@
     "day_yesterday": "Yesterday",
     "date_md": "{{month}}/{{day}}",
     "continue_from": "Continue from",
-    "remark": "Welcome back. We can pick up where we left off, or start something new.",
-    "remarks_0": "Welcome back. We can pick up where we left off, or start something new.",
-    "remarks_1": "I'm here. What's on your mind?",
-    "remarks_2": "Take your time. Start wherever you like.",
-    "remarks_3": "Good to see you. What shall we look at today?",
-    "remarks_4": "Ready when you are."
+    "remark": "Start a conversation with the agent."
   },
   "chat_input": {
     "placeholder": "Talk to {{name}}",
@@ -360,8 +355,7 @@
     "previous": "Previous agent",
     "next": "Next agent",
     "create_agent": "Create an agent",
-    "create_first": "Nobody is here yet. Make someone to talk to.",
-    "create_another": "Make someone new to talk to.",
+    "create_remark": "Create a new agent.",
     "name_placeholder": "Name someone new to talk to"
   }
 }

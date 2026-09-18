@@ -91,6 +91,8 @@ describe('the new chat', () => {
     expect(screen.getByLabelText('new_chat.previous').getAttribute('title')).toBe('new_chat.create_agent');
     expect(screen.getByLabelText('new_chat.next').getAttribute('title')).toBe('b');
     expect(screen.getByText('a')).toBeTruthy();
+    // One plain line under every agent's face, not one picked at random.
+    expect(screen.getByText('console.remark')).toBeTruthy();
     expect(screen.getByText('composer').getAttribute('data-agent')).toBe('a');
     expect((screen.getByText('composer') as HTMLButtonElement).disabled).toBe(false);
   });
@@ -115,6 +117,7 @@ describe('the new chat', () => {
     convCtx.draft = { key: 'draft:1', agentId: null };
     rerender(<NewChatScreen />);
     expect(screen.getByText('new_chat.create_agent')).toBeTruthy();
+    expect(screen.getByText('new_chat.create_remark')).toBeTruthy();
     expect((screen.getByText('composer') as HTMLButtonElement).disabled).toBe(true);
     // It is the end: nothing is further left, and the first agent is to its right.
     expect(screen.queryByLabelText('new_chat.previous')).toBeNull();
@@ -157,7 +160,7 @@ describe('the new chat', () => {
     convCtx.draft = { key: 'draft:1', agentId: null };
     render(<NewChatScreen />);
     expect(screen.getByText('new_chat.create_agent')).toBeTruthy();
-    expect(screen.getByText('new_chat.create_first')).toBeTruthy();
+    expect(screen.getByText('new_chat.create_remark')).toBeTruthy();
     expect(screen.queryByLabelText('new_chat.previous')).toBeNull();
     expect(screen.queryByLabelText('new_chat.next')).toBeNull();
   });

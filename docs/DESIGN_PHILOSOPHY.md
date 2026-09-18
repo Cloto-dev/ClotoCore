@@ -110,9 +110,11 @@ are not applied until saved. One part, used everywhere it fits.
    header. Metadata is written as a sentence, not `A · B · C`. No shadow under
    a surface that already has a border. No motion that carries no meaning.
 6. **The signature is the agent's presence.** An empty chat is not a blank
-   page with a greeting; it is the agent, centred, with a line of their own
-   and the threads you left with them. When you speak, the face moves to the
-   header and the state ("thinking", "waiting for you") is a sentence there.
+   page with a greeting; it is the agent, centred, with one plain line saying
+   what sending here does, and the threads you left with them. The line is the
+   same for every agent and is not in their voice: the interface does not know
+   who they are, and a warm line would decide it for them. When you speak,
+   the face moves to the header and the state ("thinking", "waiting for you") is a sentence there.
    The reasoning trace is the agent's *inner voice*, folded. A permission
    request is *a question from the agent*, in their words, with a 2 px edge in
    their colour. While they answer, send becomes stop and a cursor blinks.
