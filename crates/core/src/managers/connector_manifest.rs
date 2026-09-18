@@ -124,6 +124,11 @@ pub struct PanelDeclaration {
     pub icon: Option<String>,
     #[serde(default)]
     pub requires: Vec<String>,
+    /// Kernel routes the panel asks to change state through, as
+    /// `"<METHOD> <path>"`. Validated at discovery and enforced by the write
+    /// gate (`handlers::panel_writes`); declaring is not granting.
+    #[serde(default)]
+    pub writes: Vec<String>,
 }
 
 fn default_panel_entry() -> String {

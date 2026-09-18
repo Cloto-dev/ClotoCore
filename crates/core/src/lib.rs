@@ -277,6 +277,9 @@ pub struct AppState {
     /// `(agent_id, bridge_session_id)`. Process-lifetime only — see
     /// `managers::session_manager` for the tier model and rationale.
     pub session_manager: Arc<managers::session_manager::SessionManager>,
+    /// The panel write gate's router handle and rate windows
+    /// (`docs/PANEL_WRITE_GATE_DESIGN.md`).
+    pub panel_writes: handlers::panel_writes::PanelWriteState,
 }
 
 pub enum AppError {
@@ -635,7 +638,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     use crate::handlers::{self, system::SystemHandler};
     use crate::managers::{AgentManager, PluginManager};
     use axum::{
-        routing::{delete, get, patch, post},
+        routing::{delete, get, patch, post, put},
         Router,
     };
     use tower_http::cors::CorsLayer;
@@ -1105,6 +1108,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         last_usage: last_usage_store,
         response_stops,
         session_manager,
+        panel_writes: handlers::panel_writes::PanelWriteState::default(),
     });
 
     // Wire up kernel event bus to MCP manager (for PermissionRequested emission)
@@ -1721,6 +1725,24 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/modules/{id}/assets/{*path}",
             get(handlers::modules::serve_module_asset),
         )
+        // Panel write gate (docs/PANEL_WRITE_GATE_DESIGN.md).
+        .route(
+            "/modules/write-consents",
+            get(handlers::panel_writes::list_write_consents),
+        )
+        .route(
+            "/modules/{id}/write-access",
+            get(handlers::panel_writes::get_write_access),
+        )
+        .route(
+            "/modules/{id}/write-consent",
+            put(handlers::panel_writes::put_write_consent)
+                .delete(handlers::panel_writes::delete_write_consent),
+        )
+        .route(
+            "/modules/{id}/write",
+            post(handlers::panel_writes::relay_write),
+        )
         // State a publisher outside the kernel keeps here for a module to read.
         // The kernel does not read the document; see handlers::published.
         // What is waiting for a person: approvals holding an agent, proposals,
@@ -1873,6 +1895,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
                     axum::http::HeaderName::from_static("x-api-key"),
                 ]),
         );
+
+    // The panel write gate dispatches an admitted write through this same
+    // router, so the target route sees it with every layer it normally has.
+    app_state.panel_writes.install_router(app.clone());
 
     // Build the address from its parts: formatting "{ip}:{port}" would turn an
     // IPv6 bind such as `::1` into `::1:8081`, which is not a socket address.
