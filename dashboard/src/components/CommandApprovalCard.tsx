@@ -1,8 +1,10 @@
-import { Check, Shield, Terminal, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useApi } from '../hooks/useApi';
-import { SystemAlertCard } from './SystemAlertCard';
+import { displayLevel } from '../lib/notificationSeverity';
+import type { NotificationSeverity } from '../services/api';
+import { Ask } from './Ask';
 
 interface CommandEntry {
   command: string;
@@ -13,7 +15,11 @@ interface Props {
   approvalId: string;
   /** Who is asking. It used to be implied by the conversation the card sat in. */
   agentId?: string;
+  /** The asking agent's name, when the surroundings do not already say it. */
+  agentName?: string;
   commands: CommandEntry[];
+  /** The kernel's derivation of what the commands could do. */
+  severity?: NotificationSeverity;
   onResolved: (approvalId: string) => void;
   /** The deck's position indicator, shown where the countdown used to be. */
   pager?: ReactNode;
@@ -22,6 +28,8 @@ interface Props {
    * next card's buttons land on the coordinates the last click was aimed at.
    */
   actionsDisabled?: boolean;
+  /** Drawn as the first thing in its block: no top margin. */
+  first?: boolean;
 }
 
 // The card used to count down from 60 and take itself off the screen at zero,
@@ -31,15 +39,22 @@ interface Props {
 // The card now stays until somebody answers it. The deck around it may stop
 // *showing* it after a while — that is a different thing, and it does not
 // resolve anything.
+//
+// The three answers, in the mock's words: "go ahead" trusts the command name
+// from now on, "just this once" approves this request, "not now" denies it.
 export function CommandApprovalCard({
   approvalId,
   agentId,
+  agentName,
   commands,
+  severity,
   onResolved,
   pager,
   actionsDisabled = false,
+  first = false,
 }: Props) {
   const api = useApi();
+  const { t } = useTranslation('agents');
   const [status, setStatus] = useState<'pending' | 'acting' | 'resolved'>('pending');
   const busy = status === 'acting' || actionsDisabled;
 
@@ -60,60 +75,27 @@ export function CommandApprovalCard({
   if (status === 'resolved') return null;
 
   const uniqueNames = [...new Set(commands.map((c) => c.command_name))];
-  const trustLabel = uniqueNames.length === 1 ? `Trust '${uniqueNames[0]}'` : `Trust ${uniqueNames.length} commands`;
+  const level = severity ? displayLevel(severity) : null;
 
   return (
-    <SystemAlertCard
-      icon={<Terminal size={14} />}
-      title={`Command Approval${commands.length > 1 ? ` (${commands.length})` : ''}`}
-      trailing={pager}
-      footer={
-        <div className="flex gap-2">
-          <button
-            onClick={() => handle('approve')}
-            disabled={busy}
-            aria-label="Approve command"
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50 transition-colors"
-          >
-            <Check size={12} /> Yes
-          </button>
-          <button
-            onClick={() => handle('trust')}
-            disabled={busy}
-            aria-label={trustLabel}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-amber-500 hover:bg-amber-500/10 disabled:opacity-50 transition-colors"
-          >
-            <Shield size={12} /> {trustLabel}
-          </button>
-          <button
-            onClick={() => handle('deny')}
-            disabled={busy}
-            aria-label="Deny command"
-            className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-content-secondary hover:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors"
-          >
-            <X size={12} /> No
-          </button>
-        </div>
+    <Ask
+      first={first}
+      who={agentName || agentId ? <span data-testid="approval-agent">{agentName ?? agentId}</span> : undefined}
+      question={commands.length > 1 ? t('ask.run_these', { count: commands.length }) : t('ask.run_this')}
+      command={commands.map((c) => c.command)}
+      why={
+        uniqueNames.length === 1
+          ? t('ask.run_why', { name: uniqueNames[0] })
+          : t('ask.run_why_several', { count: uniqueNames.length })
       }
-    >
-      {/* Who is asking. Inside a conversation this was the surrounding context;
-          at the window level there is none, and "approve this command" without
-          a name attached is a question nobody can answer responsibly. */}
-      {agentId && (
-        <div data-testid="approval-agent" className="font-mono text-xs text-content-tertiary break-all">
-          {agentId}
-        </div>
-      )}
-
-      {/* Command display */}
-      <div className="font-mono text-xs text-content-secondary space-y-1 whitespace-pre-line">
-        {commands.map((cmd, i) => (
-          <div key={i} className="break-all">
-            <span className="text-content-tertiary select-none">$ </span>
-            {cmd.command}
-          </div>
-        ))}
-      </div>
-    </SystemAlertCard>
+      ok={{ label: t('ask.go_ahead'), onClick: () => handle('trust') }}
+      alts={[
+        { label: t('ask.just_once'), onClick: () => handle('approve') },
+        { label: t('ask.not_now'), onClick: () => handle('deny') },
+      ]}
+      actionsDisabled={busy}
+      risk={level ? t('ask.risk', { level: t(`ask.risk_${level}`) }) : undefined}
+      pager={pager}
+    />
   );
 }

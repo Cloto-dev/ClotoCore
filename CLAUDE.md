@@ -144,7 +144,7 @@ Automation: a PostToolUse hook auto-runs cases (1) and (2) whenever `qa/issue-re
 - Direct mutation API calls (upload, delete, update) are PROHIBITED outside `handleSave`
 - Cancel/Back MUST discard all pending changes without API calls
 - Pattern: event handler → set pending state only, `handleSave` → execute all pending
-- Reference implementation: `AgentPluginWorkspace.tsx`
+- Reference implementation: `dashboard/src/pages/AgentSettingsPage.tsx` (its test counts every mutating call before Save, on Discard and on Back)
 
 ### Exception: Confirm-modal destructive actions
 
@@ -152,7 +152,7 @@ Destructive actions that are already gated by a dedicated Confirm modal
 (optionally password-protected) are exempt from the deferred pattern and
 MAY execute immediately on confirm. Current exempted handlers:
 
-- `AgentTerminal.tsx` — Delete agent (`handleDeleteConfirm`)
+- `agents/DeleteAgentModal.tsx` — Delete agent (`handleDeleteConfirm`)
 - `SecuritySection.tsx` — Invalidate API key (`handleInvalidate`)
 - `PowerToggleModal.tsx` — Toggle agent power (`handleConfirm`)
 
@@ -202,11 +202,17 @@ change one.
 - **Fewer parts.** No pills. No icon on a button — icons belong to navigation and status. No
   avatar on every message. Metadata is a sentence, not `A · B · C`. No shadow under a surface that
   already has a border. No motion that carries no meaning.
-- **Themes change tokens, never components.** Dark (default), light, system, and Legacy (the
-  pre-redesign slate-and-blue palette, following the OS) are classes on `<html>` that redefine the
-  tokens in `index.css`. Do not branch a component on the theme; if a colour differs between
-  themes, it is a token. The one exception is `agentColor()`, which resolves the stylesheet accent
-  under Legacy because inline styles cannot read a class.
+- **Themes change tokens, never components.** A theme is a data file — a JSON table of colour
+  values (`docs/THEME_PACKS_DESIGN.md`, author's guide `docs/THEMES.md`). The bundled ones live in
+  `dashboard/src/themes/packs/`; external ones are imported or dropped into a directory. Which face
+  is drawn (light / dark / system) is a separate setting from which theme. Do not branch a
+  component on the theme and do not write a theme's id anywhere outside its pack — a test reads the
+  pack ids and fails if one appears in a component, a hook, a stylesheet or `index.html`. If a
+  colour differs between themes, it is a token; a new colour token has to be added to
+  `themes/validate.ts` and to every bundled pack. A theme may hold the accent itself
+  (`<html data-accent="fixed">`): `agentColor()` and `applyPresentAgent()` read that flag, never
+  a theme's name. The colour fallbacks in `index.css` mirror the default pack, and a test holds the
+  two equal.
 - **Hover borders**: `hover:border-agent` in the living room, `hover:border-edge` in the
   workshop, `hover:border-red-500` for destructive. Full opacity.
 - **Tailwind CSS**: The dashboard uses pre-compiled CSS (`src/compiled-tailwind.css`), NOT JIT. When adding or changing Tailwind utility classes in JSX, you MUST regenerate: `cd dashboard && npx tailwindcss -i src/index.css -o src/compiled-tailwind.css`. New classes will not take effect without this step.

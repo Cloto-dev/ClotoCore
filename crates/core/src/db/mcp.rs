@@ -210,6 +210,22 @@ pub async fn load_active_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<Mc
     .await
 }
 
+/// Every registered server, stopped ones included — what the dashboard's list
+/// draws beside each server (its description, when it was installed, its
+/// version). The active-only loader above is for boot.
+pub async fn load_all_mcp_servers(pool: &SqlitePool) -> anyhow::Result<Vec<McpServerRecord>> {
+    db_timeout(
+        sqlx::query_as::<_, McpServerRecord>(
+            "SELECT name, command, args, env, transport, url, auth_token, directory, display_name, auto_restart, \
+             script_content, description, default_policy, marketplace_id, installed_version, \
+             trust_level, seal, is_active, created_at, updated_at \
+             FROM mcp_servers ORDER BY created_at ASC",
+        )
+        .fetch_all(pool),
+    )
+    .await
+}
+
 /// Hard-delete an MCP server from the DB, including access control entries.
 pub async fn delete_mcp_server(pool: &SqlitePool, name: &str) -> anyhow::Result<()> {
     // Clean up access control entries first (FK may not cascade in all schemas)

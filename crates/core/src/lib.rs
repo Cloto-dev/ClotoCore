@@ -8,6 +8,7 @@ pub mod capabilities;
 pub mod cli;
 pub mod config;
 pub mod consensus;
+pub mod conversation_context;
 pub mod db;
 pub mod defender;
 pub mod events;
@@ -270,6 +271,8 @@ pub struct AppState {
     /// Populated by the agentic loop on each completion; read by the dashboard
     /// "context usage" badge.
     pub last_usage: managers::usage_tracker::UsageStore,
+    /// The replies being produced, by the message they answer (`POST /api/chat/{agent_id}/stop`).
+    pub response_stops: managers::response_stop::ResponseStops,
     /// In-flight conversation state (T1, v0.6.3+) keyed by
     /// `(agent_id, bridge_session_id)`. Process-lifetime only — see
     /// `managers::session_manager` for the tier model and rationale.
@@ -632,7 +635,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     use crate::handlers::{self, system::SystemHandler};
     use crate::managers::{AgentManager, PluginManager};
     use axum::{
-        routing::{delete, get, post},
+        routing::{delete, get, patch, post},
         Router,
     };
     use tower_http::cors::CorsLayer;
@@ -928,6 +931,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     // Shared between SystemHandler (writer — records usage after each LLM call) and
     // AppState (reader — exposes GET /api/agents/:id/last-usage to the dashboard).
     let last_usage_store = managers::usage_tracker::UsageStore::new();
+    let response_stops = managers::response_stop::ResponseStops::new();
 
     // Shared T1 conversation state (v0.6.3+) — SystemHandler reads / mutates
     // it during the agentic loop; a background cleanup task below evicts
@@ -983,7 +987,9 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         );
         h.set_probe_cache(probe_cache.clone());
         h.set_usage_store(last_usage_store.clone());
+        h.set_response_stops(response_stops.clone());
         h.set_session_manager(session_manager.clone());
+        h.set_max_conversation_context(config.max_conversation_context);
         h.set_consensus_config(consensus_config);
         Arc::new(h)
     };
@@ -1097,6 +1103,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         last_health_report: Arc::new(tokio::sync::RwLock::new(None)),
         provider_probe_cache: probe_cache,
         last_usage: last_usage_store,
+        response_stops,
         session_manager,
     });
 
@@ -1544,6 +1551,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )
         .route("/agents/{id}/power", post(handlers::power_toggle))
         .route(
+            "/agents/{id}/power-password",
+            post(handlers::set_power_password),
+        )
+        .route(
             "/agents/{id}/avatar",
             get(handlers::get_avatar)
                 .post(handlers::upload_avatar)
@@ -1637,6 +1648,27 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/chat/{agent_id}/messages/{message_id}/retry",
             post(handlers::chat::retry_response),
         )
+        .route("/chat/{agent_id}/stop", post(handlers::chat::stop_response))
+        .route("/chat/search", get(handlers::chat::search_messages))
+        // Conversations (docs/CONVERSATIONS_DESIGN.md §3). The two bulk routes
+        // are registered before the `{conversation_id}` route so their literal
+        // segments are never read as an id.
+        .route(
+            "/chat/{agent_id}/conversations/archive-all",
+            post(handlers::chat::archive_all_conversations),
+        )
+        .route(
+            "/chat/{agent_id}/conversations/delete-all",
+            post(handlers::chat::delete_all_conversations),
+        )
+        .route(
+            "/chat/{agent_id}/conversations",
+            get(handlers::chat::list_conversations).post(handlers::chat::create_conversation),
+        )
+        .route(
+            "/chat/{agent_id}/conversations/{conversation_id}",
+            patch(handlers::chat::update_conversation).delete(handlers::chat::delete_conversation),
+        )
         .route(
             "/chat/attachments/{attachment_id}",
             get(handlers::chat::get_attachment),
@@ -1658,6 +1690,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route(
             "/mcp/servers/{name}/access",
             get(handlers::get_mcp_server_access).put(handlers::put_mcp_server_access),
+        )
+        .route(
+            "/mcp/servers/{name}/tools",
+            get(handlers::get_mcp_server_tools),
         )
         // MCP server lifecycle
         .route(

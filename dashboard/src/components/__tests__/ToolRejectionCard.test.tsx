@@ -3,6 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { PendingRejection } from '../../types';
 import { ToolRejectionCard } from '../ToolRejectionCard';
 
+// Echo i18n keys so the assertions do not depend on copy.
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (k: string, opts?: Record<string, unknown>) => (opts?.tool ? `${k}:${opts.tool}` : k),
+  }),
+}));
+
 function build(overrides: Partial<PendingRejection> = {}): PendingRejection {
   return {
     agent_id: 'agent.test',
@@ -21,45 +28,31 @@ function build(overrides: Partial<PendingRejection> = {}): PendingRejection {
 }
 
 describe('ToolRejectionCard', () => {
-  it('renders code, tool name, reason, and remediation', () => {
+  it("says what was refused in the agent's words, why, and what can be done next", () => {
     render(<ToolRejectionCard rejection={build()} onDismiss={() => {}} />);
-    expect(screen.getByText('Tool Rejected')).toBeInTheDocument();
-    expect(screen.getByText('YOLO_REQUIRED')).toBeInTheDocument();
-    expect(screen.getByText('mgp.access.grant')).toBeInTheDocument();
+    expect(screen.getByText('ask.rejected:mgp.access.grant')).toBeInTheDocument();
     expect(screen.getByText(/privileged \(YOLO\) mode/i)).toBeInTheDocument();
     expect(screen.getByText(/Ask the operator to enable YOLO mode/)).toBeInTheDocument();
+    expect(screen.getByText('YOLO_REQUIRED')).toBeInTheDocument();
   });
 
-  it('omits remediation block when hint is absent', () => {
-    render(
-      <ToolRejectionCard
-        rejection={build({ remediation_hint: undefined, code: 'DELEGATION_CYCLE' })}
-        onDismiss={() => {}}
-      />,
-    );
-    expect(screen.queryByText(/Remediation/i)).not.toBeInTheDocument();
+  it('carries nothing to answer: a refusal has no "enable it" shortcut', () => {
+    render(<ToolRejectionCard rejection={build()} onDismiss={() => {}} />);
+    const buttons = screen.getAllByRole('button');
+    expect(buttons.map((b) => b.textContent)).toEqual(['ask.close']);
   });
 
-  it('shows hard-rejection hint when retryable=false', () => {
-    render(
-      <ToolRejectionCard
-        rejection={build({ retryable: false, code: 'DELEGATION_CYCLE', remediation_hint: undefined })}
-        onDismiss={() => {}}
-      />,
-    );
-    expect(screen.getByText(/Hard rejection — operator action cannot resolve this/)).toBeInTheDocument();
+  it('adds that a hard refusal cannot be changed from the settings, and only then', () => {
+    const { rerender } = render(<ToolRejectionCard rejection={build({ retryable: false })} onDismiss={() => {}} />);
+    expect(screen.getByText(/ask\.rejected_hard/)).toBeInTheDocument();
+    rerender(<ToolRejectionCard rejection={build({ retryable: true })} onDismiss={() => {}} />);
+    expect(screen.queryByText(/ask\.rejected_hard/)).not.toBeInTheDocument();
   });
 
-  it('hides hard-rejection hint when retryable=true', () => {
-    render(<ToolRejectionCard rejection={build({ retryable: true })} onDismiss={() => {}} />);
-    expect(screen.queryByText(/Hard rejection/)).not.toBeInTheDocument();
-  });
-
-  it('fires onDismiss with local_id when X is clicked', () => {
+  it('close takes the line away with its local id', () => {
     const onDismiss = vi.fn();
     render(<ToolRejectionCard rejection={build()} onDismiss={onDismiss} />);
-    fireEvent.click(screen.getByLabelText('Dismiss rejection'));
+    fireEvent.click(screen.getByRole('button', { name: 'ask.close' }));
     expect(onDismiss).toHaveBeenCalledWith('call_1-rejection');
-    expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

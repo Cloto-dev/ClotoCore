@@ -7,6 +7,8 @@
 pub mod api_keys;
 pub mod audit;
 pub mod chat;
+pub mod chat_search;
+pub mod conversations;
 pub mod cron;
 pub mod health;
 pub mod llm;
@@ -18,6 +20,8 @@ pub mod trusted_commands;
 pub use api_keys::*;
 pub use audit::*;
 pub use chat::*;
+pub use chat_search::*;
+pub use conversations::*;
 pub use cron::*;
 pub use llm::*;
 pub use mcp::*;
@@ -369,6 +373,11 @@ async fn repair_cpersona_rename_collision(pool: &SqlitePool) -> anyhow::Result<(
     Ok(())
 }
 
+/// Every migration, in order. Public so a test can run the set up to one
+/// version, seed rows, and then run the rest — the only way to see what a
+/// data-rewriting migration does to data that existed before it.
+pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
 pub async fn init_db(
     pool: &SqlitePool,
     database_url: &str,
@@ -383,7 +392,7 @@ pub async fn init_db(
     // Run migrations from migrations/ directory
     // Bug C: Wrap migration with timeout to prevent indefinite startup hangs (30s for schema changes)
     const MIGRATION_TIMEOUT_SECS: u64 = 30;
-    let migration_future = sqlx::migrate!("./migrations").run(pool);
+    let migration_future = MIGRATOR.run(pool);
     timeout(
         Duration::from_secs(MIGRATION_TIMEOUT_SECS),
         migration_future,

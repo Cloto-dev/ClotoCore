@@ -1,0 +1,65 @@
+/* The bar across the top of the window. Two surfaces carried to the top edge
+ * — the sidebar's while it is shown, the page's otherwise — and three
+ * controls. No line under it. */
+
+.winbar {
+  display: flex;
+  flex: none;
+  /* HARDCODED(dashboard/src/lib/tauri.ts::OVERLAY_TITLE_BAR_PX): under an overlaid title bar the bar is exactly as tall as the strip the OS buttons sit in, so they and the controls share a centre line. */
+  height: 36px;
+}
+.winbar.overlay {
+  height: 28px;
+}
+.winbar-lead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  padding: 0 12px;
+}
+.winbar-lead.over-side {
+  /* HARDCODED(dashboard/src/components/AppSidebar.css::.side width): the bar continues the sidebar's surface upward, so this part is as wide as the sidebar. */
+  width: 264px;
+  background: hsl(var(--surface-secondary));
+}
+.winbar.overlay .winbar-lead {
+  /* Room for the three window buttons the OS draws at the top-left. */
+  padding-left: 78px;
+}
+.winbar-rest {
+  flex: 1;
+}
+
+:where(.winbar button) {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.winbar button {
+  width: 28px;
+  height: 24px;
+  border-radius: var(--radius-tool);
+  display: grid;
+  place-items: center;
+  color: hsl(var(--text-tertiary));
+}
+.winbar button svg {
+  width: 15px;
+  height: 15px;
+}
+.winbar button:hover:not(:disabled) {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+.winbar button:focus-visible {
+  /* Inside the button: the bar is exactly as tall as its controls. */
+  outline-offset: -2px;
+}
+.winbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}

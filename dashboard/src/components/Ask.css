@@ -1,0 +1,120 @@
+/* A question from the agent — the `.ask` block of
+ * docs/gui/samples/02-chat-conversation.html, ported rule for rule. It is drawn
+ * inside the conversation and, for an agent you are not looking at, over the
+ * window; both read `--agent` for the edge and the answer, so the caller sets
+ * that token to the asking agent's colour. */
+
+.ask {
+  margin-top: 14px;
+  background: hsl(var(--surface-secondary));
+  border-left: 2px solid hsl(var(--agent));
+  border-radius: 0 var(--radius-surface) var(--radius-surface) 0;
+  padding: 12px 16px 12px 16px;
+  font-family: var(--font-sans);
+  color: hsl(var(--text-primary));
+  line-height: 1.7;
+}
+.ask.first {
+  margin-top: 0;
+}
+:where(.ask button) {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.ask .who {
+  font-size: 12.5px;
+  color: hsl(var(--agent));
+  margin-bottom: 2px;
+}
+.ask .q {
+  font-size: 15px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+.ask .cmd {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: hsl(var(--surface-base));
+  border-radius: var(--radius-tool);
+  padding: 8px 12px;
+  margin: 10px 0;
+  color: hsl(var(--text-primary));
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.ask .why {
+  font-size: 13px;
+  color: hsl(var(--text-secondary));
+  white-space: pre-wrap;
+}
+.ask .why.bad {
+  color: hsl(6 70% 72%);
+}
+.ask .acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+}
+.ask .acts .ok {
+  background: hsl(var(--agent));
+  color: hsl(var(--agent-ink));
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: var(--radius-tool);
+}
+.ask .acts .ok:hover {
+  filter: brightness(1.08);
+}
+.ask .acts .alt {
+  color: hsl(var(--text-secondary));
+  padding: 7px 10px;
+  border-radius: var(--radius-tool);
+}
+.ask .acts .alt:hover {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+.ask .acts button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  filter: none;
+}
+.ask .acts .risk {
+  margin-left: auto;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.ask .acts .pager {
+  margin-left: auto;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ask .acts .risk + .pager {
+  margin-left: 12px;
+}
+/* An act that is not an answer: shown on hover, as the message acts are. */
+.ask .dismiss {
+  float: right;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  padding: 0 6px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.ask:hover .dismiss,
+.ask:focus-within .dismiss {
+  opacity: 1;
+}
+.ask .dismiss:hover {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}

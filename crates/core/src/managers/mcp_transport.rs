@@ -28,6 +28,16 @@ impl McpTransport {
         }
     }
 
+    /// Whether a request is cancelled by telling the server with
+    /// `notifications/cancelled`. stdio has no per-request stream to close, so
+    /// the notification is its only cancellation signal (MCP 2026-07-28,
+    /// "Transport-Specific Cancellation"); `mcp_client::Withdrawal` says why
+    /// HTTP is not told.
+    #[must_use]
+    pub fn cancels_by_notification(&self) -> bool {
+        matches!(self, Self::Stdio(_))
+    }
+
     /// OS pid of the spawned child (None for HTTP transports or once the child
     /// has been reaped). The child is its own process-group leader
     /// (`process_group(0)` in `start`), so this doubles as the pgid — the

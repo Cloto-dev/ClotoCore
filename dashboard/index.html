@@ -6,13 +6,25 @@
     <title>Cloto Dashboard</title>
     <script>
       (function(){
-        var p=localStorage.getItem('cloto-theme');
-        // Mirrors useThemeProvider: dark unless the user chose otherwise; `system`
-        // and `legacy` follow the OS, and `legacy` swaps in the old palette.
-        var os=window.matchMedia('(prefers-color-scheme:dark)').matches;
-        if(p==='dark'||!p||((p==='system'||p==='legacy')&&os))
-          document.documentElement.classList.add('dark');
-        if(p==='legacy') document.documentElement.classList.add('theme-legacy');
+        // Before React, so the first paint is already the chosen theme. Mirrors
+        // hooks/useTheme.ts + themes/apply.ts: the mode (dark unless chosen
+        // otherwise; `system` follows the OS), the face a one-face theme forces,
+        // and the stylesheet the last apply generated from validated values.
+        try {
+          var ls=localStorage;
+          var m=ls.getItem('cloto-theme-mode')||ls.getItem('cloto-theme');
+          var f=ls.getItem('cloto-theme-face');
+          var os=window.matchMedia('(prefers-color-scheme:dark)').matches;
+          var dark=f?f==='dark':(m==='light'?false:(!m||m==='dark')?true:os);
+          if(dark) document.documentElement.classList.add('dark');
+          var css=ls.getItem('cloto-theme-css');
+          if(css){
+            var el=document.createElement('style');
+            el.id='cloto-theme';
+            el.textContent=css;
+            document.head.appendChild(el);
+          }
+        } catch(e) { document.documentElement.classList.add('dark'); }
       })();
     </script>
   </head>

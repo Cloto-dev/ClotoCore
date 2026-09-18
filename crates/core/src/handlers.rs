@@ -32,7 +32,7 @@ pub use response::{json_data, ok_data};
 pub use agents::{
     create_agent, delete_agent, delete_avatar, delete_vrm, generate_visemes,
     get_agent_instruction_files, get_agent_last_usage, get_agents, get_avatar, get_vrm,
-    power_toggle, serve_speech_file, update_agent, upload_avatar, upload_vrm,
+    power_toggle, serve_speech_file, set_power_password, update_agent, upload_avatar, upload_vrm,
 };
 pub use chat::chat_handler;
 pub use commands::{approve_command, deny_command, trust_command};
@@ -52,8 +52,8 @@ pub use marketplace::{
 pub use mcp::{
     apply_plugin_settings, call_mcp_tool, create_mcp_server, delete_mcp_server, get_agent_access,
     get_agent_argument_rules, get_max_cron_generation, get_mcp_server_access,
-    get_mcp_server_settings, get_plugin_config, get_plugin_permissions, get_plugins,
-    get_response_language, get_yolo_mode, grant_permission_handler, list_mcp_servers,
+    get_mcp_server_settings, get_mcp_server_tools, get_plugin_config, get_plugin_permissions,
+    get_plugins, get_response_language, get_yolo_mode, grant_permission_handler, list_mcp_servers,
     put_agent_argument_rules, put_agent_mcp_access, put_mcp_server_access, restart_mcp_server,
     revoke_permission_handler, set_max_cron_generation, set_response_language, set_yolo_mode,
     start_mcp_server, stop_mcp_server, update_mcp_server_settings, update_plugin_config,

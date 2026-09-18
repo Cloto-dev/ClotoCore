@@ -7,6 +7,308 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ---
 
+## [Unreleased]
+
+### Added
+
+- **Themes you can write.** A theme is now a JSON file of colours instead of a
+  block of CSS compiled into the app. Import one from Settings → General →
+  Theme packs — in the desktop app or in a browser — or, on the desktop, drop
+  it into `Documents/ClotoCore/themes/`. Export gives you the default theme as
+  a template; `docs/THEMES.md` is the author's guide. A file that is incomplete
+  or not a theme is refused with the reason, and so is one whose body text
+  could not be read (under it, the page that switches away could not be read
+  either). A theme whose smaller text is faint is offered with a "low contrast"
+  mark. Nothing in a theme file reaches the page as written — colours are
+  parsed into numbers and the stylesheet is generated from those.
+
+### Changed
+
+- **The box under "Create an agent" says what it is for.** On the new-chat
+  screen, with nobody facing you, the composer was an empty box with a greyed
+  send arrow: pressing it or typing anything opened the form, and what you had
+  typed was thrown away. It now asks for a name, the button is a plus rather
+  than an arrow that sends nothing, and Enter or the plus opens the form with
+  the name already in it. Pressing or typing in the box no longer opens
+  anything by itself, and a message half-written to someone else does not turn
+  up there as a name.
+- **Theme and light/dark are two settings.** "Light / Dark / System / Legacy"
+  was one choice that mixed which palette with which face of it. They are now
+  separate: a theme (Cloto, Legacy, or one you imported) and a mode (light,
+  dark, or the device's). An existing choice carries over — Legacy stays
+  Legacy following the device, as it did. Dark, light and Legacy draw exactly
+  the colours they drew before (measured in a browser, every colour token on
+  all four faces).
+- **An agent's colour stays readable on a light theme.** The accent was
+  corrected for contrast against the dark raised surface whatever was on
+  screen. It is now corrected against the surface that is actually drawn —
+  darkened on a light one — and text set on it turns white when white reads
+  better.
+
+- **Stop stops the reply, not just the waiting.** The stop button now asks the
+  kernel to stop the reply where it is being produced
+  (`POST /api/chat/{agent_id}/stop`). Nothing of a stopped reply is stored, so
+  it no longer reappears when the conversation is opened again, and every open
+  window learns it stopped (a `ResponseStopped` event takes the place of the
+  reply). A stop pressed while the message still waits behind the agent's
+  previous turn is kept and acts as soon as the message has been stored — what
+  you wrote is never lost. If the reply had already finished, it is shown after
+  all. The engine is told to stop as well: the kernel sends MCP cancellation
+  for the call the reply had reached, so an engine running over stdio stops
+  generating (and spending tokens) instead of finishing an answer nobody sees.
+
+- **Search, from anywhere (⌘K / Ctrl+K).** A field over the page that goes to
+  a screen or a settings section, a conversation (by its title or who it is
+  with), an MCP server (by its name or what it is for) or a memory (among the
+  recent ones the memory server lists, which the group says). Arrows move,
+  Enter goes, Escape closes and hands the focus back to where it was; the
+  sidebar's search button opens it too. What was said inside conversations is
+  searched as well, archived conversations included: the group shows the first
+  five matches with the text around each, where it was said and with whom, and
+  how many more there are. The kernel answers it (`GET /api/chat/search`, a
+  full-text index that finds a phrase inside Japanese text as readily as an
+  English word). `/` puts the caret
+  in the composer when nothing else is being typed in, and ⌘N (new chat) now
+  goes through the same one table of shortcuts.
+- **The keyboard can always see where it is.** One focus ring for the whole
+  app, shown only for keyboard focus: neutral everywhere, the present agent's
+  colour in the chat. The workshop's ring had been the agent's colour, which
+  the workshop does not wear, and six inputs had switched the ring off.
+
+- **CLI agents is a page.** Connecting a CLI harness moved out of a dialog to
+  `/agents/cli`: the harnesses on this machine down the left — whether each is
+  usable, its version, how it is billed, where its credential lives, and how
+  many agents run on it — and the chosen one on the right with its state, the
+  connector's options and the agents that run on it. Each agent is listed under
+  the harness its next run will actually use; an agent whose saved settings
+  cannot be read, or that names a harness this machine does not have, is shown
+  as such under every harness, because its runs fail. "None found" now means
+  none is installed. Everything on the page comes from the connector: the
+  harness list from its probe, the options from its catalog entry, the
+  per-agent fields from its schema. Saving asks everything that can refuse —
+  the agents still existing, the server settings being readable — before it
+  writes anything, and writes the agents before restarting the connector. An
+  agent's engine row points here when its engine runs a harness. Scored against
+  the review checklist: 0 of 21 applicable signals, 2 partial (no focus rings
+  of its own yet, and no breakpoint below the mock's width).
+
+- **A new agent can be given its icon, and its VRM, as it is made.** The create
+  dialog has an icon row under the name — the picture shows at once, can be
+  taken back, and is refused before anything is sent if it is over the 5MB the
+  kernel accepts — and a VRM row under Advanced. A VRM that carries a thumbnail
+  offers it as the icon, as the settings page does. Nothing is uploaded until
+  the agent exists. If the agent is made but its icon or VRM cannot be saved,
+  that is said on the screen you return to, beside the new agent — not as a
+  failed creation, which would invite making a second agent of the same name.
+
+### Changed
+
+- **The memory screen is one time axis instead of a grid of cards.** What an
+  agent remembers is listed newest first under a band for each calendar day, and
+  a run of days with nothing on them is drawn as a single compressed segment
+  saying how long it was, so silence has a size. The screen wears an agent's
+  colour in one place only — the line under the agent tab you have selected;
+  points and the thirty-day band stay neutral. What was remembered is set in the
+  reading face rather than monospace, clamped to two lines, and opened by the
+  pointer or by keyboard focus. The right column holds the episodes — with a
+  line saying how the first one is made when there are none — over a band of
+  the last thirty days, counted from the memories already loaded. Filters across
+  the top (all, each agent, long-term only, episodes only) narrow together with
+  a search over the text, the agent's name and the date. Editing, locking,
+  deleting, export, import and refresh are all still there, as text at the
+  row's right when the row is under the pointer or holds focus. A refresh that
+  fails says so and leaves the axis on the screen. Scored against the review
+  checklist: 0 of 21 applicable signals.
+
+- **Settings is a page.** It opens at `/settings` instead of over whatever
+  screen you were on, with the sections down the left and, on the right, rows
+  that each say what the setting is, what it is for, and carry one control. The
+  cards are gone, and so is the coloured rail beside the selected section: the
+  workshop has no accent. Which section is open is in the address, so the update
+  notice sends you straight to About, and Back leaves settings in one step
+  rather than walking back through the sections you looked at. The language,
+  model and update-channel pickers are drawn by the app rather than by the
+  operating system and answer to the keyboard the same way; in the model list
+  Enter now picks a model, and Save is what saves it. Scored against the review
+  checklist: 0 of 21 applicable signals, 2 partial (no breakpoints below the
+  mock's width were designed; the key's reveal, copy and regenerate stay
+  icon-only).
+
+- **Back, forward and the sidebar toggle are back, in a bar of the page's own.**
+  Making the window's frame the operating system's had taken them away with the
+  old title bar. A thin bar across the top now carries three controls and
+  nothing else: hide or show the sidebar (remembered between launches), back,
+  and forward. Back and forward are dimmed when there is nowhere to go, and
+  opening something new from an earlier page drops the way forward, as a
+  browser does. The bar continues the sidebar's surface while the sidebar is
+  shown, has no line under it, and everything in it that is not a button is
+  what the window is dragged by. On macOS the controls start to the right of
+  the window buttons.
+
+- **The chat is the living room of the design mocks.** The conversation is a
+  720px reading column: your turns sit right, on the receding surface; the
+  agent's turns carry a dot in the agent's colour and no avatar per line. Each
+  turn shows its clock, days are separated, and edit / copy / again / read
+  aloud appear on hover. The composer is a textarea that grows with the text
+  (Enter sends, Shift+Enter breaks the line, IME composition never sends), with
+  attach, who you are talking to, the engine, the context meter and a round
+  send button in one row. While a reply is being produced the send button is a
+  stop button: what was shown stays, a line says the room stopped waiting, and
+  the rest of that reply is not drawn. An empty conversation is the agent's
+  presence — face, name, state, and the threads to continue from. Scrollbars are
+  visible again and a "jump to latest" button appears when you have scrolled up.
+- The header names the agent, their state (thinking and how many tools they
+  used, or waiting and when you last spoke) and the conversation's title.
+  Agent settings and the 3D avatar window are behind the header's tools.
+
+- **An agent's question is asked in the agent's words.** A command approval,
+  a refused tool call, one agent asking another and a message from outside
+  are all drawn the same way: the agent's colour on the left edge, the
+  question, the command in a mono box, the consequence as a sentence, and the
+  answers — go ahead (from now on), just this once, not now — with the impact
+  the kernel derived at the right. The question is asked inside the
+  conversation while that conversation is open; the window-level deck asks it
+  only for an agent you are not looking at, never twice on one screen. A
+  refusal carries nothing to answer.
+
+- **The MCP page is the workshop of the design mocks.** One column with a
+  band per kind — reasoning, memory, tools, senses, output — and the servers
+  that need a hand first, whatever their kind. Every row carries the server's
+  name, its id, the one line that says what it is for, and its tool count; a
+  state is written only when it deviates (failing, an unset variable,
+  connecting, stopped, an update waiting). The line comes from the server's
+  own description, else the catalog's, never from the dashboard. Search covers
+  names, ids and descriptions; the tabs are installed, marketplace and updates.
+- **A server's page** replaces the settings modal: sections on the left
+  (overview, environment, tools, access, logs), rows of item, explanation and
+  control on the right, and a save bar below. Nothing reaches the kernel until
+  save is pressed; discard puts the edits back. The overview names the
+  description, the origin (installed from the marketplace on a date, at a
+  version, or registered by hand), the launch command and the default policy
+  in words. Tools are listed with their descriptions. Access is per agent —
+  default, allow, deny for the server, and tool by tool when the agent is
+  opened.
+- The kernel's server list now carries each server's description, installed
+  version and registration time, and `GET /api/mcp/servers/:name/tools`
+  answers with the tools and their descriptions.
+
+- **A new chat is a screen, not an empty row.** Pressing New chat (or ⌘N) used
+  to create a conversation at once, so the list filled with untitled rows that
+  nothing was ever said in. It now opens on the agent's presence — face, name,
+  state and an opening remark, one of several — with the ordinary composer
+  under it, and nothing is created until the first message is sent; the row
+  appears in the list at that moment, and leaving without sending leaves
+  nothing. Who the chat is with is chosen there: the faces turn by a horizontal
+  swipe, a drag, or the arrow buttons, in the order you last spoke with them,
+  and the accent follows whoever is facing. "Create an agent" is the face at
+  the left end, and the only one when nobody exists yet; nothing can be sent
+  while it is facing, or to an agent that is off. Turning keeps what was typed.
+  Turning past an agent does not mark their waiting questions as read.
+- On that screen, who is one movement away is shown: the neighbour's face
+  stands beside each arrow, small, colourless and half lit, and pressing it
+  turns to them; past an end there is no arrow. The empty face of "create an
+  agent" is a plus and is itself the button. While it is facing, the composer
+  is an empty box that says nothing — pressing it, or typing into it, opens the
+  form that makes an agent — and the send button is in no one's colour, since
+  the accent belongs to an agent and nobody is there. A face stands at the same
+  height whoever it is, and the composer does not move as the faces turn.
+- The conversation list no longer shows an empty list under a lone "show more"
+  when nothing is from the last week: the older conversations are then the list.
+- The faintest text step is a little lighter in the dark theme (62% from 58%).
+  It was already above 4.5:1, but it is almost always 12px, and thin small type
+  on a dark surface reads fainter than its ratio says.
+- The Chat link is gone from the navigation. A conversation is reached by
+  pressing New chat or by choosing it in the list; the link only reopened
+  whichever one had been open.
+- **The window's frame is the operating system's.** The bar the dashboard drew
+  across the top of the window — back and forward, the product name, "N / N
+  active", help, a connection dot and its own minimise / maximise / close
+  buttons — is gone, and so is the line under it. On macOS the window buttons
+  sit over the top-left of the page and the two surfaces run up to the top
+  edge; elsewhere the OS draws its own title bar, in the app's theme rather
+  than the system's. What the bar carried has moved to where it belongs: help
+  is a link in the navigation, a newer build turns the version number in the
+  sidebar's foot into the way to it, and that foot now says when the kernel
+  cannot be reached instead of always saying it is running. Back and forward
+  are not replaced. A window-state file written by an older build no longer
+  takes the frame away again: whether the window has one is no longer restored.
+- **The agents screen is the roster of the design mocks.** The card grid and
+  the always-open create form are gone. On the left, everyone who exists in two
+  groups — answering now, and idle — each row a face, a name, one line of state
+  and when you last spoke. An agent that is off says so and is dimmed. On the
+  right, the one you picked, read out a line at a time: role, engine (with the
+  engine its routing switches to), memory server and how many long-term
+  memories it holds, how many servers and tools it may call, its cron jobs with
+  their times, whether it has an avatar, and its colour. The list is monochrome
+  except the row you picked, whose face wears that agent's colour — and the
+  colour is written onto this screen only, so opening the workshop no longer
+  recolours the app around it.
+- **A mark on the row when an agent is waiting on you.** It counts the
+  questions an agent cannot proceed without — approvals and proposals — and
+  deliberately not notices, which an agent raises whenever a tool call is
+  refused and which would put a mark beside every busy agent. Opening the
+  conversation reads them and the mark goes; the bell's count does not move,
+  because reading is not answering.
+- **Making an agent is a question asked over the roster**, not a panel that is
+  always open: name, description, engine and memory, with the password and the
+  routing rules folded away. Escape and the backdrop close it, the name has the
+  focus when it opens, and it closes when the agent exists.
+- **An agent's settings is its own page** (`/agents/:id/settings`), replacing
+  the MCP-access workspace. Six sections on the left — basics, engine, memory,
+  appearance, tool permissions, danger zone — rows of item, explanation and
+  control on the right, and a save bar below: nothing reaches the kernel until
+  save is pressed, and discard and back make no call at all. Basics also shows
+  the files this agent always reads, what each costs, and its share of the
+  budget the kernel reports — with any file that did not fit named at the top,
+  which until now only the model was told. Appearance holds the avatar, the VRM
+  model and the agent's colour, written as `hsl(H S% L%)` with a live dot; a
+  chosen colour is raised until it holds 4.5:1 on the raised surface, so
+  choosing one cannot make an agent unreadable. Tool permissions answer default
+  / allow / deny per server and per tool; each server's entry set is re-read
+  immediately before it is written, so answering for one agent cannot delete
+  another agent's grants.
+- **A save that is refused leaves nothing half-written.** The password is sent
+  first, because a mistyped current password is the likeliest refusal: refused
+  first, the rename beside it has not happened either. A server whose entries
+  could not be re-read is not written at all — a list built on a failed read
+  holds one agent's rows, and sending it would delete everyone else's.
+- The settings page wears the colour of the agent it is about, including a
+  colour being tried before it is saved; a colour chosen there reaches the chat
+  and the approval card, not only the roster.
+- Native `<select>` is gone from these screens. The platform paints its own
+  list with its own metrics, so the picker is now a button and a listbox that
+  the workshop's own density and surfaces apply to, with the keyboard contract
+  the native one has.
+- The power password can be changed and removed from the settings page
+  (`POST /api/agents/:id/power-password`); the current one is required when one
+  is set, so the admin key alone does not lift the guard it is there to be.
+
+### Removed
+
+- The microphone button in the composer. It never sent audio — it inserted a
+  note asking the agent to transcribe a recording that was not attached.
+
+Scored against the design review checklist (docs/DESIGN_PHILOSOPHY.md §6).
+The chat: 0 of 21 applicable signals present, 5 partly (a rounded "latest"
+button, the greeting in the empty room, the blinking cursor, the reading column
+below 800px, the monospace context meter) — all five drawn as the mock draws
+them. The MCP list and page: 0 of 21 present, 2 partly (the fixed 200px section
+rail below 900px, the monospace ids under names). The agent's question: 0 of
+21 present, 0 partly. The roster: 0 of 21 present, 4 partly (no
+loading state is drawn while the list arrives, the 400px list column is fixed
+below about 900px, ids are monospace, and every row carries a face — which here
+is the subject of the row rather than decoration, and monochrome except the one
+selected). The agent's settings page: 0 of 21 present, 3 partly (the fixed
+200px section rail below 900px, monospace ids and file names, and the same
+absent loading state while the grants and the always-loaded files are read).
+
+### Fixed
+
+- Settings → Conversations no longer says "nothing is archived" when it could
+  not read an agent's conversations (a rate limit was enough). It names the
+  agents it could not read, lists what it could, offers another try, and makes
+  the "nothing" claim only once every agent has been read.
+
 ## [0.6.9a1] — 2026-09-08
 <!-- release-title: an agent gets files it always reads, and skills it loads when it needs them -->
 
@@ -63,6 +365,14 @@ prompt.
   so a Windows-only failure does not fail a pull request.)
 
 ### Internal
+
+- The operation catalog drives the six conversation routes (create, list,
+  rename, archive and restore, delete, and the two bulk actions), asserting on
+  what the lists show afterwards rather than on the calls returning. The route
+  inventory the coverage ratchet counts against had been blind to `patch(...)`,
+  so the one PATCH route was neither counted nor reported uncovered; it is now,
+  and a CI self-test fails when a method router on a `lib.rs` route goes
+  uncounted. Local phase-0 coverage went from 39/103 to 44/103.
 
 - The issue registry — the mechanism that checks bug claims against the code —
   no longer accepts an empty verification pattern, a registry that declares no

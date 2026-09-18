@@ -126,6 +126,17 @@ pub struct McpServerInfo {
     /// protocol-negotiated), separate from the seal-based Verified badge.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub marketplace_id: Option<String>,
+    /// The one line that says what the server is for (`mcp_servers.description`,
+    /// filled from the catalog on install). Filled by the list handler from the
+    /// store; the manager does not hold it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The version that was installed, when the marketplace installed it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed_version: Option<String>,
+    /// Unix seconds of the server's registration (`mcp_servers.created_at`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub installed_at: Option<i64>,
 }
 
 #[must_use]

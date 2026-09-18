@@ -2303,8 +2303,18 @@ impl McpClientManager {
                 url: h.config.url.clone(),
                 has_unresolved_env: has_unresolved_env_vars(&h.config.env),
                 marketplace_id: h.config.marketplace_id.clone(),
+                description: None,
+                installed_version: None,
+                installed_at: None,
             })
             .collect()
+    }
+
+    /// The tools a registered server exposes, with their descriptions, or
+    /// `None` when no server has that id. A stopped server has no tools.
+    pub async fn server_tools(&self, id: &str) -> Option<Vec<super::mcp_protocol::McpTool>> {
+        let state = self.state.read().await;
+        state.servers.get(id).map(|h| h.tools.clone())
     }
 
     /// Return IDs of connected reasoning engines (servers exposing the
@@ -2602,6 +2612,26 @@ impl McpClientManager {
 
     #[cfg(test)]
     pub(crate) async fn insert_test_server_providing(&self, server_id: &str, tool_name: &str) {
+        self.insert_test_server_with_tools(
+            server_id,
+            vec![super::mcp_protocol::McpTool {
+                name: tool_name.to_string(),
+                description: None,
+                input_schema: serde_json::json!({}),
+                annotations: None,
+            }],
+        )
+        .await;
+    }
+
+    /// Test-only: a connected server with exactly these tools, without a process.
+    #[cfg(test)]
+    pub(crate) async fn insert_test_server_with_tools(
+        &self,
+        server_id: &str,
+        tools: Vec<super::mcp_protocol::McpTool>,
+    ) {
+        let tool_names: Vec<String> = tools.iter().map(|t| t.name.clone()).collect();
         let handle = McpServerHandle {
             id: server_id.to_string(),
             config: McpServerConfig {
@@ -2610,12 +2640,7 @@ impl McpClientManager {
                 ..Default::default()
             },
             client: None,
-            tools: vec![super::mcp_protocol::McpTool {
-                name: tool_name.to_string(),
-                description: None,
-                input_schema: serde_json::json!({}),
-                annotations: None,
-            }],
+            tools,
             handshake: None,
             mgp_negotiated: None,
             status: ServerStatus::Connected,
@@ -2626,9 +2651,9 @@ impl McpClientManager {
             instructions: None,
         };
         let mut state = self.state.write().await;
-        state
-            .tool_index
-            .insert(tool_name.to_string(), server_id.to_string());
+        for tool_name in tool_names {
+            state.tool_index.insert(tool_name, server_id.to_string());
+        }
         state.servers.insert(server_id.to_string(), handle);
     }
 

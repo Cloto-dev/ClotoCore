@@ -1165,9 +1165,10 @@
       "version": "0.6.1",
       "commit": "b60f329",
       "file": "dashboard/src/hooks/useTheme.ts",
-      "pattern": "\\[preference, applyTheme\\]",
+      "pattern": "\\[themeId, mode, apply\\]",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "notes": "The single preference became a theme id and a mode; the effect that applies them depends on both, which is the same guarantee in its current spelling. Behaviour is pinned by useTheme.test.tsx (switches mode and theme independently)."
     },
     {
       "id": "bug-245",
@@ -1224,10 +1225,11 @@
       "discovered": "2026-03-09T12:00:00Z",
       "version": "0.6.1",
       "commit": "b60f329",
-      "file": "dashboard/src/components/AgentTerminal.tsx",
+      "file": "dashboard/src/components/agents/AgentRoster.tsx",
       "pattern": "importWarnings\\.map\\(\\(w\\) =>",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "notes": "2026-09-17 workshop port: the agent screens were rebuilt against docs/gui/samples/03-agents.html and 08-agent-settings.html. The pending-import warning list moved out of AgentTerminal.tsx into the new roster; the pinned pattern is the same keyed map, re-pointed at its new home."
     },
     {
       "id": "bug-250",
@@ -2172,10 +2174,11 @@
       "discovered": "2026-03-15T19:15:00Z",
       "version": "0.6.3-alpha.2",
       "commit": "ebde11a",
-      "file": "dashboard/src/components/AgentPluginWorkspace.tsx",
+      "file": "dashboard/src/pages/AgentSettingsPage.tsx",
       "pattern": "delete metadata.avatar_path",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "notes": "2026-09-17 workshop port: the agent screens were rebuilt against docs/gui/samples/03-agents.html and 08-agent-settings.html. AgentPluginWorkspace.tsx was replaced by this page and deleted. The delete of the avatar keys before updateAgent moved with the save path, so the pin follows it."
     },
     {
       "id": "bug-326",
@@ -2244,10 +2247,11 @@
       "discovered": "2026-03-20T00:00:00Z",
       "version": "0.6.3-alpha.10",
       "commit": "08fc0e1",
-      "file": "dashboard/src/components/mcp/McpAccessControlTab.tsx",
+      "file": "dashboard/src/components/mcp/McpServerDetail.tsx",
       "pattern": "useCallback",
       "expected": "present",
-      "status": "fixed"
+      "status": "fixed",
+      "notes": "2026-09-17: McpAccessControlTab.tsx was folded into McpServerDetail.tsx (the server's page, docs/gui/samples/07); the access data is loaded by the same useCallback-wrapped loader there."
     },
     {
       "id": "bug-332",
@@ -2296,7 +2300,8 @@
       "file": "dashboard/src/components/AgentPluginWorkspace.tsx",
       "pattern": "import \\{ AlertCard \\} from './ui/AlertCard'",
       "expected": "present",
-      "status": "fixed"
+      "status": "obsolete",
+      "notes": "2026-09-17 workshop port: the agent screens were rebuilt against docs/gui/samples/03-agents.html and 08-agent-settings.html. AgentPluginWorkspace.tsx was replaced by dashboard/src/pages/AgentSettingsPage.tsx and deleted; the pinned import statement does not exist anywhere now, and the defect it pinned (import order) has no successor line to point at. Marked obsolete rather than re-pointed: `npx biome check src/` enforces organizeImports across the whole tree on every commit, which is a stronger gate than a per-file grep."
     },
     {
       "id": "bug-336",
@@ -2317,10 +2322,11 @@
       "discovered": "2026-03-21T00:00:00Z",
       "version": "0.6.3-alpha.11",
       "commit": "c4d0741",
-      "file": "dashboard/src/components/AgentTerminal.tsx",
-      "pattern": "text-content-tertiary shrink-0",
-      "expected": "present",
-      "status": "fixed"
+      "file": "dashboard/src/components/agents/AgentRoster.tsx",
+      "pattern": "text-content-muted",
+      "expected": "absent",
+      "status": "fixed",
+      "notes": "2026-09-17 workshop port: the agent screens were rebuilt against docs/gui/samples/03-agents.html and 08-agent-settings.html. The roster no longer uses Tailwind utilities at all — it is drawn from components/Workshop.css — so the old pin (a Tailwind class string) had nothing to match. The pin now asserts the rule the bug was about directly: text-content-muted is never used for readable text on this screen."
     },
     {
       "id": "bug-338",
@@ -4195,11 +4201,11 @@
       "severity": "LOW",
       "discovered": "2026-07-12T00:00:00Z",
       "version": "0.6.8-beta.2",
-      "file": "dashboard/src/components/mcp/McpServerLogsTab.tsx",
+      "file": "dashboard/src/components/mcp/McpLogsSection.tsx",
       "pattern": "const fresh = seeded\\.filter",
       "expected": "present",
       "status": "fixed",
-      "notes": "Discovered by ClotoCore comprehensive code-quality audit 2026-07-12 (Sonnet-5 Workflow wf_3a2b40c2-649 resume: 26 finders -> dedup 63 -> severity-tiered adversarial verify (all 160 agents, 0 error); final verdict CONFIRMED; finder(s): dash-mcp-marketplace). Failure scenario: User opens the Logs tab for a server that is actively emitting log lines. `useEventStream` starts appending live entries to `logs` immediately on mount (line 100-106), while the separate `getHistory()` fetch (lines 115-134) resolves asynchronously afterward. Any log event that both (a) is included in the kernel's event-history ring buffer snapshot returned by `getHistory()` and (b) has already arrived live via SSE before that fetch resolves ends up counted twice: once in `prev` (from the live listener) and once in `seeded` (from history), because the merge at line 126 unconditionally prepends `seeded` to `prev` with no de-duplication key. Fix direction: De-duplicate on merge, e.g. key entries by a stable id (timestamp+label+message, or an event sequence number from the backend) and filter `seeded` down to entries not already present in `prev` before concatenating. — FIXED 2026-07-16 (branch fix/audit-a1-frontend): Tier A1 audit remediation; verify-issues confirms.",
+      "notes": "Discovered by ClotoCore comprehensive code-quality audit 2026-07-12 (Sonnet-5 Workflow wf_3a2b40c2-649 resume: 26 finders -> dedup 63 -> severity-tiered adversarial verify (all 160 agents, 0 error); final verdict CONFIRMED; finder(s): dash-mcp-marketplace). Failure scenario: User opens the Logs tab for a server that is actively emitting log lines. `useEventStream` starts appending live entries to `logs` immediately on mount (line 100-106), while the separate `getHistory()` fetch (lines 115-134) resolves asynchronously afterward. Any log event that both (a) is included in the kernel's event-history ring buffer snapshot returned by `getHistory()` and (b) has already arrived live via SSE before that fetch resolves ends up counted twice: once in `prev` (from the live listener) and once in `seeded` (from history), because the merge at line 126 unconditionally prepends `seeded` to `prev` with no de-duplication key. Fix direction: De-duplicate on merge, e.g. key entries by a stable id (timestamp+label+message, or an event sequence number from the backend) and filter `seeded` down to entries not already present in `prev` before concatenating. — FIXED 2026-07-16 (branch fix/audit-a1-frontend): Tier A1 audit remediation; verify-issues confirms. 2026-09-17: McpServerLogsTab.tsx became McpLogsSection.tsx (the logs section of the server's page); the de-duplicating merge moved with it unchanged.",
       "github_issue": 325
     },
     {

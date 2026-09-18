@@ -1,3 +1,4 @@
+import type { NotificationSeverity } from './services/api';
 export type ClotoId = string;
 
 export interface ClotoMessage {
@@ -104,6 +105,43 @@ export interface ChatMessage {
   created_at: number;
   parent_id?: string | null;
   branch_index?: number;
+  conversation_id?: string | null;
+}
+
+/** A conversation: the persistent thread the model reads as its context
+ * (docs/CONVERSATIONS_DESIGN.md). Times are Unix ms. */
+export interface Conversation {
+  id: string;
+  agent_id: string;
+  user_id: string;
+  title: string;
+  created_at: number;
+  updated_at: number;
+  archived_at: number | null;
+  message_count: number;
+}
+
+/** A message found by `GET /api/chat/search`: across every agent's
+ * conversations, archived ones included. */
+export interface ChatSearchHit {
+  message_id: string;
+  agent_id: string;
+  conversation_id: string | null;
+  conversation_title: string | null;
+  archived: boolean;
+  source: string;
+  created_at: number;
+  /** The text around the first match, on one line. */
+  snippet: string;
+}
+
+export interface ChatSearchResult {
+  query: string;
+  /** Newest first, at most the limit asked for. */
+  results: ChatSearchHit[];
+  /** Every message that matched, whether or not it is in `results`. */
+  total: number;
+  truncated: boolean;
 }
 
 // API response types
@@ -121,6 +159,8 @@ export interface CommandApprovalRequest {
   approval_id: string;
   agent_id: string;
   commands: Array<{ command: string; command_name: string }>;
+  /** The kernel's derivation of what the commands could do, for "影響: 小/中/大". */
+  severity?: NotificationSeverity;
 }
 
 /**
@@ -211,6 +251,29 @@ export interface RecallPrecisionInfo {
   global_precision: string;
 }
 
+/**
+ * One always-loaded instruction file, as the kernel found it for an agent
+ * (`GET /api/agents/:id/instruction-files`). Mirrors
+ * `crates/core/src/managers/mcp.rs::AgentInstructionFile`.
+ */
+export interface AgentInstructionFile {
+  name: string;
+  /** Whether the file exists with something other than whitespace in it. */
+  present: boolean;
+  /** Characters after trimming; 0 when the file is not present. */
+  chars: number;
+  /** Whether the file reached the prompt. A present file is left out whole when
+   * it does not fit what the files before it left of the budget. */
+  loaded: boolean;
+}
+
+/** What an agent's always-loaded files cost against the shared budget. The
+ * budget travels with the answer, so no screen has to copy the number. */
+export interface AgentInstructionsReport {
+  budget_chars: number;
+  files: AgentInstructionFile[];
+}
+
 export interface Episode {
   id: number;
   agent_id: string;
@@ -259,6 +322,17 @@ export interface McpServerInfo {
    * registered (CLI / API / mcp.toml). Used together with `mgp_supported`
    * by `isMgpServer()` in `lib/mgp.ts` to render the MGP purple card. */
   marketplace_id?: string | null;
+  /** The one line that says what the server is for (`mcp_servers.description`). */
+  description?: string;
+  installed_version?: string;
+  /** Unix seconds of the server's registration. */
+  installed_at?: number;
+}
+
+/** One of a server's tools, as `GET /api/mcp/servers/:name/tools` lists them. */
+export interface McpToolInfo {
+  name: string;
+  description: string | null;
 }
 
 export interface AccessControlEntry {

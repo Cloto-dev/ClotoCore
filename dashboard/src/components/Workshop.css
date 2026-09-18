@@ -1,0 +1,1004 @@
+/* The workshop, ported rule for rule from docs/gui/samples/04-mcp-servers.html
+ * and 07-mcp-server-detail.html (the approved mocks): the face where people
+ * and machines meet. Denser than the living room, and it uses no accent. The
+ * mock's ink/fg variables map onto the tokens in index.css. */
+
+.ws {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: hsl(var(--text-primary));
+}
+/* The mock's element resets, at the mock's zero specificity (see AppSidebar.css). */
+:where(.ws button) {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+:where(.ws input),
+:where(.ws textarea) {
+  font: inherit;
+  color: inherit;
+}
+:where(.ws svg) {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+/* The focus ring in the workshop: the global one (index.css), in the
+ * neutral step — the workshop has no accent — with the controls' radius. */
+.ws :focus-visible {
+  outline-color: hsl(var(--text-secondary));
+  border-radius: var(--radius-tool);
+}
+.ws .num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ws ::-webkit-scrollbar {
+  width: 10px;
+}
+.ws ::-webkit-scrollbar-thumb {
+  background: hsl(var(--border-default));
+  border-radius: 8px;
+  border: 3px solid hsl(var(--surface-base));
+}
+
+/* ---------- head, tabs, body ---------- */
+.ws-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 24px 10px;
+}
+.ws-head h1 {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+}
+.ws-head .count {
+  color: hsl(var(--text-tertiary));
+  font-size: 13px;
+}
+.ws-head .count.mono {
+  font-family: var(--font-mono);
+}
+.ws-head .count .bad {
+  color: hsl(6 70% 68%);
+}
+.ws-head .spacer {
+  flex: 1;
+}
+.ws-head .find {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-tool);
+  padding: 6px 10px;
+  width: 260px;
+  color: hsl(var(--text-tertiary));
+}
+.ws-head .find input {
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  outline: none;
+  color: hsl(var(--text-primary));
+  font-size: 13px;
+}
+.ws-head .find svg {
+  width: 14px;
+  height: 14px;
+}
+.ws-head .back {
+  padding-left: 4px;
+  color: hsl(var(--text-tertiary));
+}
+.ws-head h1.after-back {
+  margin-left: 6px;
+}
+.btn {
+  padding: 6px 12px;
+  border-radius: var(--radius-tool);
+  font-size: 13px;
+  color: hsl(var(--text-secondary));
+  white-space: nowrap;
+}
+.btn:hover {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+.btn.pri {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-primary));
+  font-weight: 500;
+}
+.btn.pri:hover {
+  background: hsl(var(--h) 7% 27%);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: none;
+}
+.btn.pri:disabled {
+  background: hsl(var(--border-default));
+}
+.btn.danger {
+  color: hsl(6 70% 72%);
+}
+.tabs {
+  display: flex;
+  gap: 2px;
+  padding: 0 24px;
+  border-bottom: 1px solid hsl(var(--surface-primary));
+}
+.tabs button {
+  padding: 7px 10px;
+  color: hsl(var(--text-tertiary));
+  font-size: 13px;
+  border-bottom: 1px solid transparent;
+  margin-bottom: -1px;
+}
+.tabs button:hover {
+  color: hsl(var(--text-primary));
+}
+.tabs .on {
+  color: hsl(var(--text-primary));
+  border-bottom-color: hsl(var(--text-secondary));
+}
+.tabs .n {
+  color: hsl(var(--text-tertiary));
+  margin-left: 4px;
+}
+.ws-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+/* A state, as a dot before its words. */
+.st {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.st::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: hsl(var(--text-tertiary));
+}
+.st.ok::before {
+  background: hsl(150 45% 55%);
+}
+.st.bad::before {
+  background: hsl(6 70% 62%);
+}
+.st.warn::before {
+  background: hsl(40 70% 60%);
+}
+.st.bad {
+  color: hsl(6 70% 72%);
+}
+.hint {
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+  margin-top: 6px;
+  line-height: 1.6;
+}
+.ws .note {
+  padding: 20px 14px 0;
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+}
+.ws .empty {
+  padding: 60px 24px;
+  text-align: center;
+  color: hsl(var(--text-tertiary));
+  font-size: 13px;
+}
+.ws .problem {
+  margin: 8px 24px 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-tool);
+  background: hsl(var(--surface-secondary));
+  color: hsl(6 70% 72%);
+  font-size: 13px;
+}
+
+/* ---------- the list: one column, a band per group ---------- */
+.lst {
+  width: min(820px, 100% - 48px);
+  margin: 0 auto;
+  padding: 8px 0 60px;
+}
+.band {
+  position: relative;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  margin-top: 6px;
+}
+.band::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 9px;
+  height: 26px;
+  background: hsl(var(--surface-secondary));
+  border-radius: 6px;
+}
+.band .lbl {
+  position: relative;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding-left: 14px;
+  color: hsl(var(--text-primary));
+}
+.band .n {
+  position: relative;
+  margin-left: auto;
+  padding-right: 14px;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.band.bad .lbl {
+  color: hsl(6 70% 72%);
+}
+.srv {
+  display: grid;
+  grid-template-columns: 170px 1fr auto 28px;
+  gap: 16px;
+  align-items: center;
+  padding: 8px 14px;
+  border-radius: var(--radius-tool);
+  width: 100%;
+  text-align: left;
+}
+.srv:hover {
+  background: hsl(var(--surface-secondary));
+}
+.srv .nm {
+  font-size: 14px;
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.srv .nm small {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 400;
+  color: hsl(var(--text-tertiary));
+}
+.srv .what {
+  font-size: 13.5px;
+  color: hsl(var(--text-secondary));
+  line-height: 1.5;
+  min-width: 0;
+}
+.srv .what .dev {
+  color: hsl(6 70% 72%);
+}
+.srv .what .dev.warn {
+  color: hsl(40 70% 65%);
+}
+.srv .what .dev.off {
+  color: hsl(var(--text-tertiary));
+}
+.srv .cnt {
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+  white-space: nowrap;
+}
+.srv .more {
+  opacity: 0;
+  width: 28px;
+  height: 24px;
+  border-radius: 4px;
+  color: hsl(var(--text-tertiary));
+  display: grid;
+  place-items: center;
+}
+.srv:hover .more,
+.srv:focus-within .more {
+  opacity: 1;
+}
+.srv .more:hover {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-primary));
+}
+
+/* ---------- the detail: sections on the left, rows on the right ---------- */
+.detail {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  min-height: 0;
+  flex: 1;
+}
+.rail {
+  padding: 6px 12px;
+  border-right: 1px solid hsl(var(--surface-primary));
+}
+.rail a,
+.rail button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 10px;
+  border-radius: var(--radius-tool);
+  color: hsl(var(--text-secondary));
+  text-decoration: none;
+  margin-bottom: 1px;
+  font-size: 13.5px;
+}
+.rail a.on,
+.rail button.on {
+  color: hsl(var(--text-primary));
+  background: hsl(var(--surface-primary));
+}
+.rail a:hover,
+.rail button:hover {
+  background: hsl(var(--surface-secondary));
+  color: hsl(var(--text-primary));
+}
+.pane {
+  padding: 6px 32px 120px;
+  max-width: 800px;
+  overflow: auto;
+  min-height: 0;
+}
+.pane h2 {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: hsl(var(--text-secondary));
+  margin: 26px 0 2px;
+}
+.pane h2:first-child {
+  margin-top: 12px;
+}
+.pane h2 .num {
+  color: hsl(var(--text-tertiary));
+  font-weight: 400;
+  margin-left: 6px;
+}
+.frow {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--surface-secondary));
+}
+.frow .k {
+  width: 180px;
+  flex: none;
+  padding-top: 6px;
+}
+.frow .k small {
+  display: block;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  margin-top: 1px;
+  font-weight: 400;
+}
+.frow .v {
+  flex: 1;
+  min-width: 0;
+}
+.frow .v .txt {
+  padding-top: 6px;
+}
+.in {
+  width: 100%;
+  background: hsl(var(--surface-secondary));
+  border: 0;
+  border-radius: var(--radius-tool);
+  padding: 7px 10px;
+  color: hsl(var(--text-primary));
+  font-size: 13.5px;
+}
+.in:focus {
+  outline: 2px solid hsl(var(--text-tertiary));
+  outline-offset: 0;
+}
+.in.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+.in:read-only {
+  color: hsl(var(--text-secondary));
+}
+textarea.in {
+  min-height: 88px;
+  resize: vertical;
+  line-height: 1.6;
+}
+.seg {
+  display: inline-flex;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-tool);
+  padding: 2px;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+.seg button {
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: hsl(var(--text-secondary));
+}
+.seg .on {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-primary));
+}
+.kv {
+  display: grid;
+  grid-template-columns: 1fr 1fr 28px;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.kv .in {
+  padding: 6px 10px;
+}
+.kv .btn {
+  padding: 4px;
+  text-align: center;
+}
+.tool {
+  display: grid;
+  grid-template-columns: 200px 1fr auto;
+  gap: 14px;
+  padding: 7px 10px;
+  border-radius: var(--radius-tool);
+  font-size: 13px;
+  align-items: center;
+}
+.tool:hover {
+  background: hsl(var(--surface-secondary));
+}
+.tool .nm {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tool .d {
+  color: hsl(var(--text-secondary));
+  min-width: 0;
+}
+.tool .who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-align: left;
+  min-width: 0;
+}
+.tool .who .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: hsl(var(--text-tertiary));
+}
+/* The server name opens its tools, so it is a button — drawn as the text it was. */
+.tool button.nm {
+  text-align: left;
+}
+.tool.sub {
+  padding-left: 36px;
+}
+.grant {
+  display: inline-flex;
+  background: hsl(var(--surface-secondary));
+  border-radius: 4px;
+  padding: 1px;
+  border: 0;
+  margin: 0;
+  min-width: 0;
+}
+.grant button {
+  padding: 2px 9px;
+  border-radius: 3px;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.grant .on {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-primary));
+}
+.grant .allow.on {
+  color: hsl(150 45% 65%);
+}
+.grant .deny.on {
+  color: hsl(6 70% 72%);
+}
+.savebar {
+  position: absolute;
+  left: 200px;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* The right padding leaves room for the experimental mark, which sits in
+   * the window's bottom-right corner over this bar. */
+  padding: 12px 120px 12px 32px;
+  background: hsl(var(--surface-base));
+  border-top: 1px solid hsl(var(--surface-primary));
+  font-size: 13px;
+  color: hsl(var(--text-tertiary));
+}
+.savebar .spacer {
+  flex: 1;
+}
+.savebar .problem {
+  margin: 0;
+  padding: 0;
+  background: none;
+}
+.log {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-surface);
+  padding: 10px 14px;
+  color: hsl(var(--text-secondary));
+  white-space: pre;
+  overflow-x: auto;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.log .t {
+  color: hsl(var(--text-tertiary));
+}
+.log .w {
+  color: hsl(40 70% 65%);
+}
+.log .e {
+  color: hsl(6 70% 72%);
+}
+.danger {
+  color: hsl(6 70% 72%);
+}
+
+/* ---------- the roster: who exists, and one of them in full ----------
+ * Ported rule for rule from docs/gui/samples/03-agents.html. The list is
+ * monochrome except the selected row, whose face wears the agent's colour —
+ * the accent belongs to the one present and to nothing else. */
+.roster-split {
+  display: grid;
+  grid-template-columns: 400px 1fr;
+  min-height: 0;
+}
+.roster {
+  border-right: 1px solid hsl(var(--surface-primary));
+  overflow: auto;
+  padding: 6px 8px;
+}
+.roster .r {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: var(--radius-surface);
+  width: 100%;
+  text-align: left;
+  color: hsl(var(--text-secondary));
+}
+.roster .r:hover {
+  background: hsl(var(--surface-secondary));
+  color: hsl(var(--text-primary));
+}
+.roster .r.on {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+.roster .r .f {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-tertiary));
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.roster .r.on .f {
+  background: hsl(var(--agent));
+  color: hsl(var(--agent-ink));
+}
+.roster .r .nm {
+  font-size: 14px;
+  font-weight: 500;
+  color: hsl(var(--text-primary));
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* The row's two lines. The mock nests them in block elements; here they are
+ * spans, so the column and the state line are told to behave as blocks. */
+.roster .r .who {
+  display: block;
+  min-width: 0;
+}
+.roster .r .st {
+  /* inline-flex as in the mock: the state sits in a line box, which is what
+     gives the row its height. */
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+}
+.roster .r .st.live {
+  color: hsl(var(--text-secondary));
+}
+.roster .r .st.live::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(150 45% 55%);
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.roster .r .last {
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.roster .r.off .nm {
+  color: hsl(var(--text-secondary));
+}
+.roster .grp {
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  padding: 12px 10px 4px;
+}
+/* Something is waiting on this row. Neutral on purpose: the accent is the
+ * agent's own colour, and a mark that borrowed it would say "this agent" where
+ * it means "your turn". */
+.roster .r .unread {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: hsl(var(--text-primary));
+  flex: none;
+}
+
+/* The one agent, in full. */
+.agent-detail {
+  padding: 22px 32px;
+  overflow: auto;
+  max-width: 720px;
+}
+.agent-detail .who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.agent-detail .who .nm {
+  font-weight: 600;
+  font-size: 15px;
+}
+.agent-detail .who .id {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.agent-dl {
+  margin: 18px 0 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+.agent-dl dt {
+  color: hsl(var(--text-tertiary));
+}
+.agent-dl dd {
+  margin: 0;
+  color: hsl(var(--text-primary));
+  min-width: 0;
+}
+.agent-dl dd.sub {
+  color: hsl(var(--text-secondary));
+}
+.agent-acts {
+  margin-top: 22px;
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.agent-acts .spacer {
+  flex: 1;
+}
+.agent-note {
+  margin: 24px 0 0;
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+}
+
+/* ---------- the face at three sizes (08-agent-settings.html `.face-lg`) ---------- */
+.face-lg {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: hsl(var(--agent));
+  color: hsl(var(--agent-ink));
+  display: grid;
+  place-items: center;
+  flex: none;
+  overflow: hidden;
+}
+.face-lg.head {
+  width: 36px;
+  height: 36px;
+  margin-left: 6px;
+}
+.face-lg.mid {
+  width: 40px;
+  height: 40px;
+}
+
+/* ---------- the picker (`.sel`) ---------- */
+.sel-wrap {
+  position: relative;
+  display: inline-block;
+}
+.sel {
+  display: inline-flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  min-width: 200px;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-tool);
+  padding: 7px 10px;
+  font-size: 13.5px;
+  text-align: left;
+}
+.sel .lbl {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sel .c {
+  color: hsl(var(--text-tertiary));
+  font-size: 11px;
+}
+.sel:hover {
+  background: hsl(var(--surface-primary));
+}
+.sel:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.sel-list {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: hsl(var(--surface-primary));
+  border-radius: var(--radius-surface);
+}
+.sel-opt {
+  padding: 6px 10px;
+  border-radius: var(--radius-tool);
+  font-size: 13.5px;
+  color: hsl(var(--text-secondary));
+  cursor: pointer;
+  white-space: nowrap;
+}
+.sel-opt.active {
+  background: hsl(var(--border-default));
+  color: hsl(var(--text-primary));
+}
+.sel-opt.on {
+  color: hsl(var(--text-primary));
+}
+.sel-opt small {
+  display: block;
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.sel-empty {
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+}
+
+/* ---------- the switch (`.tgl`) ---------- */
+.tgl {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: hsl(var(--border-default));
+  position: relative;
+  flex: none;
+}
+.tgl::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: hsl(var(--text-tertiary));
+}
+.tgl.on {
+  background: hsl(var(--text-secondary));
+}
+.tgl.on::after {
+  left: 16px;
+  background: hsl(var(--surface-base));
+}
+
+/* ---------- rows the mock draws with inline styles ---------- */
+.dev {
+  color: hsl(6 70% 72%);
+}
+.dev.warn {
+  color: hsl(40 70% 65%);
+}
+.dev.off {
+  color: hsl(var(--text-tertiary));
+}
+.vrow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.crow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* 03-agents.html: the colour row's dot is the 7px status dot in the agent's colour. */
+.crow .dot-sm {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+}
+.crow .dot-lg {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  flex: none;
+}
+.crow .hint {
+  margin: 0;
+}
+.in.narrow {
+  width: 180px;
+}
+.tool.rule {
+  grid-template-columns: 1fr auto auto;
+  padding-left: 0;
+}
+.tool.rule .btn {
+  padding: 2px 8px;
+  color: hsl(var(--text-tertiary));
+}
+
+/* ---------- a question asked over the page ----------
+ * Lightness, not glass: the panel is the raised surface with the base dimmed
+ * behind it, and it carries no shadow. */
+.wmodal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--surface-overlay);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.wmodal {
+  /* A `.ws` fills its parent; a dialog is as tall as what it holds. */
+  height: auto;
+  width: min(520px, 100%);
+  max-height: calc(100vh - 96px);
+  overflow: auto;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-surface);
+  padding: 18px 22px 16px;
+  font-size: 13.5px;
+}
+.wmodal h2 {
+  font-size: 15px;
+  font-weight: 600;
+  margin: 0;
+  color: hsl(var(--text-primary));
+}
+.wmodal .frow:last-of-type {
+  border-bottom: 0;
+}
+.wmodal .in {
+  background: hsl(var(--surface-primary));
+}
+.wmodal .sel {
+  background: hsl(var(--surface-primary));
+}
+.wmodal .acts {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+}
+.wmodal .acts .spacer {
+  flex: 1;
+}
+.wmodal details summary {
+  list-style: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: hsl(var(--text-secondary));
+  padding: 10px 0 2px;
+}
+/* The same chevron the chat's "inner" disclosure uses: without one, a summary
+   reads as a label. */
+.wmodal details summary::after {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 8px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform 0.12s;
+  vertical-align: 2px;
+}
+.wmodal details[open] summary::after {
+  transform: rotate(45deg);
+}
+.wmodal details summary::-webkit-details-marker {
+  display: none;
+}
+.wmodal details summary:hover {
+  color: hsl(var(--text-primary));
+}
+/* The import, previewed before it happens. */
+.import-preview {
+  margin: 8px 24px 0;
+  padding: 10px 14px;
+  border-radius: var(--radius-surface);
+  background: hsl(var(--surface-secondary));
+}
+.import-preview .agent-dl {
+  margin-top: 8px;
+}

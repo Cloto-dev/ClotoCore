@@ -423,6 +423,77 @@ class AgentsInstructionFiles(Operation):
 
 
 @register
+class AgentsPowerPassword(Operation):
+    """The password on an agent's power switch can be set, changed and removed —
+    and only by someone who knows the one it has.
+
+    Runs on a throwaway agent. The refusal is the point: a route that changed
+    the password on the admin key alone would be the way around the password,
+    so a wrong current password must be turned away and must leave the old one
+    working (proved by using the old one for the next change).
+    """
+
+    domain = "agents"
+    name = "power_password"
+    covers = ["POST /api/agents/{id}/power-password"]
+    phase0 = True
+
+    def drive(self, ctx: RunContext):
+        c = ctx.client
+        created = c.post(
+            "/api/agents",
+            body={
+                "name": _TEST_NAME + " password",
+                "description": "opverify power-password probe agent",
+                "default_engine": "cerebras",
+            },
+        )
+        agent_id = created["id"]
+        ctx.scratch["password_agent_id"] = agent_id
+        path = f"/api/agents/{agent_id}/power-password"
+
+        first = c.post(path, body={"new_password": "first"})
+        refused_status, _ = c.request_raw(
+            "POST", path, body={"current_password": "guess", "new_password": "second"}
+        )
+        changed = c.post(path, body={"current_password": "first", "new_password": "second"})
+        removed = c.post(path, body={"current_password": "second", "new_password": ""})
+        flag = (_find(c.get("/api/agents"), agent_id) or {}).get("metadata", {}).get(
+            "has_power_password"
+        )
+
+        c.delete(f"/api/agents/{agent_id}")
+        ctx.scratch.pop("password_agent_id", None)
+        return {
+            "first": first,
+            "refused_status": refused_status,
+            "changed": changed,
+            "removed": removed,
+            "flag_after_removal": flag,
+        }
+
+    def assert_success(self, ctx: RunContext, result):
+        assert result["first"].get("has_power_password") is True, result["first"]
+        assert result["refused_status"] == 403, (
+            f"a wrong current password must be refused: HTTP {result['refused_status']}"
+        )
+        # Accepting "first" here is what shows the refused change stored nothing.
+        assert result["changed"].get("has_power_password") is True, result["changed"]
+        assert result["removed"].get("has_power_password") is False, result["removed"]
+        assert result["flag_after_removal"] != "true", (
+            f"the agent still reports a password: {result['flag_after_removal']!r}"
+        )
+
+    def teardown(self, ctx: RunContext):
+        agent_id = ctx.scratch.pop("password_agent_id", None)
+        if agent_id:
+            try:
+                ctx.client.delete(f"/api/agents/{agent_id}")
+            except Exception:
+                pass
+
+
+@register
 class AgentsVisemes(Operation):
     """Text → lip-sync timeline.
 

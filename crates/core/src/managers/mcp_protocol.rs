@@ -206,8 +206,15 @@ pub const HANDSHAKE_PROTOCOL_VERSIONS: &[&str] =
 /// stay byte-identical on the wire.
 pub const LEGACY_PROTOCOL_VERSION: &str = "2024-11-05";
 
+/// The handshake era's opening request. It must never be cancelled.
+pub const INITIALIZE_METHOD: &str = "initialize";
+
 /// Discovery method that replaces `initialize` in the modern era.
 pub const DISCOVER_METHOD: &str = "server/discover";
+
+/// Tells a server to stop a request the client is no longer waiting for. Both
+/// eras spell it the same way; on stdio it is the only cancellation signal.
+pub const CANCELLED_NOTIFICATION_METHOD: &str = "notifications/cancelled";
 
 /// Upper bound for a single `server/discover` probe, matching the reference
 /// SDK. The effective probe timeout is `min(request_timeout, this)`.

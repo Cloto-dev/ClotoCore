@@ -1,0 +1,422 @@
+/* Settings, ported rule for rule from docs/gui/samples/05-settings.html: the
+ * sections on the left, and on the right a column of rows that each say what
+ * they are, what they are for, and carry one control.
+ *
+ * Only what the settings mock draws differently lives here. The page's frame
+ * (`.ws`, `.ws-head`, `.ws-body`), the section rail (`.rail`), and the shared
+ * controls (`.btn`, `.seg`, `.sel`, `.tgl`, `.in`) are the workshop's own and
+ * come from Workshop.css — the mock draws them with the same numbers, so
+ * repeating the rules here would be a second place to change one.
+ *
+ * The mock's ink/fg variables map onto the tokens in index.css:
+ * ink-0/1/2/3 → surface-base / surface-secondary / surface-primary /
+ * border-default, fg-0/1/2 → text-primary / secondary / tertiary. */
+
+/* The two columns. The mock writes these inline on `.ws-body`. */
+.set-body {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  min-height: 0;
+}
+
+/* The column that is read: a reading width, and room under the last row. */
+.set-pane {
+  padding: 8px 32px 40px;
+  max-width: 760px;
+  overflow: auto;
+  min-height: 0;
+}
+.set-pane h2 {
+  font-size: 14px;
+  font-weight: 600;
+  color: hsl(var(--text-secondary));
+  margin: 28px 0 2px;
+}
+.set-pane h2:first-child {
+  margin-top: 16px;
+}
+/* A sentence under a heading, for what belongs to the group and not to a row. */
+.set-pane .gdesc {
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+  margin: 6px 0 0;
+  line-height: 1.6;
+}
+/* Content that is not a row (a log, a list of checks, a lone action). */
+.set-pane .set-block {
+  padding: 12px 0;
+}
+
+/* One row. Separated by a rule in the receding surface, not by a box: the
+ * mock's only line on this page. */
+.srow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--surface-secondary));
+}
+/* A row whose control is taller than one line keeps its label at the top. */
+.srow.tall {
+  align-items: flex-start;
+}
+.srow .k {
+  flex: 1;
+  min-width: 0;
+}
+.srow .d {
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+  margin-top: 1px;
+  line-height: 1.6;
+}
+.srow .v {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-width: 0;
+}
+.srow.tall .v {
+  align-items: flex-start;
+}
+/* A row the page had to grow rather than the mock: the control needs the
+ * width, so it goes under the words instead of beside them. */
+.srow.stacked {
+  display: block;
+}
+.srow.stacked .v {
+  margin-top: 8px;
+}
+
+/* The mock's picker and field are a touch tighter than 08-agent-settings.html
+ * draws the same parts; these are 05-settings.html's numbers. */
+.set-pane .sel {
+  min-width: 140px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+.set-pane .sel .c {
+  font-size: 13px;
+}
+.set-pane .in {
+  width: 180px;
+  padding: 6px 10px;
+}
+.set-pane .in.wide {
+  width: 100%;
+}
+.set-pane .in.tiny {
+  width: 64px;
+}
+/* A field whose placeholder is a sentence, and which carries the reveal eye. */
+.set-pane .in.secret {
+  width: 260px;
+  padding-right: 28px;
+}
+.set-pane .in.mono {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+/* A value that is read rather than set (the version, a size, a link). */
+.set-pane .val {
+  font-size: 13px;
+  color: hsl(var(--text-secondary));
+}
+.set-pane a.val {
+  text-decoration: none;
+}
+.set-pane a.val:hover {
+  color: hsl(var(--text-primary));
+  text-decoration: underline;
+}
+
+/* Something the page has to say back: a failure, a warning, a receipt. Colour
+ * carries the state; there is no box drawn around it. */
+.set-pane .says {
+  font-size: 12.5px;
+  color: hsl(var(--text-secondary));
+  margin: 8px 0 0;
+  line-height: 1.6;
+}
+.set-pane .says.bad {
+  color: hsl(6 70% 72%);
+}
+.set-pane .says.warn {
+  color: hsl(40 70% 65%);
+}
+.set-pane .says.ok {
+  color: hsl(150 45% 62%);
+}
+
+/* A list of things, each with the actions that belong to it (archived
+ * conversations, providers, the uninstall plan). Rows again, one rule each. */
+.slist {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.slist li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid hsl(var(--surface-secondary));
+}
+.slist .t {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slist .who {
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+  flex: none;
+}
+
+/* The key the dashboard holds, shown as the identifier it is. */
+.set-pane .keyline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.set-pane .keyline code {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-tool);
+  padding: 6px 10px;
+  color: hsl(var(--text-primary));
+  min-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.set-pane .icb {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-tool);
+  display: grid;
+  place-items: center;
+  color: hsl(var(--text-tertiary));
+  flex: none;
+}
+.set-pane .icb:hover {
+  background: hsl(var(--surface-primary));
+  color: hsl(var(--text-primary));
+}
+.set-pane .icb:disabled {
+  opacity: 0.4;
+}
+
+/* The event log: the one place on this page that is read as a machine's
+ * output, so it keeps the mono face and a surface of its own. */
+.set-log {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.7;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-surface);
+  padding: 10px 14px;
+  color: hsl(var(--text-secondary));
+  max-height: 60vh;
+  overflow: auto;
+}
+.set-log .t {
+  color: hsl(var(--text-tertiary));
+  margin-right: 8px;
+}
+.set-log .waiting {
+  color: hsl(var(--text-tertiary));
+}
+
+/* Release notes and the uninstall helper's output: quoted verbatim. */
+.set-pane .quote {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  background: hsl(var(--surface-secondary));
+  border-radius: var(--radius-surface);
+  padding: 10px 12px;
+  color: hsl(var(--text-secondary));
+  max-height: 160px;
+  overflow: auto;
+  margin-top: 8px;
+  white-space: pre-wrap;
+}
+
+/* Facts that belong together but are not a sentence: separated by space, not
+ * by dots (docs/DESIGN_PHILOSOPHY.md §4.5). */
+.set-pane .facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+.set-pane .facts .flag {
+  color: hsl(6 70% 72%);
+}
+.set-pane .facts .flag.warn {
+  color: hsl(40 70% 65%);
+}
+
+/* What an uninstall would remove. Still rows: a path, what it is, how big. */
+.purge {
+  margin-top: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+.purge .e {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 0;
+  border-bottom: 1px solid hsl(var(--surface-secondary));
+}
+.purge .e:last-child {
+  border-bottom: 0;
+}
+.purge .w {
+  flex: 1;
+  min-width: 0;
+}
+.purge .p {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: hsl(var(--text-primary));
+  word-break: break-all;
+}
+.purge .m {
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+  margin-top: 2px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-family: var(--font-sans);
+}
+.purge .m .flag {
+  color: hsl(6 70% 72%);
+}
+.purge .m .flag.warn {
+  color: hsl(40 70% 65%);
+}
+.purge .z {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+.purge .k {
+  flex: none;
+  width: 48px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: hsl(var(--text-tertiary));
+}
+
+/* The scope of an uninstall: four cumulative steps, each a line that can be
+ * taken or left. */
+.tiers {
+  display: block;
+  margin-top: 6px;
+}
+.tiers label {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+/* Not `fixed`: that is a utility class in the precompiled sheet, and it took
+ * the row out of flow — the first tier vanished off the page. */
+.tiers label.held {
+  cursor: default;
+}
+.tiers input {
+  margin-top: 3px;
+  accent-color: hsl(6 70% 62%);
+}
+.tiers .n {
+  font-size: 13px;
+  color: hsl(var(--text-primary));
+}
+.tiers .n .always {
+  color: hsl(var(--text-tertiary));
+  margin-left: 4px;
+}
+.tiers .h {
+  display: block;
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+  line-height: 1.6;
+}
+
+/* The uninstall itself. No red panel: the words and the danger colour say it,
+ * and the three gates are what actually holds. */
+.set-danger {
+  margin-top: 28px;
+  padding-top: 4px;
+}
+/* Only the zone's own heading is red; the headings inside the review are the
+ * page's ordinary ones, and four red headings in a column read as an alarm. */
+.set-danger > h2 {
+  color: hsl(6 70% 72%);
+}
+
+/* One provider: a name, what it is set to, and the fields that change it. */
+.prov {
+  padding: 12px 0;
+  border-bottom: 1px solid hsl(var(--surface-secondary));
+}
+.prov .n {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.prov .n .nm {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.prov .n .warn {
+  font-size: 12.5px;
+  color: hsl(40 70% 65%);
+}
+.prov .n .gone {
+  font-size: 12.5px;
+  color: hsl(6 70% 72%);
+}
+.prov .fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.prov .fields .lbl {
+  font-size: 12.5px;
+  color: hsl(var(--text-tertiary));
+}
+.prov .in {
+  width: 190px;
+}
+.prov .in.ctx {
+  width: 110px;
+}
+.prov .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: hsl(var(--text-tertiary));
+}
+.prov .dot.ok {
+  background: hsl(150 45% 55%);
+}
+.prov .dot.no {
+  background: hsl(40 70% 60%);
+}

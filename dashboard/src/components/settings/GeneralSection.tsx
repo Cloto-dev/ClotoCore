@@ -1,16 +1,14 @@
-import { Download, Globe, History, Monitor, Moon, Sun, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useUserIdentity } from '../../contexts/UserIdentityContext';
 import { useApi } from '../../hooks/useApi';
-import { type ThemePreference, useTheme } from '../../hooks/useTheme';
 import { BUILTIN_LANGUAGES, exportLanguageTemplate, getCustomLanguages, importLanguagePack } from '../../i18n';
 import { getLanguagesDir, isTauri, openFileDialog, readTextFile } from '../../lib/tauri';
-import { SectionCard } from './common';
+import { Select, SettingsGroup, SettingsRow, Toggle } from './common';
+import { ThemePackGroup, ThemeRows } from './ThemeSettings';
 
 export function GeneralSection() {
   const api = useApi();
-  const { preference, setPreference } = useTheme();
   const { identity, setIdentity } = useUserIdentity();
   const { t, i18n } = useTranslation('settings');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -64,13 +62,6 @@ export function GeneralSection() {
   const allLanguages = [
     ...BUILTIN_LANGUAGES,
     ...customLangs.filter((l) => !builtinCodes.has(l.code)).map((l) => ({ ...l, custom: true })),
-  ];
-
-  const themes: { value: ThemePreference; icon: typeof Sun; labelKey: string }[] = [
-    { value: 'light', icon: Sun, labelKey: 'general.theme_light' },
-    { value: 'dark', icon: Moon, labelKey: 'general.theme_dark' },
-    { value: 'system', icon: Monitor, labelKey: 'general.theme_system' },
-    { value: 'legacy', icon: History, labelKey: 'general.theme_legacy' },
   ];
 
   const handleExport = () => {
@@ -139,105 +130,62 @@ export function GeneralSection() {
 
   return (
     <>
-      <SectionCard title={t('general.theme')}>
-        <div className="flex gap-3">
-          {themes.map(({ value, icon: Icon, labelKey }) => (
-            <button
-              key={value}
-              onClick={() => setPreference(value)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold transition-all ${
-                preference === value
-                  ? 'bg-agent text-agent-ink shadow-md'
-                  : 'bg-surface-secondary text-content-secondary hover:text-content-primary border border-edge hover:border-agent'
-              }`}
-            >
-              <Icon size={14} />
-              {t(labelKey)}
-            </button>
-          ))}
-        </div>
-      </SectionCard>
+      <SettingsGroup title={t('general.group_display')}>
+        <ThemeRows />
 
-      <SectionCard title={t('general.language')}>
-        <div className="space-y-3">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="relative flex items-center">
-              <Globe size={14} className="text-content-tertiary absolute left-4 pointer-events-none" />
-              <select
-                value={i18n.language.split('-')[0]}
-                onChange={(e) => handleLanguageChange(e.target.value)}
-                className="pl-10 pr-8 py-2.5 h-10 bg-surface-secondary border border-edge rounded-xl text-xs font-bold text-content-primary hover:border-agent focus:border-agent focus:outline-none transition-all appearance-none cursor-pointer"
-              >
-                {allLanguages.map((lang) => (
-                  <option key={lang.code} value={lang.code}>
-                    {lang.label}
-                    {'custom' in lang ? ` (${t('general.custom_label')})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {injectLangLoaded && (
-              <button
-                onClick={handleToggleInjectLang}
-                role="switch"
-                aria-checked={injectLangEnabled}
-                aria-label={t('general.inject_language_to_prompt')}
-                className={`flex items-center gap-2 px-5 py-2.5 h-10 rounded-xl text-xs font-bold transition-all border ${
-                  injectLangEnabled
-                    ? 'bg-agent text-agent-ink border-transparent shadow-md'
-                    : 'bg-surface-secondary text-content-secondary border-edge hover:border-agent hover:text-content-primary'
-                }`}
-              >
-                {t('general.inject_language_to_prompt')}
-              </button>
-            )}
-          </div>
-          <p className="text-xs text-content-tertiary">{t('general.inject_language_hint')}</p>
+        <SettingsRow label={t('general.language')} desc={t('general.language_desc')}>
+          <Select
+            label={t('general.language')}
+            value={i18n.language.split('-')[0]}
+            onChange={handleLanguageChange}
+            options={allLanguages.map((lang) => ({
+              value: lang.code,
+              label: 'custom' in lang ? `${lang.label} (${t('general.custom_label')})` : lang.label,
+            }))}
+          />
+        </SettingsRow>
 
-          {/* Import / Export buttons */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleExport}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-xs font-bold text-content-tertiary hover:text-agent hover:border-agent transition-all"
-            >
-              <Download size={12} />
-              {t('general.export_template')}
-            </button>
-            <button
-              onClick={handleImportClick}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-edge text-xs font-bold text-content-tertiary hover:text-agent hover:border-agent transition-all"
-            >
-              <Upload size={12} />
-              {t('general.import_pack')}
-            </button>
-            <input ref={fileInputRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
-          </div>
-
-          {/* Import status message */}
-          {importStatus && (
-            <p className={`text-xs ${importStatus.type === 'success' ? 'text-emerald-500' : 'text-red-400'}`}>
-              {importStatus.message}
-            </p>
-          )}
-        </div>
-      </SectionCard>
-
-      <SectionCard title={t('general.user_identity')}>
-        <div className="space-y-3">
-          <div>
-            <label className="text-xs text-content-tertiary font-bold block mb-1">{t('general.display_name')}</label>
-            <input
-              type="text"
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              onBlur={() => setIdentity(identity.id, displayName)}
-              className="w-full px-3 py-2 bg-surface-secondary border border-edge rounded-lg text-sm text-content-primary focus:border-agent focus:outline-none transition-colors"
-              placeholder={t('general.name_placeholder')}
+        {injectLangLoaded && (
+          <SettingsRow label={t('general.inject_language_to_prompt')} desc={t('general.inject_language_hint')}>
+            <Toggle
+              label={t('general.inject_language_to_prompt')}
+              checked={injectLangEnabled}
+              onChange={handleToggleInjectLang}
             />
-          </div>
-          <p className="text-xs text-content-tertiary">{t('general.name_hint')}</p>
-        </div>
-      </SectionCard>
+          </SettingsRow>
+        )}
+      </SettingsGroup>
+
+      <SettingsGroup title={t('general.group_user')}>
+        <SettingsRow label={t('general.display_name')} desc={t('general.name_hint')}>
+          <input
+            className="in"
+            type="text"
+            aria-label={t('general.display_name')}
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            onBlur={() => setIdentity(identity.id, displayName)}
+            placeholder={t('general.name_placeholder')}
+          />
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SettingsGroup title={t('general.group_language_pack')}>
+        <SettingsRow label={t('general.pack_label')} desc={t('general.pack_desc')}>
+          <button type="button" className="btn" onClick={handleExport}>
+            {t('general.export_template')}
+          </button>
+          <button type="button" className="btn" onClick={handleImportClick}>
+            {t('general.import_pack')}
+          </button>
+          <input ref={fileInputRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
+        </SettingsRow>
+        {importStatus && (
+          <p className={importStatus.type === 'success' ? 'says ok' : 'says bad'}>{importStatus.message}</p>
+        )}
+      </SettingsGroup>
+
+      <ThemePackGroup />
     </>
   );
 }

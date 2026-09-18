@@ -22,6 +22,9 @@ pub struct GetMessagesQuery {
     pub user_id: Option<String>,
     pub before: Option<i64>,
     pub limit: Option<i64>,
+    /// Restrict the list to one conversation. Without it the list is the
+    /// agent/user pair's whole history, as it was before conversations.
+    pub conversation_id: Option<String>,
 }
 
 /// GET /api/chat/:agent_id/messages
@@ -45,6 +48,7 @@ pub async fn get_messages(
         &state.pool,
         &agent_id,
         user_id,
+        params.conversation_id.as_deref(),
         params.before,
         limit + 1, // fetch one extra to determine has_more
         state.config.max_chat_query_limit,
@@ -68,6 +72,9 @@ pub struct PostMessageRequest {
     pub content: serde_json::Value, // ContentBlock[] as opaque JSON
     pub metadata: Option<serde_json::Value>,
     pub user_id: Option<String>,
+    /// The conversation to file the message under. Absent, the agent's
+    /// default conversation for this user (created on demand).
+    pub conversation_id: Option<String>,
 }
 
 /// POST /api/chat/:agent_id/messages
@@ -129,24 +136,37 @@ pub async fn post_message(
     let now = chrono::Utc::now().timestamp_millis();
     let content_str = serde_json::to_string(&payload.content)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("Failed to serialize content: {}", e)))?;
+    let user_id = payload
+        .user_id
+        .clone()
+        .unwrap_or_else(|| DEFAULT_USER_ID.to_string());
+    let conversation_id = match payload.conversation_id.clone() {
+        Some(id) => id,
+        None => db::ensure_default_conversation(&state.pool, &agent_id, &user_id, now).await?,
+    };
     let metadata_str = payload.metadata.map(|v| v.to_string());
 
     let msg = ChatMessageRow {
         id: payload.id.clone(),
         agent_id: agent_id.clone(),
-        user_id: payload
-            .user_id
-            .clone()
-            .unwrap_or_else(|| "default".to_string()),
-        source: payload.source,
+        user_id,
+        source: payload.source.clone(),
         content: content_str,
         metadata: metadata_str,
         created_at: now,
         parent_id: None,
         branch_index: 0,
+        conversation_id: Some(conversation_id.clone()),
     };
 
     db::save_chat_message(&state.pool, &msg).await?;
+    db::touch_conversation(&state.pool, &conversation_id, now).await?;
+    if payload.source == "user" {
+        let first_title = db::title_from_first_message(&text_of_content(&payload.content));
+        if !first_title.is_empty() {
+            db::set_title_if_empty(&state.pool, &conversation_id, &first_title).await?;
+        }
+    }
 
     // Process inline attachments from content blocks
     if let Some(blocks) = payload.content.as_array() {
@@ -319,6 +339,34 @@ pub async fn get_attachment(
     Ok((headers, Bytes::from(data)))
 }
 
+#[derive(Deserialize)]
+pub struct StopResponseRequest {
+    /// The id of the message whose reply is to stop.
+    pub source_message_id: String,
+}
+
+/// Stop the reply an agent is producing to one message.
+///
+/// **Route:** `POST /api/chat/:agent_id/stop`
+///
+/// Answers `{"stopped": true}` when that reply was still being produced (or
+/// was queued behind the agent's previous turn): it is dropped where it was,
+/// nothing of it is stored, and a `ResponseStopped` event is sent instead of a
+/// `ThoughtResponse`. `{"stopped": false}` means there was no such reply to
+/// stop — it had already finished, so what it produced stands.
+pub async fn stop_response(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+    Json(payload): Json<StopResponseRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let stopped = state
+        .response_stops
+        .stop(&agent_id, &payload.source_message_id);
+    ok_data(serde_json::json!({ "stopped": stopped }))
+}
+
 /// Retry an agent response: re-sends the original user message for re-generation.
 ///
 /// **Route:** `POST /api/chat/:agent_id/messages/:message_id/retry`
@@ -397,11 +445,17 @@ pub async fn retry_response(
         target_agent: Some(agent_id.clone()),
         content: content_text,
         timestamp: chrono::Utc::now(),
-        metadata: std::collections::HashMap::from([
-            ("target_agent_id".to_string(), agent_id),
-            ("skip_user_persist".to_string(), "true".to_string()),
-            ("parent_id".to_string(), message_id),
-        ]),
+        metadata: {
+            let mut m = std::collections::HashMap::from([
+                ("target_agent_id".to_string(), agent_id),
+                ("skip_user_persist".to_string(), "true".to_string()),
+                ("parent_id".to_string(), message_id),
+            ]);
+            if let Some(cid) = original.conversation_id.clone() {
+                m.insert("conversation_id".to_string(), cid);
+            }
+            m
+        },
     };
 
     let envelope =
@@ -452,6 +506,222 @@ pub async fn chat_handler(
         )));
     }
     ok_data(serde_json::json!({}))
+}
+
+// --- Search across conversations ---
+
+#[derive(Deserialize)]
+pub struct SearchMessagesQuery {
+    /// Whitespace-separated terms; a message matches when it contains all of them.
+    pub q: Option<String>,
+    pub user_id: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// GET /api/chat/search
+/// Messages across every agent's conversations (archived ones included) whose
+/// text contains every term of `q`, newest first. `total` counts every match
+/// and `truncated` says when `results` holds fewer than that.
+pub async fn search_messages(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(params): Query<SearchMessagesQuery>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+
+    let query = params.q.as_deref().unwrap_or("").trim();
+    if query.is_empty() {
+        return Err(AppError::Validation("q is required".to_string()));
+    }
+    let user_id = params.user_id.as_deref().unwrap_or(DEFAULT_USER_ID);
+    let limit = params
+        .limit
+        .unwrap_or(50)
+        .max(1)
+        .min(state.config.max_chat_query_limit);
+
+    let found = db::search_chat_messages(&state.pool, user_id, query, limit).await?;
+    let truncated = found.truncated();
+    ok_data(serde_json::json!({
+        "query": query,
+        "results": found.hits,
+        "total": found.total,
+        "truncated": truncated,
+    }))
+}
+
+// --- Conversations (docs/CONVERSATIONS_DESIGN.md §3) ---
+
+#[derive(Deserialize)]
+pub struct ConversationsQuery {
+    pub user_id: Option<String>,
+    #[serde(default)]
+    pub include_archived: bool,
+}
+
+/// GET /api/chat/:agent_id/conversations
+pub async fn list_conversations(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+    Query(params): Query<ConversationsQuery>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let user_id = params.user_id.as_deref().unwrap_or(DEFAULT_USER_ID);
+    let conversations =
+        db::list_conversations(&state.pool, &agent_id, user_id, params.include_archived).await?;
+    ok_data(serde_json::json!({ "conversations": conversations }))
+}
+
+#[derive(Deserialize, Default)]
+pub struct CreateConversationRequest {
+    pub user_id: Option<String>,
+}
+
+/// POST /api/chat/:agent_id/conversations — a fresh, untitled conversation.
+pub async fn create_conversation(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+    payload: Option<Json<CreateConversationRequest>>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    require_agent(&state, &agent_id).await?;
+    let payload = payload.map(|Json(p)| p).unwrap_or_default();
+    let user_id = payload.user_id.as_deref().unwrap_or(DEFAULT_USER_ID);
+    let row = db::create_conversation(
+        &state.pool,
+        &agent_id,
+        user_id,
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .await?;
+    ok_data(serde_json::to_value(row).unwrap_or(serde_json::Value::Null))
+}
+
+#[derive(Deserialize)]
+pub struct UpdateConversationRequest {
+    pub title: Option<String>,
+    /// `true` archives (hidden, kept whole), `false` unarchives; absent leaves it.
+    pub archived: Option<bool>,
+}
+
+/// PATCH /api/chat/:agent_id/conversations/:conversation_id — rename, archive, unarchive.
+pub async fn update_conversation(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((agent_id, conversation_id)): Path<(String, String)>,
+    Json(payload): Json<UpdateConversationRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let row = owned_conversation(&state, &agent_id, &conversation_id).await?;
+    if let Some(title) = payload.title.as_deref() {
+        let title = title.trim();
+        if title.is_empty() || title.chars().count() > 200 {
+            return Err(AppError::Validation(
+                "title must be 1–200 characters".to_string(),
+            ));
+        }
+        db::rename_conversation(&state.pool, &row.id, title).await?;
+    }
+    if let Some(archived) = payload.archived {
+        let archived_at = archived.then(|| chrono::Utc::now().timestamp_millis());
+        db::set_conversation_archived(&state.pool, &row.id, archived_at).await?;
+    }
+    let updated = db::get_conversation(&state.pool, &row.id)
+        .await?
+        .ok_or_else(|| AppError::NotFound("conversation".to_string()))?;
+    ok_data(serde_json::to_value(updated).unwrap_or(serde_json::Value::Null))
+}
+
+/// DELETE /api/chat/:agent_id/conversations/:conversation_id — immediate and permanent.
+pub async fn delete_conversation(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((agent_id, conversation_id)): Path<(String, String)>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let row = owned_conversation(&state, &agent_id, &conversation_id).await?;
+    let deleted = db::delete_conversation(&state.pool, &row.id)
+        .await?
+        .unwrap_or(0);
+    ok_data(serde_json::json!({ "deleted_messages": deleted }))
+}
+
+#[derive(Deserialize, Default)]
+pub struct BulkConversationsRequest {
+    pub user_id: Option<String>,
+}
+
+/// POST /api/chat/:agent_id/conversations/archive-all
+pub async fn archive_all_conversations(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+    payload: Option<Json<BulkConversationsRequest>>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let payload = payload.map(|Json(p)| p).unwrap_or_default();
+    let user_id = payload.user_id.as_deref().unwrap_or(DEFAULT_USER_ID);
+    let archived = db::archive_all_conversations(
+        &state.pool,
+        &agent_id,
+        user_id,
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .await?;
+    ok_data(serde_json::json!({ "archived": archived }))
+}
+
+/// POST /api/chat/:agent_id/conversations/delete-all — archived ones included.
+pub async fn delete_all_conversations(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+    payload: Option<Json<BulkConversationsRequest>>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let payload = payload.map(|Json(p)| p).unwrap_or_default();
+    let user_id = payload.user_id.as_deref().unwrap_or(DEFAULT_USER_ID);
+    let deleted = db::delete_all_conversations(&state.pool, &agent_id, user_id).await?;
+    ok_data(serde_json::json!({ "deleted": deleted }))
+}
+
+async fn require_agent(state: &AppState, agent_id: &str) -> AppResult<()> {
+    state
+        .agent_manager
+        .get_agent_config(agent_id)
+        .await
+        .map(|_| ())
+        .map_err(|_| AppError::NotFound(format!("agent '{agent_id}'")))
+}
+
+/// A conversation looked up by id, and only when it belongs to the agent in
+/// the path — an id is never enough on its own to reach another agent's thread.
+async fn owned_conversation(
+    state: &AppState,
+    agent_id: &str,
+    conversation_id: &str,
+) -> AppResult<db::ConversationRow> {
+    match db::get_conversation(&state.pool, conversation_id).await? {
+        Some(row) if row.agent_id == agent_id => Ok(row),
+        _ => Err(AppError::NotFound("conversation".to_string())),
+    }
+}
+
+/// The text of a content-block array, for the first-line title.
+fn text_of_content(content: &serde_json::Value) -> String {
+    content
+        .as_array()
+        .map(|blocks| {
+            blocks
+                .iter()
+                .filter(|b| b.get("type").and_then(|t| t.as_str()) == Some("text"))
+                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default()
 }
 
 // --- Helpers ---

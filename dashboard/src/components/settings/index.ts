@@ -1,6 +1,7 @@
 export { AboutSection } from './AboutSection';
 export { AdvancedSection } from './AdvancedSection';
-export { SectionCard, Toggle } from './common';
+export { ConversationsSection } from './ConversationsSection';
+export { Segmented, Select, SettingsGroup, SettingsRow, Toggle } from './common';
 export { GeneralSection } from './GeneralSection';
 export { HealthSection } from './HealthSection';
 export { LlmProvidersSection } from './LlmProvidersSection';

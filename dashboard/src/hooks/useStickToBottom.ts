@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useRef } from 'react';
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 
 /** How close to the bottom still counts as "the user is reading the newest turn". */
 const BOTTOM_THRESHOLD_PX = 50;
@@ -19,15 +19,28 @@ const BOTTOM_THRESHOLD_PX = 50;
  *
  * @param ref  the scrolling element (the one with `overflow-y-auto`)
  * @returns `onScroll` — attach it to that same element so user scrolling can
- *          unpin and re-pin the view.
+ *          unpin and re-pin the view; `pinned` — whether the view is following
+ *          the newest turn, so a "latest" button can be offered when it is not;
+ *          `scrollToBottom` — re-pin and jump to the newest turn.
  */
 export function useStickToBottom(ref: RefObject<HTMLElement | null>) {
-  const pinned = useRef(true);
+  const pinnedRef = useRef(true);
+  const [pinned, setPinned] = useState(true);
 
   const onScroll = useCallback(() => {
     const el = ref.current;
     if (!el) return;
-    pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD_PX;
+    const next = el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_THRESHOLD_PX;
+    pinnedRef.current = next;
+    setPinned(next);
+  }, [ref]);
+
+  const scrollToBottom = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    pinnedRef.current = true;
+    setPinned(true);
+    el.scrollTop = el.scrollHeight;
   }, [ref]);
 
   useEffect(() => {
@@ -35,7 +48,7 @@ export function useStickToBottom(ref: RefObject<HTMLElement | null>) {
     if (!el) return;
 
     const followContent = () => {
-      if (pinned.current) el.scrollTop = el.scrollHeight;
+      if (pinnedRef.current) el.scrollTop = el.scrollHeight;
     };
 
     followContent();
@@ -44,5 +57,5 @@ export function useStickToBottom(ref: RefObject<HTMLElement | null>) {
     return () => observer.disconnect();
   }, [ref]);
 
-  return { onScroll };
+  return { onScroll, pinned, scrollToBottom };
 }

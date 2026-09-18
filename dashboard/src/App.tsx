@@ -12,9 +12,14 @@ const UPDATE_CHECK_DELAY_MS = 3000;
 
 const MemoryCore = lazy(() => import('./components/MemoryCore').then((m) => ({ default: m.MemoryCore })));
 const McpServersPage = lazy(() => import('./pages/McpServersPage').then((m) => ({ default: m.McpServersPage })));
+const AgentSettingsPage = lazy(() =>
+  import('./pages/AgentSettingsPage').then((m) => ({ default: m.AgentSettingsPage })),
+);
 const CronJobs = lazy(() => import('./components/CronJobs').then((m) => ({ default: m.CronJobs })));
 const ModulePage = lazy(() => import('./pages/ModulePage').then((m) => ({ default: m.ModulePage })));
 const VrmViewerPage = lazy(() => import('./vrm/VrmViewerPage').then((m) => ({ default: m.VrmViewerPage })));
+const CliAgentsPage = lazy(() => import('./pages/CliAgentsPage').then((m) => ({ default: m.CliAgentsPage })));
+const SettingsView = lazy(() => import('./components/SettingsView').then((m) => ({ default: m.SettingsView })));
 
 export function App() {
   const [setupDone, setSetupDone] = useState(() => localStorage.getItem('cloto-setup-completed') === '1');
@@ -160,8 +165,11 @@ export function App() {
           />
           <Route element={<AppLayout />}>
             <Route path="/" element={null} />
+            <Route path="/agents/cli" element={<CliAgentsPage />} />
+            <Route path="/agents/:id/settings" element={<AgentSettingsPage />} />
             <Route path="/dashboard" element={<MemoryCore />} />
             <Route path="/mcp-servers" element={<McpServersPage />} />
+            <Route path="/settings" element={<SettingsView />} />
             <Route path="/cron" element={<CronJobs />} />
             <Route path="/modules/:id" element={<ModulePage />} />
           </Route>

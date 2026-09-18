@@ -1,0 +1,44 @@
+{
+  "schema": 1,
+  "id": "legacy",
+  "label": "Legacy",
+  "author": "ClotoCore Project",
+  "version": "1.0.0",
+  "license": "BSL-1.1",
+  "accent": {
+    "light": { "agent": "229.89 78.63% 54.12%", "agent-ink": "0 0% 100%" },
+    "dark": { "agent": "228.66 100% 67.84%", "agent-ink": "0 0% 100%" }
+  },
+  "light": {
+    "surface-base": "210 40% 98.04%",
+    "surface-secondary": "210 40% 96.08%",
+    "surface-primary": "0 0% 100%",
+    "border-default": "214.29 31.82% 91.37%",
+    "border-subtle": "210 40% 96.08%",
+    "surface-overlay": "0 0% 0% / 0.5",
+    "text-primary": "217.24 32.58% 17.45%",
+    "text-secondary": "215.38 16.32% 46.86%",
+    "text-tertiary": "215 20.22% 65.1%",
+    "text-muted": "212.73 26.83% 83.92%",
+    "surface-panel": "210 33.33% 98.82%",
+    "surface-field": "210 50% 99.22%",
+    "surface-control": "0 0% 99.61%",
+    "surface-card": "210 50% 99.22%"
+  },
+  "dark": {
+    "surface-base": "222.22 47.37% 11.18%",
+    "surface-secondary": "217.24 32.58% 17.45%",
+    "surface-primary": "217.24 32.58% 17.45%",
+    "border-default": "215.29 25% 26.67%",
+    "border-subtle": "217.24 32.58% 17.45%",
+    "surface-overlay": "0 0% 0% / 0.7",
+    "text-primary": "210 40% 96.08%",
+    "text-secondary": "212.73 26.83% 83.92%",
+    "text-tertiary": "215 20.22% 65.1%",
+    "text-muted": "215.29 19.32% 34.51%",
+    "surface-panel": "222.22 47.37% 11.18%",
+    "surface-field": "222.22 47.37% 11.18%",
+    "surface-control": "219.31 34.94% 16.27%",
+    "surface-card": "220.71 37.84% 14.51%"
+  }
+}

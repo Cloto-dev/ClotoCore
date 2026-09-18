@@ -1,14 +1,13 @@
 import { Check, Copy, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { AlertCard } from '../../components/ui/AlertCard';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { SecretInput } from '../../components/ui/SecretInput';
 import { useApiKey } from '../../contexts/ApiKeyContext';
 import { useApi } from '../../hooks/useApi';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
 import { api } from '../../services/api';
-import { SectionCard } from './common';
+import { SettingsGroup, SettingsRow } from './common';
 import { LlmProvidersSection } from './LlmProvidersSection';
 
 export function SecuritySection() {
@@ -80,94 +79,81 @@ export function SecuritySection() {
 
   return (
     <>
-      <SectionCard title={t('security.api_key_title')}>
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <div
-              role="img"
-              className={`w-2 h-2 rounded-full ${authApi.apiKey ? 'bg-green-500' : 'bg-amber-500'}`}
-              aria-label={authApi.apiKey ? t('security.configured') : t('security.not_configured')}
-            />
-            <span className="text-xs text-content-secondary">
-              {authApi.apiKey ? t('security.configured') : t('security.not_configured')}
-            </span>
-          </div>
+      <SettingsGroup title={t('security.api_key_title')}>
+        <SettingsRow label={t('security.status_label')}>
+          <span className={authApi.apiKey ? 'st ok' : 'st warn'}>
+            {authApi.apiKey ? t('security.configured') : t('security.not_configured')}
+          </span>
+        </SettingsRow>
 
-          {/* Current key: reveal / copy / regenerate (admin-key handover,
-              docs/ONBOARDING_MODERNIZATION_DESIGN.md §2.2) */}
-          {authApi.apiKey && (
-            <div className="space-y-1.5">
-              <span className="text-xs font-bold text-content-tertiary">{t('security.current_key')}</span>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 truncate bg-surface-secondary border border-edge rounded-lg px-3 py-2 text-xs font-mono text-content-primary select-all">
-                  {revealed ? authApi.apiKey : '••••••••••••••••'}
-                </code>
-                <button
-                  type="button"
-                  onClick={() => setRevealed((v) => !v)}
-                  aria-label={t('security.reveal_key')}
-                  className="p-2 rounded-lg bg-surface-secondary border border-edge text-content-secondary hover:text-content-primary transition-colors"
-                >
-                  {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  aria-label={t('security.copy_key')}
-                  className="p-2 rounded-lg bg-surface-secondary border border-edge text-content-secondary hover:text-content-primary transition-colors"
-                >
-                  {copied ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmRegenerate(true)}
-                  disabled={regenerateAction.isLoading}
-                  aria-label={t('security.regenerate_label')}
-                  className="p-2 rounded-lg bg-surface-secondary border border-edge text-amber-500 hover:text-amber-400 transition-colors disabled:opacity-50"
-                >
-                  <RefreshCw size={14} className={regenerateAction.isLoading ? 'animate-spin' : ''} />
-                </button>
-              </div>
-              <p className="text-xs text-content-tertiary">{t('security.current_key_hint')}</p>
-            </div>
-          )}
-
-          <div className="flex gap-2">
-            <SecretInput
-              value={newKey}
-              onChange={(v) => {
-                setNewKey(v);
-                clearErrors();
-              }}
-              placeholder={authApi.apiKey ? t('security.placeholder_replace') : t('security.placeholder_new')}
-              className="w-full bg-surface-secondary border border-edge rounded-lg px-3 py-2 pr-8 text-xs font-mono text-content-primary placeholder:text-content-tertiary focus:outline-none focus:border-agent transition-colors"
-            />
-            <button
-              onClick={handleSave}
-              disabled={!newKey.trim() || saveAction.isLoading}
-              aria-label={tc('save')}
-              className="px-4 py-2 bg-agent text-agent-ink text-xs font-bold rounded-lg disabled:opacity-40 hover:bg-agent/90 transition-colors"
-            >
-              {saveAction.isLoading ? '...' : tc('save')}
-            </button>
-          </div>
-
-          {error && <AlertCard>{error}</AlertCard>}
-          {rotationWarning && <AlertCard variant="warning">{rotationWarning}</AlertCard>}
-
-          {authApi.apiKey && (
-            <div className="pt-3 border-t border-edge">
+        {/* Current key: reveal / copy / regenerate (admin-key handover,
+            docs/ONBOARDING_MODERNIZATION_DESIGN.md §2.2) */}
+        {authApi.apiKey && (
+          <SettingsRow label={t('security.current_key')} desc={t('security.current_key_hint')}>
+            <span className="keyline">
+              <code className="select-all">{revealed ? authApi.apiKey : '••••••••••••••••'}</code>
               <button
-                onClick={() => setConfirmInvalidate(true)}
-                aria-label={t('security.invalidate_label')}
-                className="text-xs text-red-400 hover:text-red-300 font-bold transition-colors"
+                type="button"
+                className="icb"
+                onClick={() => setRevealed((v) => !v)}
+                aria-label={t('security.reveal_key')}
               >
-                {t('security.invalidate_label')}
+                {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
               </button>
-            </div>
-          )}
-        </div>
-      </SectionCard>
+              <button type="button" className="icb" onClick={handleCopy} aria-label={t('security.copy_key')}>
+                {copied ? <Check size={14} /> : <Copy size={14} />}
+              </button>
+              <button
+                type="button"
+                className="icb"
+                onClick={() => setConfirmRegenerate(true)}
+                disabled={regenerateAction.isLoading}
+                aria-label={t('security.regenerate_label')}
+              >
+                <RefreshCw size={14} className={regenerateAction.isLoading ? 'animate-spin' : ''} />
+              </button>
+            </span>
+          </SettingsRow>
+        )}
+
+        <SettingsRow label={t('security.new_key_label')} desc={t('security.new_key_desc')}>
+          <SecretInput
+            value={newKey}
+            onChange={(v) => {
+              setNewKey(v);
+              clearErrors();
+            }}
+            placeholder={authApi.apiKey ? t('security.placeholder_replace') : t('security.placeholder_new')}
+            className="in secret mono"
+          />
+          <button
+            type="button"
+            className="btn pri"
+            onClick={handleSave}
+            disabled={!newKey.trim() || saveAction.isLoading}
+            aria-label={tc('save')}
+          >
+            {saveAction.isLoading ? '...' : tc('save')}
+          </button>
+        </SettingsRow>
+
+        {error && <p className="says bad">{error}</p>}
+        {rotationWarning && <p className="says warn">{rotationWarning}</p>}
+
+        {authApi.apiKey && (
+          <div className="set-block">
+            <button
+              type="button"
+              className="btn danger"
+              onClick={() => setConfirmInvalidate(true)}
+              aria-label={t('security.invalidate_label')}
+            >
+              {t('security.invalidate_label')}
+            </button>
+            <p className="gdesc">{t('security.invalidate_desc')}</p>
+          </div>
+        )}
+      </SettingsGroup>
 
       <ConfirmDialog
         open={confirmInvalidate}

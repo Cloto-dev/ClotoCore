@@ -17,11 +17,11 @@ use super::mcp_mgp::{
 use super::mcp_protocol::{
     CallToolParams, CallToolResult, ClientCapabilities, ClientInfo, ClotoHandshakeParams,
     ClotoHandshakeResult, DiscoverResult, EraHandle, EraPreference, InitializeParams,
-    JsonRpcRequest, ListToolsResult, ProtocolEra, RpcError, DISCOVER_METHOD,
-    DISCOVER_PROBE_READINESS_CAP_SECS, DISCOVER_PROBE_TIMEOUT_SECS, LEGACY_PROTOCOL_VERSION,
-    META_CLIENT_CAPABILITIES, META_CLIENT_INFO, META_LOG_LEVEL, META_MGP_GRANTS,
-    META_PROTOCOL_VERSION, MODERN_PROTOCOL_VERSION, RESULT_TYPE_INPUT_REQUIRED,
-    UNSUPPORTED_PROTOCOL_VERSION,
+    JsonRpcRequest, ListToolsResult, ProtocolEra, RpcError, CANCELLED_NOTIFICATION_METHOD,
+    DISCOVER_METHOD, DISCOVER_PROBE_READINESS_CAP_SECS, DISCOVER_PROBE_TIMEOUT_SECS,
+    INITIALIZE_METHOD, LEGACY_PROTOCOL_VERSION, META_CLIENT_CAPABILITIES, META_CLIENT_INFO,
+    META_LOG_LEVEL, META_MGP_GRANTS, META_PROTOCOL_VERSION, MODERN_PROTOCOL_VERSION,
+    RESULT_TYPE_INPUT_REQUIRED, UNSUPPORTED_PROTOCOL_VERSION,
 };
 use super::mcp_transport::{ChildVoice, HttpTransport, McpTransport, StdioTransport};
 use anyhow::{Context, Result};
@@ -210,6 +210,9 @@ pub struct McpClient {
     /// tell startup silence apart from an answerless server; see
     /// [`McpClient::probe_discover`].
     child_voice: Option<ChildVoice>,
+    /// Whether a withdrawn request is also withdrawn at the server with
+    /// `notifications/cancelled`. True for stdio only — see [`Withdrawal`].
+    cancels_by_notification: bool,
 }
 
 /// Kernel `clientInfo` for both eras.
@@ -272,6 +275,128 @@ pub(super) fn stamp_modern_meta(
     }
 
     root
+}
+
+type PendingRequests = Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value>>>>>;
+
+/// Withdraws a request the kernel has stopped waiting for.
+///
+/// A caller stops waiting in one of two ways: it gives up at its deadline, or
+/// the future awaiting the answer is dropped — which is what stopping a reply
+/// does to the engine call the turn had reached. Either way the pending entry
+/// goes, and on stdio the server is told with `notifications/cancelled`, so an
+/// engine stops generating (and spending tokens on) an answer nobody will read.
+///
+/// Streamable HTTP is not told. MCP 2026-07-28 makes closing the request's
+/// response stream the signal there, and this kernel's HTTP transport sends one
+/// message at a time, reading each response to the end before the next — a
+/// notification would reach the server only after the request it names ended.
+#[derive(Clone)]
+struct Withdrawal {
+    sender: mpsc::Sender<String>,
+    pending_requests: PendingRequests,
+    modern_meta: Arc<OnceLock<Map<String, Value>>>,
+    notify_server: bool,
+}
+
+impl Withdrawal {
+    /// Synchronous so that `Drop` can call it: the lock is tried, the send is
+    /// tried, and whichever cannot happen at once is handed to a task.
+    fn withdraw(&self, id: i64, method: &str, reason: &str) {
+        if let Ok(mut map) = self.pending_requests.try_lock() {
+            map.remove(&id);
+        } else if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let pending = self.pending_requests.clone();
+            runtime.spawn(async move {
+                pending.lock().await.remove(&id);
+            });
+        }
+
+        // `initialize` must not be cancelled (MCP 2025-11-25), and the
+        // `server/discover` probe runs before a handshake-era server has been
+        // initialized, when nothing but `initialize` belongs on its wire.
+        if !self.notify_server || method == INITIALIZE_METHOD || method == DISCOVER_METHOD {
+            return;
+        }
+        let params = serde_json::json!({ "requestId": id, "reason": reason });
+        let params = match self.modern_meta.get() {
+            Some(template) => stamp_modern_meta(Some(params), template, None),
+            None => params,
+        };
+        let notification =
+            JsonRpcRequest::notification(CANCELLED_NOTIFICATION_METHOD, Some(params));
+        let Ok(payload) = serde_json::to_string(&notification) else {
+            return;
+        };
+        debug!(id, method, reason, "Withdrawing MCP request");
+        match self.sender.try_send(payload) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(payload)) => {
+                if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+                    let sender = self.sender.clone();
+                    runtime.spawn(async move {
+                        let _ = tokio::time::timeout(
+                            Duration::from_secs(McpClient::SEND_TIMEOUT_SECS),
+                            sender.send(payload),
+                        )
+                        .await;
+                    });
+                }
+            }
+            // The transport is gone, and with it anything left to stop.
+            Err(mpsc::error::TrySendError::Closed(_)) => {}
+        }
+    }
+}
+
+/// A request on the wire whose answer is still wanted. Dropped while still
+/// wanted — the caller's future went away — it withdraws the request; the
+/// explicit endings say whether an answer came or the caller gave up.
+struct InFlight {
+    withdrawal: Withdrawal,
+    id: i64,
+    method: String,
+    wanted: bool,
+}
+
+impl InFlight {
+    fn new(withdrawal: Withdrawal, id: i64, method: &str) -> Self {
+        Self {
+            withdrawal,
+            id,
+            method: method.to_string(),
+            wanted: true,
+        }
+    }
+
+    /// The response channel resolved: answered, or failed by the response loop.
+    fn settled(mut self) {
+        self.wanted = false;
+    }
+
+    /// The request never reached the transport; there is nothing to cancel.
+    fn unsent(mut self) {
+        self.wanted = false;
+        self.withdrawal.notify_server = false;
+        self.withdrawal.withdraw(self.id, &self.method, "");
+    }
+
+    fn give_up(mut self, reason: &str) {
+        self.wanted = false;
+        self.withdrawal.withdraw(self.id, &self.method, reason);
+    }
+}
+
+impl Drop for InFlight {
+    fn drop(&mut self) {
+        if self.wanted {
+            self.withdrawal.withdraw(
+                self.id,
+                &self.method,
+                "the client stopped waiting for this request",
+            );
+        }
+    }
 }
 
 impl Drop for McpClient {
@@ -382,18 +507,45 @@ impl McpClient {
             Some(stderr_tx),
         )
         .await?;
-        let sender = stdio.sender();
-        // Captured lock-free so the forced drain sweep (bug-426) can signal the
-        // process group without contending on the transport Mutex (the response
-        // loop holds it across recv()).
-        let child_pid = stdio.child_id();
-        // Same reason: the probe reads this while the response loop owns the
-        // transport across its recv().
+        // Captured before the transport moves behind its Mutex: the probe reads
+        // it while the response loop owns the transport across its recv().
         let child_voice = Some(stdio.voice());
-        let transport = McpTransport::Stdio(Box::new(stdio));
-        let mut client = Self {
+        let mut client = Self::assemble(
+            McpTransport::Stdio(Box::new(stdio)),
+            EraHandle::new(),
+            notification_tx,
+            request_timeout_secs,
+            stream_idle_timeout_secs,
+            child_voice,
+        );
+
+        client.start_response_loop(server_id);
+        let negotiated = client
+            .negotiate(default_log_level, EraPreference::from_config(protocol_era))
+            .await?;
+
+        Ok((client, negotiated))
+    }
+
+    /// The client around a started transport, before its response loop runs.
+    /// Everything that depends on the kind of transport is read from it here,
+    /// once, so the stdio and HTTP connects cannot disagree about it.
+    fn assemble(
+        transport: McpTransport,
+        era: EraHandle,
+        notification_tx: mpsc::Sender<McpNotification>,
+        request_timeout_secs: u64,
+        stream_idle_timeout_secs: u64,
+        child_voice: Option<ChildVoice>,
+    ) -> Self {
+        Self {
+            sender: transport.sender(),
+            // Captured lock-free so the forced drain sweep (bug-426) can signal
+            // the process group without contending on the transport Mutex (the
+            // response loop holds it across recv()).
+            child_pid: transport.child_id(),
+            cancels_by_notification: transport.cancels_by_notification(),
             transport: Arc::new(Mutex::new(transport)),
-            sender,
             pending_requests: Arc::new(Mutex::new(HashMap::new())),
             next_id: Arc::new(AtomicI64::new(1)),
             alive: Arc::new(AtomicBool::new(true)),
@@ -402,19 +554,11 @@ impl McpClient {
             request_timeout_secs,
             stream_idle_timeout_secs,
             stream_collectors: Arc::new(Mutex::new(HashMap::new())),
-            child_pid,
-            era: EraHandle::new(),
+            era,
             modern_meta: Arc::new(OnceLock::new()),
             mgp_grants: Arc::new(RwLock::new(None)),
             child_voice,
-        };
-
-        client.start_response_loop(server_id);
-        let negotiated = client
-            .negotiate(default_log_level, EraPreference::from_config(protocol_era))
-            .await?;
-
-        Ok((client, negotiated))
+        }
     }
 
     /// Connect to a remote MCP server via Streamable HTTP transport.
@@ -434,27 +578,16 @@ impl McpClient {
         // Mcp-Session-Id suppression).
         let era = EraHandle::new();
         let http = HttpTransport::start(url, auth_token, era.clone()).await?;
-        let sender = http.sender();
-        let transport = McpTransport::Http(Box::new(http));
-        let mut client = Self {
-            transport: Arc::new(Mutex::new(transport)),
-            sender,
-            pending_requests: Arc::new(Mutex::new(HashMap::new())),
-            next_id: Arc::new(AtomicI64::new(1)),
-            alive: Arc::new(AtomicBool::new(true)),
-            response_task: None,
+        let mut client = Self::assemble(
+            McpTransport::Http(Box::new(http)),
+            era,
             notification_tx,
             request_timeout_secs,
             stream_idle_timeout_secs,
-            stream_collectors: Arc::new(Mutex::new(HashMap::new())),
-            child_pid: None,
-            era,
-            modern_meta: Arc::new(OnceLock::new()),
-            mgp_grants: Arc::new(RwLock::new(None)),
             // No child, no startup of ours to wait through: a remote peer was
             // already running when we first addressed it.
-            child_voice: None,
-        };
+            None,
+        );
 
         client.start_response_loop(server_id);
         let negotiated = client
@@ -626,24 +759,35 @@ impl McpClient {
         params: Option<Value>,
         timeout_secs: u64,
     ) -> Result<Value> {
-        let (id, rx) = self.dispatch(method, params).await?;
+        let (request, rx) = self.dispatch(method, params).await?;
 
         if let Ok(res) = tokio::time::timeout(Duration::from_secs(timeout_secs), rx).await {
+            request.settled();
             self.settle(method, res)
         } else {
-            self.abandon(id).await;
+            request.give_up(&format!("no answer within {timeout_secs}s"));
             Err(anyhow::Error::new(RequestTimeout))
         }
     }
 
-    /// Register a pending request and put it on the wire. Returns its id and
-    /// the receiver the response loop will resolve — the wait is the caller's,
-    /// and so is removing the entry if it gives up (see [`Self::abandon`]).
+    fn withdrawal(&self) -> Withdrawal {
+        Withdrawal {
+            sender: self.sender.clone(),
+            pending_requests: self.pending_requests.clone(),
+            modern_meta: self.modern_meta.clone(),
+            notify_server: self.cancels_by_notification,
+        }
+    }
+
+    /// Register a pending request and put it on the wire. Returns the request
+    /// and the receiver the response loop will resolve — the wait is the
+    /// caller's, and so is ending the request (see [`InFlight`]): an answer
+    /// settles it, and a caller that stops waiting withdraws it.
     async fn dispatch(
         &self,
         method: &str,
         params: Option<Value>,
-    ) -> Result<(i64, oneshot::Receiver<Result<Value>>)> {
+    ) -> Result<(InFlight, oneshot::Receiver<Result<Value>>)> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
 
         let params = self.prepare_params(method, params);
@@ -661,18 +805,13 @@ impl McpClient {
             }
             map.insert(id, tx);
         }
+        let request = InFlight::new(self.withdrawal(), id, method);
 
         if let Err(e) = self.send_with_timeout(req_str, "request").await {
-            self.pending_requests.lock().await.remove(&id);
+            request.unsent();
             return Err(e);
         }
-        Ok((id, rx))
-    }
-
-    /// Drop a pending request we are no longer waiting for. A late answer then
-    /// finds no entry and the response loop discards it.
-    async fn abandon(&self, id: i64) {
-        self.pending_requests.lock().await.remove(&id);
+        Ok((request, rx))
     }
 
     /// Turn a resolved oneshot into the call's result.
@@ -716,7 +855,7 @@ impl McpClient {
         // the two and silently tighten the ordinary path.
         let cap = Duration::from_secs(cap_secs).max(window);
         let started = Instant::now();
-        let (id, mut rx) = self.dispatch(method, params).await?;
+        let (request, mut rx) = self.dispatch(method, params).await?;
 
         // The budget runs from the child's first byte or from this request,
         // whichever is later, and never past the cap. A re-probe on an
@@ -728,10 +867,13 @@ impl McpClient {
 
         if voice.spoken_at().is_none() {
             tokio::select! {
-                res = &mut rx => return self.settle(method, res),
+                res = &mut rx => {
+                    request.settled();
+                    return self.settle(method, res);
+                }
                 () = voice.spoken() => {}
                 () = tokio::time::sleep_until(deadline(None).into()) => {
-                    self.abandon(id).await;
+                    request.give_up("the child wrote nothing before the readiness cap");
                     warn!(
                         method = %method,
                         cap_secs = cap.as_secs(),
@@ -750,9 +892,10 @@ impl McpClient {
 
         if let Ok(res) = tokio::time::timeout_at(deadline(voice.spoken_at()).into(), &mut rx).await
         {
+            request.settled();
             self.settle(method, res)
         } else {
-            self.abandon(id).await;
+            request.give_up("no answer within the probe window");
             Err(anyhow::Error::new(RequestTimeout))
         }
     }
@@ -1077,7 +1220,7 @@ impl McpClient {
         };
 
         let result = self
-            .call("initialize", Some(serde_json::to_value(params)?))
+            .call(INITIALIZE_METHOD, Some(serde_json::to_value(params)?))
             .await?;
         info!("MCP Initialized: {:?}", result);
 
@@ -1214,6 +1357,7 @@ impl McpClient {
             }
             let (inner_tx, inner_rx) = oneshot::channel();
             map.insert(id, inner_tx);
+            let request = InFlight::new(self.withdrawal(), id, "tools/call");
 
             // Spawn a watchdog task that enforces both the total request cap
             // and a per-chunk idle timeout (MGP §12, bug-351). All three error
@@ -1226,14 +1370,25 @@ impl McpClient {
             // token system prompt can easily exceed the idle window). During
             // that phase we rely on the total cap alone. Once streaming has
             // actually started, idle silence is a real stall.
+            //
+            // The watchdog is also where a caller that stops waiting shows up:
+            // the stream has no future of the caller's to drop, only the result
+            // receiver, so its closing is what withdraws the request.
             tokio::spawn(async move {
+                enum Ending {
+                    Settled(Result<CallToolResult>),
+                    TimedOut(String),
+                    NobodyWaiting,
+                }
+
                 let total_deadline = tokio::time::Instant::now()
                     + std::time::Duration::from_secs(total_timeout_secs);
                 let idle_duration = std::time::Duration::from_secs(idle_timeout_secs);
                 let mut idle_deadline: Option<tokio::time::Instant> = None;
                 let mut inner_rx = inner_rx;
+                let mut result_tx = result_tx;
 
-                let result: Result<CallToolResult> = loop {
+                let ending = loop {
                     // Compose the idle branch dynamically — a pending future
                     // (never resolves) until the first chunk arms the deadline.
                     let idle_sleep: std::pin::Pin<
@@ -1245,38 +1400,40 @@ impl McpClient {
 
                     tokio::select! {
                         // Final response arrived (or the oneshot was dropped).
-                        res = &mut inner_rx => match res {
+                        res = &mut inner_rx => break Ending::Settled(match res {
                             Ok(Ok(val)) => {
                                 if era.is_modern()
                                     && val.get("resultType").and_then(Value::as_str)
                                         == Some(RESULT_TYPE_INPUT_REQUIRED)
                                 {
-                                    break Err(anyhow::anyhow!(
+                                    Err(anyhow::anyhow!(
                                         "MCP server returned MRTR input_required for \
                                          'tools/call' (streaming) — multi-round tool \
                                          interaction is not supported by the kernel host"
-                                    ));
+                                    ))
+                                } else {
+                                    serde_json::from_value::<CallToolResult>(val)
+                                        .map_err(|e| anyhow::anyhow!("Failed to parse streaming result: {}", e))
                                 }
-                                break serde_json::from_value::<CallToolResult>(val)
-                                    .map_err(|e| anyhow::anyhow!("Failed to parse streaming result: {}", e));
                             }
-                            Ok(Err(e)) => break Err(e),
-                            Err(_) => break Err(anyhow::anyhow!("Response channel closed")),
-                        },
+                            Ok(Err(e)) => Err(e),
+                            Err(_) => Err(anyhow::anyhow!("Response channel closed")),
+                        }),
                         // Request-total cap reached (existing behavior, preserved).
                         () = tokio::time::sleep_until(total_deadline) => {
-                            break Err(anyhow::anyhow!(
-                                "Streaming request timed out (total {}s)",
-                                total_timeout_secs
+                            break Ending::TimedOut(format!(
+                                "Streaming request timed out (total {total_timeout_secs}s)"
                             ));
                         }
                         // Idle window elapsed after streaming had started.
                         () = idle_sleep => {
-                            break Err(anyhow::anyhow!(
-                                "Streaming request timed out (idle {}s, no chunk received)",
-                                idle_timeout_secs
+                            break Ending::TimedOut(format!(
+                                "Streaming request timed out (idle {idle_timeout_secs}s, no chunk received)"
                             ));
                         }
+                        // The caller dropped the result receiver: nobody will
+                        // read this answer.
+                        () = result_tx.closed() => break Ending::NobodyWaiting,
                         // Chunk delivered — arm (on first notify) or reset the idle deadline.
                         () = activity_notify.notified() => {
                             idle_deadline = Some(tokio::time::Instant::now() + idle_duration);
@@ -1289,13 +1446,24 @@ impl McpClient {
                     let mut collectors = stream_collectors.lock().await;
                     collectors.remove(&final_id);
                 }
-                let _ = result_tx.send(result);
+                match ending {
+                    Ending::Settled(result) => {
+                        request.settled();
+                        let _ = result_tx.send(result);
+                    }
+                    Ending::TimedOut(message) => {
+                        request.give_up(&message);
+                        let _ = result_tx.send(Err(anyhow::anyhow!(message)));
+                    }
+                    Ending::NobodyWaiting => drop(request),
+                }
             });
         }
 
         if let Err(e) = self.send_with_timeout(req_str, "streaming request").await {
             // Dropping the pending entry closes the watchdog's inner_rx, which
-            // self-cleans the stream collector registered for this id.
+            // self-cleans the stream collector registered for this id — and,
+            // being an answer of sorts, withdraws nothing at the server.
             self.pending_requests.lock().await.remove(&id);
             return Err(e);
         }
@@ -2038,5 +2206,361 @@ while True:\n\
             err.to_string().contains("input_required"),
             "unexpected error: {err:#}"
         );
+    }
+
+    /// Answers the handshake, never answers `hold`, answers `quick` at once,
+    /// and reports what it has seen: the ids of the `hold` calls it is sitting
+    /// on and the `requestId` of every `notifications/cancelled` it received,
+    /// in arrival order.
+    const CANCEL_MOCK: &str = "import sys, json\n\
+def emit(o):\n\
+\x20   sys.stdout.write(json.dumps(o) + '\\n'); sys.stdout.flush()\n\
+held = []\n\
+cancelled = []\n\
+while True:\n\
+\x20   line = sys.stdin.readline()\n\
+\x20   if not line:\n\
+\x20       break\n\
+\x20   line = line.strip()\n\
+\x20   if not line:\n\
+\x20       continue\n\
+\x20   try:\n\
+\x20       req = json.loads(line)\n\
+\x20   except Exception:\n\
+\x20       continue\n\
+\x20   m = req.get('method'); i = req.get('id')\n\
+\x20   if m == 'server/discover':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': i, 'error': {'code': -32601, 'message': 'Method not found'}})\n\
+\x20   elif m == 'initialize':\n\
+\x20       emit({'jsonrpc': '2.0', 'id': i, 'result': {'capabilities': {}}})\n\
+\x20   elif m == 'notifications/cancelled':\n\
+\x20       p = req.get('params') or {}\n\
+\x20       cancelled.append([p.get('requestId'), p.get('reason')])\n\
+\x20   elif m == 'tools/call':\n\
+\x20       name = req['params']['name']\n\
+\x20       if name == 'hold':\n\
+\x20           held.append(i)\n\
+\x20       elif name == 'drip':\n\
+\x20           held.append(i)\n\
+\x20           emit({'jsonrpc': '2.0', 'method': 'notifications/mgp.stream.chunk', 'params': {'request_id': i, 'index': 0, 'content': {'type': 'text', 'text': 'x'}, 'done': False}})\n\
+\x20       elif name == 'quick':\n\
+\x20           emit({'jsonrpc': '2.0', 'id': i, 'result': {'content': [{'type': 'text', 'text': 'ok'}]}})\n\
+\x20       elif name == 'report':\n\
+\x20           seen = json.dumps({'held': held, 'cancelled': cancelled})\n\
+\x20           emit({'jsonrpc': '2.0', 'id': i, 'result': {'content': [{'type': 'text', 'text': seen}]}})\n";
+
+    /// What [`CANCEL_MOCK`] has seen: the ids it is holding, and the ids it was
+    /// told to cancel.
+    async fn cancel_report(client: &McpClient) -> (Vec<i64>, Vec<i64>) {
+        let result = client
+            .call_tool("report", serde_json::json!({}))
+            .await
+            .expect("the mock answers report");
+        let text = match &result.content[0] {
+            super::super::mcp_protocol::ToolContent::Text { text } => text.clone(),
+            other => panic!("report must be text, got {other:?}"),
+        };
+        let seen: Value = serde_json::from_str(&text).expect("report is JSON");
+        let ids = |key: &str| -> Vec<i64> {
+            seen[key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| v.as_i64().or_else(|| v[0].as_i64()).unwrap())
+                .collect()
+        };
+        (ids("held"), ids("cancelled"))
+    }
+
+    /// Polls [`cancel_report`] until the mock has been told to cancel something.
+    /// The streaming watchdog notices a dropped receiver on its own task, so its
+    /// notification can reach the wire after the next request does.
+    async fn cancel_report_once_cancelled(client: &McpClient) -> (Vec<i64>, Vec<i64>) {
+        for _ in 0..50 {
+            let report = cancel_report(client).await;
+            if !report.1.is_empty() {
+                return report;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        cancel_report(client).await
+    }
+
+    /// The engine call a stopped reply had reached is dropped where it waits.
+    /// The server must hear about it — otherwise an engine goes on generating,
+    /// and spending tokens, for an answer the kernel has already thrown away —
+    /// and the pending entry must go with it.
+    #[tokio::test]
+    async fn a_call_nobody_waits_for_is_cancelled_at_the_server() {
+        if !python3_available("a_call_nobody_waits_for_is_cancelled_at_the_server") {
+            return;
+        }
+        let server = connect_mock("mock-cancel-drop", CANCEL_MOCK)
+            .await
+            .expect("mock must negotiate");
+
+        let dropped = tokio::time::timeout(
+            Duration::from_millis(500),
+            server.client.call_tool("hold", serde_json::json!({})),
+        )
+        .await;
+        assert!(dropped.is_err(), "the mock never answers hold");
+
+        let (held, cancelled) = cancel_report(&server.client).await;
+        assert_eq!(held.len(), 1, "the hold call must have reached the mock");
+        assert_eq!(
+            cancelled, held,
+            "the dropped call must be cancelled by its own id, once"
+        );
+        assert!(
+            server.client.pending_requests.lock().await.is_empty(),
+            "the dropped call's pending entry must be withdrawn"
+        );
+    }
+
+    /// A deadline the kernel gives up at is the same as a dropped caller: MCP
+    /// 2026-07-28 asks the sender to cancel a request it stopped waiting for.
+    #[tokio::test]
+    async fn a_call_that_times_out_is_cancelled_at_the_server() {
+        if !python3_available("a_call_that_times_out_is_cancelled_at_the_server") {
+            return;
+        }
+        let server = connect_mock("mock-cancel-timeout", CANCEL_MOCK)
+            .await
+            .expect("mock must negotiate");
+
+        let err = server
+            .client
+            .call_with_timeout(
+                "tools/call",
+                Some(serde_json::json!({ "name": "hold", "arguments": {} })),
+                1,
+            )
+            .await
+            .expect_err("the mock never answers hold");
+        assert!(err.downcast_ref::<RequestTimeout>().is_some(), "{err:#}");
+
+        let (held, cancelled) = cancel_report(&server.client).await;
+        assert_eq!(held.len(), 1);
+        assert_eq!(cancelled, held);
+        assert!(server.client.pending_requests.lock().await.is_empty());
+    }
+
+    /// The control for both tests above: a call that was answered is over, and
+    /// cancelling it would be noise at best — a mechanism that cancels on every
+    /// drop, answered or not, passes them and fails here.
+    #[tokio::test]
+    async fn an_answered_call_is_not_cancelled() {
+        if !python3_available("an_answered_call_is_not_cancelled") {
+            return;
+        }
+        let server = connect_mock("mock-cancel-answered", CANCEL_MOCK)
+            .await
+            .expect("mock must negotiate");
+
+        server
+            .client
+            .call_tool("quick", serde_json::json!({}))
+            .await
+            .expect("quick is answered");
+        let (_, cancelled) = cancel_report(&server.client).await;
+        assert!(
+            cancelled.is_empty(),
+            "cancelled an answered call: {cancelled:?}"
+        );
+    }
+
+    /// A streaming engine call has no future of the caller's inside the client
+    /// to drop: the caller holds only the receivers. Dropping them is how a
+    /// stopped turn lets go of a stream, and it must cancel like any other call.
+    #[tokio::test]
+    async fn a_stream_nobody_reads_is_cancelled_at_the_server() {
+        if !python3_available("a_stream_nobody_reads_is_cancelled_at_the_server") {
+            return;
+        }
+        let server = connect_mock("mock-cancel-stream", CANCEL_MOCK)
+            .await
+            .expect("mock must negotiate");
+
+        let (chunks, result) = server
+            .client
+            .call_tool_streaming("hold", serde_json::json!({}))
+            .await
+            .expect("the streaming call is sent");
+        drop(chunks);
+        drop(result);
+
+        let (held, cancelled) = cancel_report_once_cancelled(&server.client).await;
+        assert_eq!(held.len(), 1);
+        assert_eq!(cancelled, held);
+        assert!(server.client.pending_requests.lock().await.is_empty());
+        assert!(
+            server.client.stream_collectors.lock().await.is_empty(),
+            "the stream's collector must be removed with it"
+        );
+    }
+
+    /// A stream that goes quiet after it started is given up at the idle window,
+    /// and giving up cancels it — the same as a plain call's deadline.
+    #[tokio::test]
+    async fn a_stream_that_goes_quiet_is_cancelled_at_the_server() {
+        if !python3_available("a_stream_that_goes_quiet_is_cancelled_at_the_server") {
+            return;
+        }
+        let server = connect_mock("mock-cancel-stream-idle", CANCEL_MOCK)
+            .await
+            .expect("mock must negotiate");
+
+        let (_chunks, result) = server
+            .client
+            .call_tool_streaming("drip", serde_json::json!({}))
+            .await
+            .expect("the streaming call is sent");
+        let err = result
+            .await
+            .expect("the watchdog delivers the outcome")
+            .expect_err("the mock stops after one chunk");
+        assert!(
+            err.to_string()
+                .contains("Streaming request timed out (idle"),
+            "{err:#}"
+        );
+
+        let (held, cancelled) = cancel_report_once_cancelled(&server.client).await;
+        assert_eq!(held.len(), 1);
+        assert_eq!(cancelled, held);
+        assert!(server.client.pending_requests.lock().await.is_empty());
+    }
+
+    /// The streaming control: the receiver closes after the result is read, and
+    /// that must not read as a caller who walked away.
+    #[tokio::test]
+    async fn an_answered_stream_is_not_cancelled() {
+        if !python3_available("an_answered_stream_is_not_cancelled") {
+            return;
+        }
+        let server = connect_mock("mock-cancel-stream-answered", CANCEL_MOCK)
+            .await
+            .expect("mock must negotiate");
+
+        let (_chunks, result) = server
+            .client
+            .call_tool_streaming("quick", serde_json::json!({}))
+            .await
+            .expect("the streaming call is sent");
+        result
+            .await
+            .expect("the watchdog delivers the result")
+            .expect("quick is answered");
+        // Long enough for a wrongly-sent cancellation to reach the mock first.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let (_, cancelled) = cancel_report(&server.client).await;
+        assert!(
+            cancelled.is_empty(),
+            "cancelled an answered stream: {cancelled:?}"
+        );
+    }
+
+    fn withdrawal(notify_server: bool) -> (Withdrawal, mpsc::Receiver<String>) {
+        let (sender, wire) = mpsc::channel(8);
+        let withdrawal = Withdrawal {
+            sender,
+            pending_requests: Arc::new(Mutex::new(HashMap::new())),
+            modern_meta: Arc::new(OnceLock::new()),
+            notify_server,
+        };
+        (withdrawal, wire)
+    }
+
+    #[tokio::test]
+    async fn a_withdrawal_names_the_request_and_says_why() {
+        let (w, mut wire) = withdrawal(true);
+        let (tx, _rx) = oneshot::channel();
+        w.pending_requests.lock().await.insert(7, tx);
+
+        w.withdraw(7, "tools/call", "no answer within 1s");
+
+        assert!(w.pending_requests.lock().await.is_empty());
+        let sent: Value = serde_json::from_str(&wire.try_recv().expect("a notification")).unwrap();
+        assert_eq!(sent["method"], CANCELLED_NOTIFICATION_METHOD);
+        assert_eq!(sent["params"]["requestId"], 7);
+        assert_eq!(sent["params"]["reason"], "no answer within 1s");
+        // The same shape as every other notification this client sends.
+        assert!(sent["id"].is_null(), "a notification carries no request id");
+    }
+
+    /// In the modern era a notification carries the same `_meta` as a request —
+    /// there is no session for the server to read the context from.
+    #[tokio::test]
+    async fn a_modern_withdrawal_carries_the_request_meta() {
+        let (w, mut wire) = withdrawal(true);
+        let mut template = Map::new();
+        template.insert(
+            META_PROTOCOL_VERSION.to_string(),
+            Value::String(MODERN_PROTOCOL_VERSION.to_string()),
+        );
+        w.modern_meta.set(template).unwrap();
+
+        w.withdraw(3, "tools/call", "stopped");
+
+        let sent: Value = serde_json::from_str(&wire.try_recv().unwrap()).unwrap();
+        assert_eq!(sent["params"]["requestId"], 3);
+        assert_eq!(
+            sent["params"]["_meta"][META_PROTOCOL_VERSION],
+            MODERN_PROTOCOL_VERSION
+        );
+    }
+
+    /// `initialize` must never be cancelled, the probe runs before there is a
+    /// lifecycle to cancel inside, and HTTP is not told at all — but each still
+    /// gives up its pending entry.
+    #[tokio::test]
+    async fn some_withdrawals_are_not_told_to_the_server() {
+        for (notify_server, method) in [
+            (true, INITIALIZE_METHOD),
+            (true, DISCOVER_METHOD),
+            (false, "tools/call"),
+        ] {
+            let (w, mut wire) = withdrawal(notify_server);
+            let (tx, _rx) = oneshot::channel();
+            w.pending_requests.lock().await.insert(1, tx);
+
+            w.withdraw(1, method, "stopped");
+
+            assert!(
+                w.pending_requests.lock().await.is_empty(),
+                "{method} (notify_server={notify_server}) must still leave the pending map"
+            );
+            assert!(
+                wire.try_recv().is_err(),
+                "{method} (notify_server={notify_server}) must not be cancelled at the server"
+            );
+        }
+        // The control: the same call is told when the transport takes a
+        // notification, so the loop above is not passing on a dead sender.
+        let (w, mut wire) = withdrawal(true);
+        w.withdraw(1, "tools/call", "stopped");
+        assert!(wire.try_recv().is_ok());
+    }
+
+    /// stdio has only the notification; HTTP cancels by closing the stream, which
+    /// this kernel's serial transport cannot do per request. Asked of a client
+    /// assembled the way `connect_http` assembles one, so the answer is the one
+    /// its withdrawals act on, not only the transport's.
+    #[tokio::test]
+    async fn an_http_client_does_not_cancel_by_notification() {
+        let http = HttpTransport::start("http://127.0.0.1:9/mcp", None, EraHandle::new())
+            .await
+            .expect("an HTTP transport starts without connecting");
+        let (notification_tx, _notifications) = mpsc::channel(1);
+        let client = McpClient::assemble(
+            McpTransport::Http(Box::new(http)),
+            EraHandle::new(),
+            notification_tx,
+            1,
+            1,
+            None,
+        );
+        assert!(!client.withdrawal().notify_server);
     }
 }

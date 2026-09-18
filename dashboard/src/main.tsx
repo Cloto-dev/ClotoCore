@@ -10,7 +10,9 @@ import { UserIdentityProvider } from './contexts/UserIdentityContext';
 import { restoreBrowserSession } from './services/session';
 
 import './i18n';
+import { applyStoredTheme } from './hooks/useTheme';
 import { loadExternalLanguages } from './i18n';
+import { loadThemes } from './themes/load';
 // Bundled typefaces (docs/DESIGN_PHILOSOPHY.md §4.3), split by unicode-range so a
 // page loads only the subsets it draws. License: public/fonts/LICENSE-IBM-Plex.txt
 import '@fontsource/ibm-plex-sans-jp/400.css';
@@ -26,6 +28,10 @@ async function bootstrap() {
   // time they are rendered. Deliberately not awaited (see the function's docs).
   restoreBrowserSession();
   await loadExternalLanguages();
+  // Before React: the theme decides the accent's surface and whether the accent
+  // is an agent's at all, and the first agent colour is computed during render.
+  await loadThemes();
+  applyStoredTheme();
   ReactDOM.createRoot(document.getElementById('root')!).render(
     <React.StrictMode>
       <ErrorBoundary>
