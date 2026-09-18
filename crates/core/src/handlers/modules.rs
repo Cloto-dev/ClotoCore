@@ -41,7 +41,7 @@ use super::{check_auth, ok_data};
 use crate::{AppError, AppResult, AppState};
 
 /// Directory under `data_dir()` that holds runtime-loaded modules.
-const MODULES_DIR: &str = "modules";
+pub(crate) const MODULES_DIR: &str = "modules";
 
 /// Manifest file each module directory must contain.
 const MANIFEST_NAME: &str = "module.json";
@@ -86,6 +86,14 @@ pub struct ModuleManifest {
     /// isolated from it cannot call anything regardless of what it asks for.
     #[serde(default)]
     pub requires: Vec<String>,
+    /// Kernel routes the module asks to change state through, as
+    /// `"<METHOD> <path>"`. Only a panel an installed connector ships may carry
+    /// any: a directory placed by hand has no install record and no seal, so
+    /// nothing could make it eligible (`docs/PANEL_WRITE_GATE_DESIGN.md` §4.1),
+    /// and a declaration that can never be honoured is rejected rather than
+    /// listed as if it might be.
+    #[serde(default)]
+    pub writes: Vec<String>,
 }
 
 /// One row of the listing: either a module the kernel could read, or a
@@ -190,6 +198,10 @@ fn safe_relative_path(path: &str) -> Option<PathBuf> {
 /// module — there is nothing to serve from.
 struct Discovered {
     id: String,
+    /// The directory under the servers root this came from, for a connector's
+    /// panel; `None` for a module placed by hand. The write gate reads the
+    /// install receipt by this name.
+    connector: Option<String>,
     root: Option<PathBuf>,
     manifest: Option<ModuleManifest>,
     error: Option<String>,
@@ -199,6 +211,7 @@ impl Discovered {
     fn rejected(id: String, error: String) -> Self {
         Self {
             id,
+            connector: None,
             root: None,
             manifest: None,
             error: Some(error),
@@ -241,8 +254,14 @@ fn discover_placed_modules(root: &StdPath) -> Vec<Discovered> {
             continue;
         }
         match read_manifest(&item.path(), &id) {
+            Ok(manifest) if !manifest.writes.is_empty() => found.push(Discovered::rejected(
+                id,
+                "declares writes, which only a panel shipped by an installed connector may do"
+                    .to_string(),
+            )),
             Ok(manifest) => found.push(Discovered {
                 id,
+                connector: None,
                 root: Some(item.path()),
                 manifest: Some(manifest),
                 error: None,
@@ -315,8 +334,16 @@ fn discover_connector_panels(servers_root: &StdPath) -> Vec<Discovered> {
                 ));
                 continue;
             }
+            if let Err(reason) = super::panel_writes::validate_writes(&panel.writes) {
+                found.push(Discovered::rejected(
+                    id,
+                    format!("connector {connector_id:?} declares an invalid panel write {reason}"),
+                ));
+                continue;
+            }
             found.push(Discovered {
                 id,
+                connector: Some(connector_id.clone()),
                 root: Some(declared.root.clone()),
                 manifest: Some(ModuleManifest {
                     id: None,
@@ -326,6 +353,7 @@ fn discover_connector_panels(servers_root: &StdPath) -> Vec<Discovered> {
                     entry: panel.entry,
                     icon: panel.icon,
                     requires: panel.requires,
+                    writes: panel.writes,
                 }),
                 error: None,
             });
@@ -383,6 +411,34 @@ fn discover_modules_in(modules_root: &StdPath, servers_root: Option<&StdPath>) -
 fn discover_modules() -> Vec<Discovered> {
     let servers_root = crate::managers::mcp_venv::resolve_servers_dir_from_config();
     discover_modules_in(&modules_root(), servers_root.as_deref())
+}
+
+/// A module as the write gate needs to see it.
+pub(crate) struct FoundModule {
+    pub id: String,
+    pub connector: Option<String>,
+    pub root: PathBuf,
+    pub manifest: ModuleManifest,
+}
+
+/// Resolve one usable module by id through the same enumeration the listing
+/// uses. A rejected or ambiguous id resolves to nothing, as it does for assets.
+pub(crate) fn find_module_in(
+    modules_root: &StdPath,
+    servers_root: Option<&StdPath>,
+    id: &str,
+) -> Option<FoundModule> {
+    discover_modules_in(modules_root, servers_root)
+        .into_iter()
+        .find(|m| m.id == id)
+        .and_then(|m| {
+            Some(FoundModule {
+                id: m.id,
+                connector: m.connector,
+                root: m.root?,
+                manifest: m.manifest?,
+            })
+        })
 }
 
 /// GET /api/modules — list runtime modules, from both sources.
@@ -494,6 +550,7 @@ mod tests {
             entry: "index.html".into(),
             icon: None,
             requires: Vec::new(),
+            writes: Vec::new(),
         }
     }
 

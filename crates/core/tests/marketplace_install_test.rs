@@ -531,6 +531,23 @@ async fn a_connector_that_ships_no_server_installs_its_files_and_registers_nothi
         h.db_row("demo").await.is_none(),
         "a connector with no server was registered as one"
     );
+
+    // But what was placed is recorded: with no row, the install receipt is the
+    // only place the panel write gate can learn this tree's trust level and
+    // seal. The seal is the one minted over these files, so it must verify.
+    let receipt = cloto_core::db::get_install_receipt(&h.state.pool, "demo")
+        .await
+        .unwrap()
+        .expect("the install recorded a receipt");
+    assert_eq!(receipt.trust_level, entry.trust_level);
+    assert_eq!(receipt.version, "1.0.0");
+    let seal = receipt.seal.expect("a verified install records its seal");
+    assert!(seal.starts_with("tree-sha256:"), "{seal}");
+    let seal_key = std::fs::read(h.data_dir.join("seal.key")).unwrap();
+    assert!(
+        cloto_core::managers::tree_seal::verify_tree_seal(&install_dir, &seal, &seal_key).unwrap(),
+        "the recorded seal covers the installed tree"
+    );
 }
 
 #[tokio::test]

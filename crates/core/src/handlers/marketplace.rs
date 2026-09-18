@@ -1103,6 +1103,12 @@ pub async fn uninstall_handler(
                 server_dir.display()
             );
             removed = true;
+            // The receipt describes files that are gone now. Leaving it would
+            // let a later tree placed under the same name inherit a trust
+            // level and a seal recorded for something else.
+            if let Err(e) = crate::db::delete_install_receipt(&state.pool, directory).await {
+                warn!("Failed to remove the install receipt for {directory}: {e}");
+            }
         }
         break;
     }
@@ -1592,6 +1598,11 @@ async fn build_and_register(
         effective_install_dir(entry),
     );
     if !crate::managers::connector_manifest::launches_a_process(&declaration) {
+        // This path seals only after verifying an entry point against the hub,
+        // and a connector with no server has no entry point — so the tree is
+        // recorded unsealed, and its panels are told why they cannot write
+        // rather than that nothing is known about them.
+        record_install_receipt(state, entry, None).await;
         return finish_static_install(state, entry, &declaration).await;
     }
 
@@ -1850,6 +1861,26 @@ async fn build_and_register(
 /// The footprint receipt is not skipped: `run_install` writes it for any
 /// outcome that reports an install, so the defender's ledger records this
 /// directory exactly as it records every other one.
+/// Record what an install placed, for the panel write gate to read later
+/// (`docs/PANEL_WRITE_GATE_DESIGN.md` §4.1). For a connector that ships no
+/// server this row is the only place its trust level and seal survive: nothing
+/// registers one. A failure is logged, not raised — the install itself is fine,
+/// and a missing receipt only means the panel cannot write, which is the safe
+/// side.
+async fn record_install_receipt(state: &AppState, entry: &RegistryEntry, seal: Option<&str>) {
+    if let Err(e) = crate::db::upsert_install_receipt(
+        &state.pool,
+        effective_install_dir(entry),
+        &entry.trust_level,
+        seal,
+        &entry.version,
+    )
+    .await
+    {
+        warn!("{}: could not record the install receipt: {e}", entry.id);
+    }
+}
+
 async fn finish_static_install(
     state: &AppState,
     entry: &RegistryEntry,
@@ -3067,6 +3098,9 @@ pub async fn materialize_with_installer(
         }
     };
 
+    // Record what was placed, for both kinds of connector.
+    record_install_receipt(state, entry, local_seal.as_deref()).await;
+
     // A connector that ships no server has nothing to register. The tree is
     // under the servers root by now, so this is asked the way the spawn path
     // and the panel listing ask it — from the connector's own manifest —
@@ -3429,7 +3463,7 @@ async fn install_from_docker(
 
 /// Marketplace servers are always installed to {data_dir}/mcp-servers/,
 /// separate from config-loaded servers in [paths].servers.
-fn resolve_servers_dir(state: &AppState) -> PathBuf {
+pub(crate) fn resolve_servers_dir(state: &AppState) -> PathBuf {
     state.data_dir.join("mcp-servers")
 }
 
@@ -4793,6 +4827,67 @@ mod tests {
             "a connector with no server must leave no row to start"
         );
 
+        let _ = std::fs::remove_dir_all(&data_dir);
+    }
+
+    /// A connector that ships no server gets no `mcp_servers` row, so the
+    /// install receipt is the only place its trust level and seal survive for
+    /// the panel write gate to read — and it has to leave with the files.
+    #[tokio::test]
+    async fn an_install_records_a_receipt_and_the_uninstall_removes_it() {
+        let data_dir = temp_dir("receipt");
+        let state =
+            crate::test_utils::create_test_app_state_in(data_dir.clone(), Some("k".into())).await;
+        let servers_dir = resolve_servers_dir(&state);
+        place_connector(
+            &servers_dir,
+            "panel-only",
+            r#"{"spec_version":1,"connector_type":"ui_module","ui":{"panels":[{"id":"console","name":"Console"}]}}"#,
+        );
+        let server_path = servers_dir.join("panel-only");
+
+        let outcome = build_and_register(
+            &state,
+            &entry("panel-only", "panel-only"),
+            &server_path,
+            false,
+            HashMap::new(),
+            true,
+        )
+        .await
+        .expect("installing files should not error");
+        assert!(matches!(outcome, InstallOutcome::Installed));
+
+        let receipt = crate::db::get_install_receipt(&state.pool, "panel-only")
+            .await
+            .unwrap()
+            .expect("the install recorded a receipt");
+        assert_eq!(receipt.trust_level, "standard");
+        assert_eq!(receipt.version, "0.0.0");
+        assert_eq!(
+            receipt.seal, None,
+            "this path seals only after verifying an entry point, and there is none"
+        );
+
+        let mut headers = HeaderMap::new();
+        headers.insert(super::super::ADMIN_API_KEY_HEADER, "k".parse().unwrap());
+        let _ = uninstall_handler(
+            ConnectInfo(std::net::SocketAddr::from(([127, 0, 0, 1], 9))),
+            State(state.clone()),
+            Path("panel-only".to_string()),
+            headers,
+        )
+        .await
+        .unwrap_or_else(|_| panic!("uninstall returned an error"));
+
+        assert!(!server_path.exists(), "the files are gone");
+        assert!(
+            crate::db::get_install_receipt(&state.pool, "panel-only")
+                .await
+                .unwrap()
+                .is_none(),
+            "and so is the receipt"
+        );
         let _ = std::fs::remove_dir_all(&data_dir);
     }
 

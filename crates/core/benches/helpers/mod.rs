@@ -82,6 +82,7 @@ pub async fn create_bench_app_state() -> Arc<AppState> {
         last_usage: cloto_core::managers::usage_tracker::UsageStore::new(),
         response_stops: cloto_core::managers::response_stop::ResponseStops::new(),
         session_manager: Arc::new(cloto_core::managers::session_manager::SessionManager::new()),
+        panel_writes: cloto_core::handlers::panel_writes::PanelWriteState::default(),
     })
 }
 

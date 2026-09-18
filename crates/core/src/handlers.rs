@@ -19,6 +19,7 @@ pub mod marketplace;
 pub mod mcp;
 pub mod modules;
 pub mod notifications;
+pub mod panel_writes;
 pub mod permissions;
 pub mod published;
 pub mod response;

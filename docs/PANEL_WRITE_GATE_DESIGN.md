@@ -1,6 +1,6 @@
 # Panel Write Gate — Letting Connector Panels Change Kernel State
 
-Status: **Proposed**
+Status: **Accepted**, implementing (§4.1 revised during implementation)
 Scope: ClotoCore kernel (`crates/core`) and dashboard (`dashboard/src`)
 
 ## 1. Problem
@@ -39,6 +39,8 @@ rule is enforced.
 | `NegotiatedMgp.trust_level`, which the server handle stores, comes from the MGP handshake: config first, then the server's own declaration, then `Untrusted`. **The seal downgrade is never applied to it** | `crates/core/src/managers/mcp_mgp.rs`, `negotiate` |
 | HTTP-transport servers skip seal verification, and so does `CLOTO_ALLOW_UNSIGNED=true`. In both cases the declared level stays in place | `crates/core/src/managers/mcp.rs` |
 | The kernel keeps a hash-chained audit log | `crates/core/src/db/audit.rs`, `write_audit_log` |
+| A connector that ships only panels (`ui_module`) is never started and gets no `mcp_servers` row. Its install verifies the tree against the hub and mints a local tree seal, then keeps neither the seal nor the trust level | `crates/core/src/handlers/marketplace.rs`, `finish_static_install` |
+| The in-kernel build path (monorepo tarball, git) mints a local seal only after verifying an entry point against the hub. A connector with no server has no entry point, so its tree is never sealed on that path | `crates/core/src/handlers/marketplace.rs`, `local_seal_for_install` |
 
 The fourth-from-last and third-from-last rows matter most for this design. The
 only trust value that lives past startup is the one that has not been checked
@@ -68,29 +70,46 @@ declaring `core` in its own handshake.
 
 ### 4.1 Eligibility (kernel)
 
-When a server starts, record the result on its handle as a new field next to
-`mgp_negotiated`:
+*Revised during implementation. The first draft recorded eligibility on the
+server handle when the server started. That cannot work for the connector this
+gate exists for: a connector that ships only panels (`connector_type:
+"ui_module"`) is never started and gets no `mcp_servers` row, so there is no
+handle and no start-time check. See the last rows of §2.*
 
-```rust
-pub struct WriteEligibility {
-    pub effective_trust_level: TrustLevel,
-    pub seal_verified: bool,
-}
+A marketplace install records a **receipt** for the tree it placed, for both
+kinds of connector, in a new table:
+
+```sql
+CREATE TABLE connector_install_receipts (
+    connector_dir TEXT PRIMARY KEY,  -- directory under the servers root
+    trust_level   TEXT NOT NULL,     -- the catalog's trust level at install
+    seal          TEXT,              -- the local tree seal; NULL when unsealed
+    version       TEXT NOT NULL DEFAULT '',
+    installed_at  TEXT NOT NULL
+);
 ```
 
-A panel is **write-eligible** only if all of these hold:
+Uninstalling removes the receipt along with the files.
 
-- It was declared by an installed connector. A directory placed by hand under
-  `modules/` has no install receipt and no seal, so it is never eligible.
-- The connector's server is running.
-- `seal_verified` is true.
-- `effective_trust_level >= Standard`.
+A panel is **write-eligible** only if all of these hold, checked by the kernel
+on every write:
 
-The kernel checks eligibility on every write, not when the panel loads. If the
-server restarts with a different outcome, for example because the seal no
-longer verifies, the next write is refused.
+- It was declared by a connector installed from the marketplace. A directory
+  placed by hand under `modules/` has no receipt, so it can never be eligible.
+  A placed module that declares `writes` is rejected from the listing.
+- The receipt's trust level is `standard` or above.
+- The receipt holds a tree seal (`tree-sha256:`). An entry-point seal does
+  not qualify, because it does not cover the panel's files.
+- That seal **still verifies** against the installed tree now.
+- The panel is served from inside that tree. The tree seal neither follows nor
+  hashes symlinks, but manifest discovery follows one at the fixed
+  `servers/<id>/` path. Without this check, a sealed tree could hold a link
+  that serves a panel from files the seal never covered.
 
-`NegotiatedMgp.trust_level` MUST NOT be used for this check (see §2).
+Because the seal is verified on every write instead of once at start, a tree
+changed after install is refused on the next write. Neither
+`NegotiatedMgp.trust_level` nor the start-time effective level is read (see
+§2).
 
 ### 4.2 Declaration (connector manifest)
 
@@ -168,6 +187,14 @@ the panel can show:
 5. The panel is under its rate cap (fixed at 30 writes per minute per panel;
    see §7).
 
+Three routes support the dashboard. Each takes `{id}` as the panel id:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /api/modules/{id}/write-access` | Whether the panel is eligible (and why not), what it declares, and whether a consent exists and still holds |
+| `PUT /api/modules/{id}/write-consent` / `DELETE` | Give or revoke consent. `PUT` is refused for an ineligible panel |
+| `GET /api/modules/write-consents` | Every recorded consent, for the settings list |
+
 If all checks pass, the handler dispatches the inner request to the kernel's
 own router in-process. It carries the caller's own credential headers over,
 so the target route applies its normal authentication, and the relay never
@@ -233,23 +260,37 @@ prevention. This limit is why the initial scope (§3.3) stops at chat.
 
 Each rule gets a test, and the implementation PR records that each test has
 detection power. Delete or weaken the check, see that exact test go red, then
-restore it and see the test go green.
+restore it and see the test go green. The tests are in
+`crates/core/src/handlers/panel_writes.rs`. They install a real tree, mint a
+real tree seal over it and record a receipt, so every check runs against the
+same verification code a live install uses.
 
-- Eligibility: unsealed, `CLOTO_ALLOW_UNSIGNED`, HTTP transport, a
-  hand-placed module, a stopped server, and `Experimental` are each refused.
-  A sealed `Standard` connector is accepted.
-- A handshake that declares `core` while the effective level is `Untrusted`
-  is refused. This test fails if the check is switched to read
-  `mgp_negotiated`.
-- Declarations: a wildcard, `DELETE`, a non-`/api/` path, and an entry the
-  panel did not declare are each refused.
-- Consent: a changed digest and a changed version each void the consent.
-- Credential: the relayed request is refused when the caller's own credential
-  would be refused at the target.
+- Eligibility: a sealed `standard` or `core` connector is accepted.
+  `experimental`, `untrusted`, no seal, an entry-point seal, no receipt, a
+  tree changed after install, a hand-placed module, and a panel served through
+  a link out of the sealed tree are each refused.
+- The trust level is the receipt's. A connector whose own files claim `core`
+  while its receipt says `experimental` is refused.
+- Declarations: `DELETE`, `PUT`, `GET`, lower-case methods, wildcards, queries,
+  `.`/`..`/percent-encoded segments, empty segments, non-`/api/` paths, and
+  paths into the module routes are each refused. A panel that declares any of
+  them is not listed as usable.
+- Consent: refused for an ineligible panel. A changed declaration list and a
+  changed version each void it, and revoking it stops writes.
+- Relay: an admitted write reaches the target carrying the caller's own
+  headers. An undeclared route, a missing consent, an oversized body, a flood
+  past the cap, and a tree changed after consent are each refused before the
+  target is reached.
 - Audit: one row per write and one per refusal, and no row contains the body.
-- Route registration: a handler test cannot show that the relay route is
-  mounted, because the router is built inline at boot. A structural test
-  asserts the registration line in `crates/core/src/lib.rs`.
+- Receipts: an install through the install engine records a tree seal that
+  verifies (`crates/core/tests/marketplace_install_test.rs`). The in-kernel
+  build path records the tree as unsealed, and uninstalling removes the
+  receipt.
+- Route registration: a handler test cannot show that the routes are mounted,
+  because the router is built inline at boot. A structural test asserts the
+  registration lines in `crates/core/src/lib.rs`.
+- A live kernel: `scripts/opverify/catalog/modules.py` drives every gate route
+  against an unknown panel and expects a refusal.
 
 ## 7. Open questions
 

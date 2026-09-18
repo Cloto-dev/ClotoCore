@@ -14,6 +14,7 @@ pub mod health;
 pub mod llm;
 pub mod mcp;
 pub mod notifications;
+pub mod panels;
 pub mod permissions;
 pub mod trusted_commands;
 
@@ -26,6 +27,7 @@ pub use cron::*;
 pub use llm::*;
 pub use mcp::*;
 pub use notifications::*;
+pub use panels::*;
 pub use permissions::*;
 pub use trusted_commands::*;
 

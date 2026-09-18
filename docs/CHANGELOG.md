@@ -11,6 +11,22 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Added
 
+- **Connector panels can change kernel state, behind a gate.** A panel may now
+  declare `writes` in its connector manifest: exact `POST` / `PATCH` routes
+  under `/api/`, one per entry. A write goes through
+  `POST /api/modules/:id/write`, which asks again on every write whether the
+  panel's connector was installed from the marketplace at trust `standard` or
+  above, whether its seal still verifies against the installed files, whether
+  the route is one it declared, and whether the operator consented to exactly
+  that list for that version. Only then does it forward the request, with the
+  caller's own credentials. Every write and every refusal is audited, without
+  the request body. `GET /api/modules/:id/write-access` says whether a panel can
+  write and why not; `PUT` / `DELETE /api/modules/:id/write-consent` give and
+  revoke consent. Installs now keep a receipt of the trust level and seal they
+  placed, because a connector that ships only panels has no server row to keep
+  them in. Design: `docs/PANEL_WRITE_GATE_DESIGN.md`. The dashboard side
+  (consent sheet, "can write" badge) is not in this change.
+
 - **One agent's grants on one server, set in one call.**
   `GET/PUT /api/agents/:id/mcp-access/:server` reads and replaces an agent's
   server and tool grants on a single server, and nothing else — unlike

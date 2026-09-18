@@ -125,5 +125,6 @@ pub async fn create_test_app_state_with_access(
         last_usage: crate::managers::usage_tracker::UsageStore::new(),
         response_stops: crate::managers::response_stop::ResponseStops::new(),
         session_manager: Arc::new(crate::managers::session_manager::SessionManager::new()),
+        panel_writes: crate::handlers::panel_writes::PanelWriteState::default(),
     })
 }
