@@ -264,7 +264,14 @@
     "status_label": "State",
     "new_key_label": "Replace the key",
     "new_key_desc": "The key this dashboard sends. It is tried against the kernel before it is kept.",
-    "invalidate_desc": "Revokes the key for every client, this dashboard included."
+    "invalidate_desc": "Revokes the key for every client, this dashboard included.",
+    "panel_consents_title": "Panels allowed to act for you",
+    "panel_consents_desc": "These panels may act without asking each time. Withdrawing stops them at once.",
+    "panel_consents_empty": "No panel has been allowed to act for you.",
+    "panel_consents_granted": "Allowed {{date}}",
+    "panel_consents_revoke": "Withdraw",
+    "panel_consents_load_failed": "Could not load the list of allowed panels",
+    "panel_consents_revoke_failed": "Could not withdraw the permission"
   },
   "display": {
     "cursor_title": "Cursor",

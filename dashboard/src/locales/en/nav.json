@@ -56,5 +56,16 @@
     "more": "{{count}} more",
     "memories_failed": "Could not read the memories",
     "no_match": "Nothing matches"
-  }
+  },
+  "module_can_write": "Can write",
+  "module_write_list_title": "This panel may:",
+  "module_write_send_messages": "Send messages to {{agent}}",
+  "module_write_start_conversations": "Start conversations with {{agent}}",
+  "module_write_consent_title": "This panel asks to act for you",
+  "module_write_consent_desc": "If you allow it, the panel can do the following without asking again. Each action is recorded in the audit log. You can withdraw this in Settings → Security.",
+  "module_write_consent_lapsed": "The actions this panel asks for, or its version, changed after you allowed it, so it is asking again.",
+  "module_write_allow": "Allow",
+  "module_write_not_now": "Not now",
+  "module_write_ineligible": "This panel cannot act for you: {{reason}}",
+  "module_write_consent_failed": "Could not record your answer"
 }

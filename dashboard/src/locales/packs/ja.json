@@ -676,7 +676,14 @@
       "status_label": "状態",
       "new_key_label": "鍵を差し替える",
       "new_key_desc": "このダッシュボードが送る鍵。保存する前にカーネルで試します。",
-      "invalidate_desc": "このダッシュボードを含む全クライアントで鍵が無効になります。"
+      "invalidate_desc": "このダッシュボードを含む全クライアントで鍵が無効になります。",
+      "panel_consents_title": "操作を許可したパネル",
+      "panel_consents_desc": "ここにあるパネルは、毎回確認せずに操作できます。取り消すと、その時点から操作できなくなります。",
+      "panel_consents_empty": "操作を許可したパネルはありません。",
+      "panel_consents_granted": "{{date}} に許可",
+      "panel_consents_revoke": "取り消す",
+      "panel_consents_load_failed": "許可したパネルの一覧を読み込めませんでした",
+      "panel_consents_revoke_failed": "許可を取り消せませんでした"
     },
     "display": {
       "cursor_title": "カーソル",
@@ -938,7 +945,18 @@
       "more": "ほか {{count}} 件",
       "memories_failed": "記憶を読み込めませんでした",
       "no_match": "一致するものはありません"
-    }
+    },
+    "module_can_write": "書き込み可",
+    "module_write_list_title": "このパネルにできること:",
+    "module_write_send_messages": "{{agent}} にメッセージを送る",
+    "module_write_start_conversations": "{{agent}} との会話を始める",
+    "module_write_consent_title": "このパネルが操作の許可を求めています",
+    "module_write_consent_desc": "許可すると、このパネルは次の操作を毎回確認せずに行えます。操作はすべて監査ログに記録されます。許可は「設定 → セキュリティ」で取り消せます。",
+    "module_write_consent_lapsed": "許可した後に、このパネルが求める操作か版が変わりました。そのため、もう一度確認しています。",
+    "module_write_allow": "許可する",
+    "module_write_not_now": "今はしない",
+    "module_write_ineligible": "このパネルは操作を行えません。理由: {{reason}}",
+    "module_write_consent_failed": "回答を記録できませんでした"
   },
   "cron": {
     "title": "Cron ジョブ",

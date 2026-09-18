@@ -16,7 +16,7 @@ describe('decideModuleCall', () => {
     const decision = decideModuleCall(call(), REQUIRES);
     expect(decision.allowed).toBe(true);
     if (decision.allowed) {
-      expect(decision.request).toEqual({ id: 'r1', method: 'GET', path: '/api/system/health' });
+      expect(decision.request).toEqual({ id: 'r1', method: 'GET', path: '/api/system/health', write: false });
     }
   });
 
@@ -121,5 +121,56 @@ describe('decideModuleCall with a segment wildcard', () => {
     expect(decideModuleCall(call({ path: '/api/published/cil' }), ['GET /api/*/cil']).allowed).toBe(false);
     // And a path that genuinely contains one still matches itself.
     expect(decideModuleCall(call({ path: '/api/pub*shed' }), ['GET /api/pub*shed']).allowed).toBe(true);
+  });
+});
+
+describe('decideModuleCall — writes', () => {
+  const SEND = 'POST /api/chat/agent.manager/messages';
+  const WRITES = [SEND];
+  const write = (over: Record<string, unknown> = {}) =>
+    call({ method: 'POST', path: '/api/chat/agent.manager/messages', body: { content: 'hi' }, ...over });
+
+  it('admits a write declared exactly, marked for the relay and carrying its body', () => {
+    const decision = decideModuleCall(write(), [], WRITES);
+    expect(decision.allowed).toBe(true);
+    if (decision.allowed) {
+      expect(decision.request).toEqual({
+        id: 'r1',
+        method: 'POST',
+        path: '/api/chat/agent.manager/messages',
+        write: true,
+        body: { content: 'hi' },
+      });
+    }
+  });
+
+  it('refuses a write to another agent than the one declared', () => {
+    const decision = decideModuleCall(write({ path: '/api/chat/agent.other/messages' }), [], WRITES);
+    expect(decision.allowed).toBe(false);
+    if (!decision.allowed) expect(decision.reason).toContain("not declared in this module's writes");
+  });
+
+  it('does not let a read declaration stand in for a write', () => {
+    const decision = decideModuleCall(write(), [SEND, 'POST /api/chat/*'], []);
+    expect(decision.allowed).toBe(false);
+  });
+
+  it('matches writes exactly — a wildcard in writes admits nothing', () => {
+    // A wildcard that would match this very path under the `requires` rule
+    // (one further segment), so the refusal is about writes, not the shape.
+    const decision = decideModuleCall(write(), [], ['POST /api/chat/agent.manager/*']);
+    expect(decision.allowed).toBe(false);
+  });
+
+  it('refuses DELETE and PUT even when listed in writes', () => {
+    for (const method of ['DELETE', 'PUT']) {
+      const decision = decideModuleCall(write({ method }), [], [`${method} /api/chat/agent.manager/messages`]);
+      expect(decision.allowed).toBe(false);
+    }
+  });
+
+  it('refuses a declared write aimed outside /api/', () => {
+    const decision = decideModuleCall(write({ path: '//evil.example/api/x' }), [], ['POST //evil.example/api/x']);
+    expect(decision.allowed).toBe(false);
   });
 });

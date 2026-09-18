@@ -10,13 +10,22 @@ vi.mock('react-router-dom', () => ({
   useParams: () => ({ id: 'demo-panel' }),
 }));
 
-const { fetchModuleDocument, callForModule, listModules } = vi.hoisted(() => ({
-  fetchModuleDocument: vi.fn(),
-  callForModule: vi.fn(),
-  listModules: vi.fn(),
-}));
+const { fetchModuleDocument, callForModule, writeForModule, getModuleWriteAccess, putModuleWriteConsent, apiObject } =
+  vi.hoisted(() => {
+    const fns = {
+      fetchModuleDocument: vi.fn(),
+      callForModule: vi.fn(),
+      listModules: vi.fn(),
+      writeForModule: vi.fn(),
+      getModuleWriteAccess: vi.fn(),
+      putModuleWriteConsent: vi.fn(),
+    };
+    // One object for every render: a fresh one each time would re-run every
+    // effect that depends on it.
+    return { ...fns, apiObject: { ...fns, apiKey: 'k' } };
+  });
 vi.mock('../../hooks/useApi', () => ({
-  useApi: () => ({ fetchModuleDocument, callForModule, listModules, apiKey: 'k' }),
+  useApi: () => apiObject,
 }));
 
 const { modules } = vi.hoisted(() => ({ modules: { current: [] as unknown[] } }));
@@ -76,5 +85,106 @@ describe('ModulePage', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(callForModule).not.toHaveBeenCalled();
+  });
+});
+
+const SEND = 'POST /api/chat/agent.manager/messages';
+const WRITER = { ...VALID, writes: [SEND] };
+
+/** Post a message as the module's own frame would. */
+async function postFromFrame(data: unknown) {
+  const frame = await screen.findByTitle<HTMLIFrameElement>('Demo Panel');
+  window.dispatchEvent(new MessageEvent('message', { data, source: frame.contentWindow }));
+  await new Promise((r) => setTimeout(r, 0));
+}
+
+describe('ModulePage — writes', () => {
+  beforeEach(() => {
+    modules.current = [WRITER];
+    callForModule.mockResolvedValue({ status: 200, body: {} });
+    writeForModule.mockResolvedValue({ status: 201, body: {} });
+    putModuleWriteConsent.mockResolvedValue(undefined);
+  });
+
+  it('sends a declared write to the kernel relay, never to the route itself', async () => {
+    getModuleWriteAccess.mockResolvedValue({ panel_id: 'demo-panel', writes: [SEND], eligible: true });
+    render(<ModulePage />);
+    await postFromFrame({
+      cloto: 'module.call',
+      id: 'w1',
+      method: 'POST',
+      path: '/api/chat/agent.manager/messages',
+      body: { content: 'hi' },
+    });
+
+    expect(writeForModule).toHaveBeenCalledWith('demo-panel', 'POST', '/api/chat/agent.manager/messages', {
+      content: 'hi',
+    });
+    expect(callForModule).not.toHaveBeenCalled();
+  });
+
+  it('sends nothing for a write the panel did not declare', async () => {
+    getModuleWriteAccess.mockResolvedValue({ panel_id: 'demo-panel', writes: [SEND], eligible: true });
+    render(<ModulePage />);
+    await postFromFrame({ cloto: 'module.call', id: 'w2', method: 'POST', path: '/api/chat/agent.other/messages' });
+
+    expect(writeForModule).not.toHaveBeenCalled();
+    expect(callForModule).not.toHaveBeenCalled();
+  });
+
+  it('asks for consent on an eligible panel, lists what it may do, and records the answer', async () => {
+    getModuleWriteAccess.mockResolvedValueOnce({ panel_id: 'demo-panel', writes: [SEND], eligible: true });
+    getModuleWriteAccess.mockResolvedValueOnce({
+      panel_id: 'demo-panel',
+      writes: [SEND],
+      eligible: true,
+      consent: { granted_at: '2026-09-18T00:00:00Z', valid: true },
+    });
+    render(<ModulePage />);
+
+    expect(await screen.findByText('module_write_consent_title')).toBeTruthy();
+    expect(screen.getByText('module_write_send_messages')).toBeTruthy();
+    screen.getByText('module_write_allow').click();
+
+    await waitFor(() => expect(putModuleWriteConsent).toHaveBeenCalledWith('demo-panel'));
+    // Once recorded, the sheet is gone and the panel says it can write.
+    expect(await screen.findByText('module_can_write')).toBeTruthy();
+    expect(screen.queryByText('module_write_consent_title')).toBeNull();
+  });
+
+  it('asks again, and says why, when the consent no longer holds', async () => {
+    getModuleWriteAccess.mockResolvedValue({
+      panel_id: 'demo-panel',
+      writes: [SEND],
+      eligible: true,
+      consent: { granted_at: '2026-09-18T00:00:00Z', valid: false },
+    });
+    render(<ModulePage />);
+
+    expect(await screen.findByText('module_write_consent_lapsed')).toBeTruthy();
+    expect(screen.queryByText('module_can_write')).toBeNull();
+  });
+
+  it('gives the reason and no way to consent when the panel cannot write', async () => {
+    getModuleWriteAccess.mockResolvedValue({
+      panel_id: 'demo-panel',
+      writes: [SEND],
+      eligible: false,
+      reason: 'its connector was installed without a seal',
+    });
+    render(<ModulePage />);
+
+    expect(await screen.findByText('module_write_ineligible')).toBeTruthy();
+    expect(screen.queryByText('module_write_allow')).toBeNull();
+    expect(screen.queryByText('module_can_write')).toBeNull();
+  });
+
+  it('asks nothing of a panel that declares no writes', async () => {
+    modules.current = [VALID];
+    render(<ModulePage />);
+    await screen.findByTitle('Demo Panel');
+
+    expect(getModuleWriteAccess).not.toHaveBeenCalled();
+    expect(screen.queryByText('module_write_consent_title')).toBeNull();
   });
 });

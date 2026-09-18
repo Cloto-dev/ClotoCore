@@ -547,6 +547,34 @@ export interface ModuleInfo {
   icon?: string | null;
   /** Kernel API calls this module asks the host to make for it, as `"<METHOD> <path>"`. */
   requires?: string[];
+  /** Kernel routes this module asks to change state through, as `"<METHOD> <path>"`.
+   * Only a connector's panel may carry any; each goes through the kernel's
+   * write relay (docs/PANEL_WRITE_GATE_DESIGN.md). */
+  writes?: string[];
   /** Present only when the kernel could not read the module. */
   error?: string;
+}
+
+/** `GET /api/modules/:id/write-access` — whether a panel may write, and why not. */
+export interface ModuleWriteAccess {
+  panel_id: string;
+  writes: string[];
+  eligible: boolean;
+  /** Completes "This panel cannot write because …"; present when not eligible. */
+  reason?: string;
+  trust_level?: string;
+  consent?: {
+    granted_at: string;
+    /** False when the declared writes or the connector version changed since. */
+    valid: boolean;
+  };
+}
+
+/** One row of `GET /api/modules/write-consents`. */
+export interface PanelWriteConsent {
+  panel_id: string;
+  writes_digest: string;
+  connector_version: string;
+  granted_at: string;
+  granted_by: string;
 }

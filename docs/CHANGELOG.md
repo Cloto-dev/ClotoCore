@@ -24,8 +24,20 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   write and why not; `PUT` / `DELETE /api/modules/:id/write-consent` give and
   revoke consent. Installs now keep a receipt of the trust level and seal they
   placed, because a connector that ships only panels has no server row to keep
-  them in. Design: `docs/PANEL_WRITE_GATE_DESIGN.md`. The dashboard side
-  (consent sheet, "can write" badge) is not in this change.
+  them in. Design: `docs/PANEL_WRITE_GATE_DESIGN.md`.
+
+- **The dashboard asks before a panel acts for you.** A panel that declares
+  writes and is allowed to make them shows a consent sheet the first time:
+  what it may do, in words ("Send messages to agent.manager"), with Allow and
+  Not now. Once allowed, the panel's header says "Can write" and lists the
+  same actions on click. If the panel cannot write, the page says why, in the
+  kernel's words, and offers no way to allow it. If the declared actions or
+  the version change, the panel asks again. Settings → Security lists every
+  panel you allowed, each with Withdraw. The host sends a declared write only
+  to the kernel's write relay, never to the route itself, and sends nothing
+  for a write the panel did not declare exactly. Scored against the review
+  checklist (docs/DESIGN_PHILOSOPHY.md §6): 0 of 22 applicable signals,
+  2 partial (no focus rings of its own and no breakpoints, as elsewhere).
 
 - **One agent's grants on one server, set in one call.**
   `GET/PUT /api/agents/:id/mcp-access/:server` reads and replaces an agent's

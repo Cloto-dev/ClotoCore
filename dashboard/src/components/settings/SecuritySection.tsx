@@ -9,6 +9,7 @@ import { useAsyncAction } from '../../hooks/useAsyncAction';
 import { api } from '../../services/api';
 import { SettingsGroup, SettingsRow } from './common';
 import { LlmProvidersSection } from './LlmProvidersSection';
+import { PanelWriteConsents } from './PanelWriteConsents';
 
 export function SecuritySection() {
   const { setApiKey, forgetApiKey } = useApiKey();
@@ -176,6 +177,8 @@ export function SecuritySection() {
         onConfirm={handleRegenerate}
         onCancel={() => setConfirmRegenerate(false)}
       />
+
+      <PanelWriteConsents />
 
       <LlmProvidersSection />
     </>

@@ -24,13 +24,24 @@
  * manifest an operator can open, as "any publisher on this route".
  */
 
-/** Methods the host will proxy at all, whatever a manifest declares.
+/** Methods the host proxies directly to the route a module names.
  *
- * Reads only, for now. Nothing that exists today needs a module to change
- * kernel state, and a module that could would be able to do it without the
- * operator seeing the call — widen this only alongside a decision about how
- * that is surfaced. */
+ * Reads only. A module that changes kernel state does it through the write
+ * relay below, where the kernel decides and records it; proxying a write
+ * directly would let it happen without the operator seeing the call. */
 const PROXYABLE_METHODS = new Set(['GET']);
+
+/** Methods a module may use to change kernel state, and only through the
+ * kernel's write relay (`POST /api/modules/:id/write`), never directly.
+ *
+ * The kernel is where the rule is enforced — whether the panel's connector is
+ * sealed and trusted, whether the operator consented — so the host does not
+ * decide those here. What it does decide is that a write the module did not
+ * declare, exactly, is never sent at all, and that nothing is sent anywhere but
+ * the relay (docs/PANEL_WRITE_GATE_DESIGN.md §4.4). */
+// HARDCODED(crates/core/src/handlers/panel_writes.rs::WRITE_METHODS): the host
+// must not offer a method the kernel would refuse to declare.
+const WRITE_METHODS = new Set(['POST', 'PATCH']);
 
 export const MODULE_CALL = 'module.call';
 export const MODULE_RESULT = 'module.result';
@@ -39,6 +50,10 @@ export interface ModuleCallRequest {
   id: string;
   method: string;
   path: string;
+  /** True for a declared write: it goes to the kernel's write relay. */
+  write: boolean;
+  /** The JSON body a write carries. Reads never carry one. */
+  body?: unknown;
 }
 
 export type BridgeDecision =
@@ -83,8 +98,15 @@ function isDeclared(requires: readonly string[], method: string, path: string): 
 
 /** Decide whether one posted message is a call this module is allowed to make.
  *
- * `requires` comes from the module's manifest as `"<METHOD> <path>"` strings. */
-export function decideModuleCall(raw: unknown, requires: readonly string[]): BridgeDecision {
+ * `requires` and `writes` come from the module's manifest as `"<METHOD> <path>"`
+ * strings. A write must appear in `writes` exactly — no wildcard, because the
+ * kernel admits none there either — and a declaration in `requires` does not
+ * stand in for one. */
+export function decideModuleCall(
+  raw: unknown,
+  requires: readonly string[],
+  writes: readonly string[] = [],
+): BridgeDecision {
   if (!isRecord(raw) || raw.cloto !== MODULE_CALL) {
     return { allowed: false, id: null, reason: 'not a module call' };
   }
@@ -97,16 +119,22 @@ export function decideModuleCall(raw: unknown, requires: readonly string[]): Bri
   if (!method || !path) {
     return { allowed: false, id, reason: 'missing method or path' };
   }
-  if (!PROXYABLE_METHODS.has(method)) {
-    return { allowed: false, id, reason: `${method} is not proxied for modules` };
-  }
   // A relative or scheme-bearing path would let a module aim the host's
   // credential somewhere else entirely.
   if (!path.startsWith('/api/')) {
     return { allowed: false, id, reason: 'path must be an /api/ path' };
   }
+  if (WRITE_METHODS.has(method)) {
+    if (!writes.includes(`${method} ${path}`)) {
+      return { allowed: false, id, reason: `${method} ${path} is not declared in this module's writes` };
+    }
+    return { allowed: true, request: { id, method, path, write: true, body: raw.body } };
+  }
+  if (!PROXYABLE_METHODS.has(method)) {
+    return { allowed: false, id, reason: `${method} is not proxied for modules` };
+  }
   if (!isDeclared(requires, method, path)) {
     return { allowed: false, id, reason: `${method} ${path} is not declared in this module's requires` };
   }
-  return { allowed: true, request: { id, method, path } };
+  return { allowed: true, request: { id, method, path, write: false } };
 }
