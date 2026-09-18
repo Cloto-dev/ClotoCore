@@ -36,6 +36,14 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Changed
 
+- **The line under an agent's face says what happens, not how they feel.** On
+  the new-chat screen and in an empty conversation, one of five lines was
+  picked at random and put in the agent's mouth ("Good to see you…", "Take
+  your time…"). The interface does not know who an agent is, and the warmth
+  decided it for every one of them. The line is now the same for all:
+  "Start a conversation with the agent." Under the face that creates an
+  agent it is "Create a new agent."
+
 - **A reply the engine could not produce looks like it.** It used to arrive as
   an amber card with an icon tile, a shadow and a slide-in — and, when it came
   in live, it was first typed out as if the agent were saying `[Error] …`, then
