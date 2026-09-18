@@ -1576,6 +1576,12 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/agents/{id}/argument-rules",
             get(handlers::get_agent_argument_rules).put(handlers::put_agent_argument_rules),
         )
+        // One agent's grants on one server, as a set (the bulk route above
+        // rewrites the agent's server-wide answers on every server).
+        .route(
+            "/agents/{id}/mcp-access/{server}",
+            get(handlers::get_agent_server_access).put(handlers::put_agent_server_access),
+        )
         .route(
             "/agents/{id}/last-usage",
             get(handlers::get_agent_last_usage),

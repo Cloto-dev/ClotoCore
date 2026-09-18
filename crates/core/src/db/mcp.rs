@@ -710,12 +710,37 @@ pub async fn resolve_explicit_permission(
     server_id: &str,
     tool_name: &str,
 ) -> anyhow::Result<Option<PermissionLevel>> {
-    // 1. Check for explicit tool_grant.
+    // 1. An explicit tool_grant, 2. else the server_grant.
+    if let Some(perm) = explicit_tool_grant(pool, agent_id, server_id, tool_name).await? {
+        return Ok(Some(perm));
+    }
+    explicit_server_grant(pool, agent_id, server_id).await
+}
+
+fn permission_from_column(perm: &str) -> PermissionLevel {
+    if perm == "allow" {
+        PermissionLevel::Allow
+    } else {
+        PermissionLevel::Deny
+    }
+}
+
+/// The unexpired `tool_grant` answer for one tool, when there is one.
+///
+/// This and [`explicit_server_grant`] are the only two lookups a call's grant
+/// goes through, so anything that reports an agent's grants reads them here
+/// rather than restating the query.
+async fn explicit_tool_grant(
+    pool: &SqlitePool,
+    agent_id: &str,
+    server_id: &str,
+    tool_name: &str,
+) -> anyhow::Result<Option<PermissionLevel>> {
     // bug-455: wrap expires_at in datetime() — a raw RFC3339 string ('T'
     // separator) compares lexicographically greater than SQLite's
     // space-separated datetime('now') for any same-day expiry, so time-limited
     // grants never lapse before midnight. datetime() normalizes both sides.
-    let tool_grant = db_timeout(
+    let perm = db_timeout(
         sqlx::query_scalar::<_, String>(
             "SELECT permission FROM mcp_access_control \
              WHERE agent_id = ? AND server_id = ? AND tool_name = ? AND entry_type = 'tool_grant' \
@@ -728,17 +753,16 @@ pub async fn resolve_explicit_permission(
         .fetch_optional(pool),
     )
     .await?;
+    Ok(perm.as_deref().map(permission_from_column))
+}
 
-    if let Some(ref perm) = tool_grant {
-        return Ok(Some(if perm == "allow" {
-            PermissionLevel::Allow
-        } else {
-            PermissionLevel::Deny
-        }));
-    }
-
-    // 2. Check for server_grant
-    let server_grant = db_timeout(
+/// The unexpired `server_grant` answer, when there is one.
+async fn explicit_server_grant(
+    pool: &SqlitePool,
+    agent_id: &str,
+    server_id: &str,
+) -> anyhow::Result<Option<PermissionLevel>> {
+    let perm = db_timeout(
         sqlx::query_scalar::<_, String>(
             "SELECT permission FROM mcp_access_control \
              WHERE agent_id = ? AND server_id = ? AND entry_type = 'server_grant' AND tool_name IS NULL \
@@ -750,16 +774,124 @@ pub async fn resolve_explicit_permission(
         .fetch_optional(pool),
     )
     .await?;
+    Ok(perm.as_deref().map(permission_from_column))
+}
 
-    if let Some(ref perm) = server_grant {
-        return Ok(Some(if perm == "allow" {
-            PermissionLevel::Allow
-        } else {
-            PermissionLevel::Deny
-        }));
+/// One tool's grant in a [`ServerGrantSet`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolGrant {
+    pub tool_name: String,
+    pub permission: PermissionLevel,
+}
+
+/// One agent's grants on one server, as a set: the server-wide answer and the
+/// tools that have an answer of their own.
+///
+/// `server` of `None` means no server grant, so a tool without a tool grant is
+/// decided by the server's `default_policy`. Under `opt-in` that is a deny, which
+/// makes "these tools and nothing else" expressible: a tool the server adds later
+/// has no grant and is refused.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ServerGrantSet {
+    #[serde(default)]
+    pub server: Option<PermissionLevel>,
+    #[serde(default)]
+    pub tools: Vec<ToolGrant>,
+}
+
+/// `agent_id`'s grants on `server_id`, as a call would find them: expired rows
+/// are left out, and where two rows for one tool disagree, the answer is the one
+/// the lookup a call makes returns. Tools are ordered by name.
+pub async fn agent_grants_on_server(
+    pool: &SqlitePool,
+    agent_id: &str,
+    server_id: &str,
+) -> anyhow::Result<ServerGrantSet> {
+    let names = db_timeout(
+        sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT tool_name FROM mcp_access_control \
+             WHERE agent_id = ? AND server_id = ? AND entry_type = 'tool_grant' \
+             AND tool_name IS NOT NULL \
+             AND (expires_at IS NULL OR datetime(expires_at) > datetime('now')) \
+             ORDER BY tool_name",
+        )
+        .bind(agent_id)
+        .bind(server_id)
+        .fetch_all(pool),
+    )
+    .await?;
+    let mut tools = Vec::with_capacity(names.len());
+    for tool_name in names {
+        if let Some(permission) = explicit_tool_grant(pool, agent_id, server_id, &tool_name).await?
+        {
+            tools.push(ToolGrant {
+                tool_name,
+                permission,
+            });
+        }
     }
+    Ok(ServerGrantSet {
+        server: explicit_server_grant(pool, agent_id, server_id).await?,
+        tools,
+    })
+}
 
-    Ok(None)
+/// Replace `agent_id`'s server and tool grants on `server_id` with `set`, in one
+/// transaction — expired rows included, so what remains is exactly the set.
+///
+/// Only this agent's grant rows on this server are touched: other agents' grants
+/// on the server, this agent's grants on other servers and capability rows stay
+/// as they are. That is the difference from [`put_access_entries`], which
+/// replaces every agent's grants on the server.
+pub async fn replace_agent_grants_on_server(
+    pool: &SqlitePool,
+    agent_id: &str,
+    server_id: &str,
+    set: &ServerGrantSet,
+    granted_by: &str,
+) -> anyhow::Result<()> {
+    let secs = super::db_timeout_secs();
+    let now = chrono::Utc::now().to_rfc3339();
+    tokio::time::timeout(std::time::Duration::from_secs(secs), async {
+        let mut tx = pool.begin().await?;
+        sqlx::query(
+            "DELETE FROM mcp_access_control \
+             WHERE agent_id = ? AND server_id = ? AND entry_type IN ('server_grant', 'tool_grant')",
+        )
+        .bind(agent_id)
+        .bind(server_id)
+        .execute(&mut *tx)
+        .await?;
+        let rows = set
+            .server
+            .iter()
+            .map(|p| (EntryType::ServerGrant, None, p))
+            .chain(
+                set.tools
+                    .iter()
+                    .map(|t| (EntryType::ToolGrant, Some(t.tool_name.as_str()), &t.permission)),
+            );
+        for (entry_type, tool_name, permission) in rows {
+            sqlx::query(
+                "INSERT INTO mcp_access_control \
+                 (entry_type, agent_id, server_id, tool_name, permission, granted_by, granted_at, expires_at, justification, metadata) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)",
+            )
+            .bind(entry_type)
+            .bind(agent_id)
+            .bind(server_id)
+            .bind(tool_name)
+            .bind(permission)
+            .bind(granted_by)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        anyhow::Ok(())
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("Database operation timed out after {}s", secs))?
 }
 
 pub async fn resolve_tool_access(
