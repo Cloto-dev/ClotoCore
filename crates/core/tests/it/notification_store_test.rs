@@ -8,7 +8,8 @@
 
 use cloto_core::db::{
     get_notification, list_notifications, mark_notification_read, record_notification,
-    record_notification_once, resolve_notification, NotificationItem, NotificationKind,
+    record_notification_once, resolve_notification, resolve_notifications_with_prefix,
+    resolve_notifications_with_prefix_except, NotificationItem, NotificationKind,
 };
 use cloto_shared::McpLogLevel;
 use sqlx::SqlitePool;
@@ -278,4 +279,55 @@ fn the_shutdown_path_records_why_the_kernel_stopped() {
         wiring.contains("crate::db::spawn_notification"),
         "why a kernel is not running is exactly what someone looks for afterwards"
     );
+}
+
+#[tokio::test]
+async fn settling_by_prefix_touches_only_that_family_and_spares_the_kept_one() {
+    let pool = memory_store().await;
+    for id in [
+        "fam:a:1", "fam:a:2", "fam:b:1", "famXa:1", "other:1", "fam_a:1",
+    ] {
+        record_notification(
+            &pool,
+            NotificationItem::new(id, NotificationKind::Notice, McpLogLevel::Info, id),
+        )
+        .await
+        .unwrap();
+    }
+
+    let settled =
+        resolve_notifications_with_prefix_except(&pool, "fam:a:", "fam:a:2", "superseded")
+            .await
+            .unwrap();
+    assert_eq!(settled, 1, "only fam:a:1 — fam:a:2 is the one kept");
+    let resolved = |id: &'static str| {
+        let pool = pool.clone();
+        async move {
+            get_notification(&pool, id)
+                .await
+                .unwrap()
+                .unwrap()
+                .resolved_at
+                .is_some()
+        }
+    };
+    assert!(resolved("fam:a:1").await);
+    assert!(!resolved("fam:a:2").await);
+    assert!(!resolved("fam:b:1").await);
+
+    // `_` in a prefix is a character, not a wildcard.
+    let settled = resolve_notifications_with_prefix(&pool, "fam_", "done")
+        .await
+        .unwrap();
+    assert_eq!(settled, 1, "fam_a:1 only; famXa:1 must not match");
+    assert!(!resolved("famXa:1").await);
+
+    let settled = resolve_notifications_with_prefix(&pool, "fam:", "done")
+        .await
+        .unwrap();
+    assert_eq!(
+        settled, 2,
+        "fam:a:2 and fam:b:1; fam:a:1 was already settled"
+    );
+    assert!(!resolved("other:1").await);
 }

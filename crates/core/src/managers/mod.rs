@@ -9,6 +9,7 @@ mod agents;
 pub mod browser_session;
 pub mod capability_dispatcher;
 pub mod connector_manifest;
+pub mod hub_access;
 pub mod installer;
 pub mod llm_proxy;
 pub mod mcp;

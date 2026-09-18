@@ -11,6 +11,21 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Added
 
+- **Restricted connectors: a hub access token for this kernel.** The hub can
+  now publish a connector only to kernels that hold an access token for it.
+  Paste a token issued on the hub into `POST /api/hub-access/token`; the
+  kernel creates an Ed25519 key, binds the token to it, and from then on signs
+  the catalog fetch and the connector download with that key. The headers go
+  only to the hub the token was bound on, and a request carrying them never
+  follows a redirect. `GET /api/hub-access` shows what the token opens, when it
+  expires and the key fingerprint, never the token. `POST /api/hub-access/renew`
+  exchanges it for a new one and `DELETE /api/hub-access/token` forgets it. All
+  four are refused to agent tokens, and the panel write gate now refuses a
+  deny list of route prefixes (`/api/modules`, `/api/hub-access`) that no
+  panel may declare. From 30 days before expiry the kernel raises one notice a
+  day. A token the hub refuses raises a notice and the catalog falls back to
+  the public view; installed restricted connectors keep working, and are not
+  reported as dropped from the catalog. Design: `docs/HUB_ACCESS_DESIGN.md`.
 - **Connector panels can change kernel state, behind a gate.** A panel may now
   declare `writes` in its connector manifest: exact `POST` / `PATCH` routes
   under `/api/`, one per entry. A write goes through

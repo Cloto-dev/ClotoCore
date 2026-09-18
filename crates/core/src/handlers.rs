@@ -14,6 +14,7 @@ pub mod cron;
 pub mod diagnostics;
 pub mod events;
 pub mod health;
+pub mod hub_access;
 pub mod llm;
 pub mod marketplace;
 pub mod mcp;

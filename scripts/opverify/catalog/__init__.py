@@ -37,6 +37,7 @@ _MODULES = [
     "permissions",
     "setup",
     "modules",
+    "hub_access",
 ]
 
 REGISTRY: List["Operation"] = []

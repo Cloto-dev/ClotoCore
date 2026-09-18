@@ -1506,6 +1506,25 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         });
     }
 
+    // 6f. Hub access token expiry: from 30 days out, one notice a day until it
+    // is renewed (docs/HUB_ACCESS_DESIGN.md §7). The first tick fires at boot.
+    {
+        let state_clone = app_state.clone();
+        let shutdown_clone = app_state.shutdown.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_hours(1));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            loop {
+                tokio::select! {
+                    () = shutdown_clone.raised() => break,
+                    _ = interval.tick() => {
+                        handlers::hub_access::check_expiry(&state_clone, chrono::Utc::now()).await;
+                    }
+                }
+            }
+        });
+    }
+
     // 7. Web Server
 
     // Admin endpoints: rate-limited (10 req/s, burst 50)
@@ -1789,6 +1808,15 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         .route("/system/regenerate-key", post(handlers::regenerate_api_key))
         // Marketplace (auth required)
         .route("/marketplace/catalog", get(handlers::catalog_handler))
+        // This kernel's hub access token (restricted connectors). Operator
+        // only: every handler refuses an agent token, and the panel write
+        // gate refuses the prefix (docs/HUB_ACCESS_DESIGN.md).
+        .route("/hub-access", get(handlers::hub_access::get_status))
+        .route(
+            "/hub-access/token",
+            post(handlers::hub_access::set_token).delete(handlers::hub_access::forget_token),
+        )
+        .route("/hub-access/renew", post(handlers::hub_access::renew))
         .route("/marketplace/install", post(handlers::install_handler))
         .route(
             "/marketplace/batch-install",

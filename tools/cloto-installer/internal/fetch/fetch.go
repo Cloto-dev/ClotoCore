@@ -37,6 +37,12 @@ type Input struct {
 	// to run without at least one address.
 	PinnedAddrs []string `json:"pinned_addrs"`
 	TimeoutSecs int      `json:"timeout_secs"`
+	// Extra request headers. The kernel sets these only for a download from
+	// the hub its access token was bound on (the token and a signature over
+	// this exact request). They arrive over stdin, never argv, because they
+	// carry a credential. Redirects are never followed, so they cannot be
+	// carried to another origin.
+	Headers map[string]string `json:"headers,omitempty"`
 }
 
 // Result is the stage's final line.
@@ -45,6 +51,9 @@ type Result struct {
 	ArchivePath string `json:"archive_path,omitempty"`
 	Length      uint64 `json:"length,omitempty"`
 	SHA256      string `json:"sha256,omitempty"`
+	// Set on a refusal when the server answered with a non-2xx status, so the
+	// kernel can tell a refused access token (401) from any other failure.
+	HTTPStatus int `json:"http_status,omitempty"`
 }
 
 // ErrInput marks a malformed input (not a refusal the kernel can show the
@@ -79,16 +88,23 @@ func checkSpec(spec *catalog.RawURLSpec) (*url.URL, string) {
 // nothing is left at archivePath in that case — and an error for an I/O
 // failure or bad input.
 func Run(in *Input, em *events.Emitter, log Log) (bool, error) {
+	ok, _, err := RunWithStatus(in, em, log)
+	return ok, err
+}
+
+// RunWithStatus is [Run], also returning the HTTP status when the server
+// answered with a non-2xx status (0 otherwise).
+func RunWithStatus(in *Input, em *events.Emitter, log Log) (bool, int, error) {
 	in.Entry.Normalize()
 	spec := in.Entry.RawURL()
 	if spec == nil {
-		return false, fmt.Errorf("%w: entry has no raw_url source", ErrInput)
+		return false, 0, fmt.Errorf("%w: entry has no raw_url source", ErrInput)
 	}
 	if in.ArchivePath == "" {
-		return false, fmt.Errorf("%w: archive_path is required", ErrInput)
+		return false, 0, fmt.Errorf("%w: archive_path is required", ErrInput)
 	}
 	if len(in.PinnedAddrs) == 0 {
-		return false, fmt.Errorf("%w: pinned_addrs must name at least one address the kernel has cleared", ErrInput)
+		return false, 0, fmt.Errorf("%w: pinned_addrs must name at least one address the kernel has cleared", ErrInput)
 	}
 	timeout := time.Duration(in.TimeoutSecs) * time.Second
 	if in.TimeoutSecs <= 0 {
@@ -98,11 +114,11 @@ func Run(in *Input, em *events.Emitter, log Log) (bool, error) {
 	parsed, reason := checkSpec(spec)
 	if reason != "" {
 		em.StepError("download", "Invalid raw_url source: "+reason, false)
-		return false, nil
+		return false, 0, nil
 	}
 	if parsed.Hostname() == "" {
 		em.StepError("download", "raw_url has no host", false)
-		return false, nil
+		return false, 0, nil
 	}
 
 	client := &http.Client{
@@ -128,18 +144,25 @@ func Run(in *Input, em *events.Emitter, log Log) (bool, error) {
 	}
 	req, err := http.NewRequest(http.MethodGet, parsed.String(), nil)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	req.Header.Set("User-Agent", "ClotoCore")
+	for name, value := range in.Headers {
+		req.Header.Set(name, value)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		em.StepError("download", fmt.Sprintf("HTTP %s from %s", resp.Status, spec.URL), true)
-		return false, nil
+		if resp.StatusCode == http.StatusUnauthorized && len(in.Headers) > 0 {
+			em.StepError("download", "the hub refused this kernel's access token (HTTP 401)", false)
+		} else {
+			em.StepError("download", fmt.Sprintf("HTTP %s from %s", resp.Status, spec.URL), true)
+		}
+		return false, resp.StatusCode, nil
 	}
 
 	// Prefer the signed digest over the catalog-served one. When both are
@@ -155,7 +178,7 @@ func Run(in *Input, em *events.Emitter, log Log) (bool, error) {
 				in.Entry.ID, *spec.SHA256, binding.SHA256))
 			em.StepError("download", fmt.Sprintf("archive digest contradiction: catalog serves %s, the seal signed %s",
 				*spec.SHA256, binding.SHA256), false)
-			return false, nil
+			return false, 0, nil
 		}
 		expectedSHA256 = binding.SHA256
 		signedLength = binding.Length
@@ -180,12 +203,12 @@ func Run(in *Input, em *events.Emitter, log Log) (bool, error) {
 			in.Entry.ID, signedLength, total))
 		em.StepError("download", fmt.Sprintf("archive length mismatch: seal signed %d bytes, server announces %d",
 			signedLength, total), false)
-		return false, nil
+		return false, 0, nil
 	}
 
 	file, err := os.Create(in.ArchivePath)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	remove := func(why string) {
 		if err := os.Remove(in.ArchivePath); err != nil {
@@ -201,7 +224,7 @@ func Run(in *Input, em *events.Emitter, log Log) (bool, error) {
 			chunk := buf[:n]
 			if _, err := file.Write(chunk); err != nil {
 				file.Close()
-				return false, err
+				return false, 0, err
 			}
 			if expectedSHA256 != "" {
 				hasher.Write(chunk)
@@ -215,7 +238,7 @@ func Run(in *Input, em *events.Emitter, log Log) (bool, error) {
 				file.Close()
 				remove("overrun")
 				em.StepError("download", fmt.Sprintf("archive exceeded the signed length of %d bytes", signedLength), false)
-				return false, nil
+				return false, 0, nil
 			}
 			if hasTotal {
 				progress := float32(1)
@@ -234,11 +257,11 @@ func Run(in *Input, em *events.Emitter, log Log) (bool, error) {
 				break
 			}
 			file.Close()
-			return false, readErr
+			return false, 0, readErr
 		}
 	}
 	if err := file.Close(); err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	// A body shorter than the signed length is a mismatch too — caught by
@@ -249,7 +272,7 @@ func Run(in *Input, em *events.Emitter, log Log) (bool, error) {
 		remove("length mismatch")
 		em.StepError("download", fmt.Sprintf("archive length mismatch: seal signed %d bytes, received %d",
 			signedLength, downloaded), false)
-		return false, nil
+		return false, 0, nil
 	}
 
 	actual := ""
@@ -262,11 +285,11 @@ func Run(in *Input, em *events.Emitter, log Log) (bool, error) {
 			}
 			remove("sha256 mismatch")
 			em.StepError("download", fmt.Sprintf("sha256 mismatch: expected %s, got %s", expectedSHA256, actual), false)
-			return false, nil
+			return false, 0, nil
 		}
 	}
 
 	em.StepComplete("download")
 	em.Result(Result{OK: true, ArchivePath: in.ArchivePath, Length: downloaded, SHA256: strings.ToLower(actual)})
-	return true, nil
+	return true, 0, nil
 }
