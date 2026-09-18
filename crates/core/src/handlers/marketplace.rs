@@ -100,6 +100,15 @@ fn catalog_url() -> String {
     std::env::var("CLOTO_CATALOG_URL").unwrap_or_else(|_| DEFAULT_CATALOG_URL.to_string())
 }
 
+/// Base URL of the configured hub, derived from the catalog URL the same way
+/// the JWKS URL is. `None` when the catalog is not served by a hub (the legacy
+/// GitHub-served registry), in which case there is no hub to hold a token for.
+pub(crate) fn hub_base() -> Option<String> {
+    catalog_url()
+        .strip_suffix("/api/catalog")
+        .map(str::to_string)
+}
+
 // ── Hub seal JWKS cache (bug-394 proper fix) ────────────────────────
 
 /// In-memory cache of the hub's Ed25519 signing keys, fetched from its
@@ -549,10 +558,15 @@ pub struct UnlistedInstall {
 /// - placeholder rows, which are not installs at all
 /// - everything, when the registry is empty — with no catalog in hand the
 ///   honest answer is silence, not "none of your installs exist"
+/// - rows for a connector the stored hub access token covers (`restricted`):
+///   the public catalog never lists one, and when the token lapses the
+///   catalog falls back to that public view. Such a connector is restricted,
+///   not dropped.
 fn unlisted_installs(
     rows: &[crate::db::mcp::InstallRow],
     registry: &Registry,
     running: &[crate::managers::mcp_types::McpServerInfo],
+    restricted: &[String],
 ) -> Vec<UnlistedInstall> {
     if registry.servers.is_empty() {
         return Vec::new();
@@ -568,6 +582,11 @@ fn unlisted_installs(
     rows.iter()
         .filter(|row| row.marketplace_id.is_some() && !row.is_placeholder())
         .filter(|row| !accounted.contains(row.name.as_str()))
+        .filter(|row| {
+            !restricted
+                .iter()
+                .any(|id| row.marketplace_id.as_deref() == Some(id.as_str()) || row.name == *id)
+        })
         .map(|row| UnlistedInstall {
             name: row.name.clone(),
             installed_version: row.installed_version.clone(),
@@ -667,7 +686,8 @@ pub async fn catalog_handler(
         )
     };
 
-    let unlisted = unlisted_installs(&install_rows, &registry, &running_servers);
+    let restricted = crate::managers::hub_access::covered_connectors(&state.data_dir);
+    let unlisted = unlisted_installs(&install_rows, &registry, &running_servers, &restricted);
     if !unlisted.is_empty() {
         warn!(
             count = unlisted.len(),
@@ -1237,10 +1257,7 @@ pub async fn fetch_registry(state: &AppState, force_refresh: bool) -> anyhow::Re
     let url = catalog_url();
     info!(url = %url, "Fetching marketplace registry");
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(MARKETPLACE_REGISTRY_FETCH_TIMEOUT_SECS))
-        .build()?;
-    let resp = client.get(&url).send().await?;
+    let resp = fetch_catalog_response(state, &url, hub_base().as_deref()).await?;
 
     if !resp.status().is_success() {
         let status = resp.status();
@@ -1271,6 +1288,42 @@ pub async fn fetch_registry(state: &AppState, force_refresh: bool) -> anyhow::Re
     cache.fetched_at = Some(tokio::time::Instant::now());
 
     Ok(FetchResult::Fresh(registry))
+}
+
+/// GET the catalog. When this kernel holds a hub access token for this hub,
+/// the request carries it (signed), so the catalog includes the restricted
+/// connectors it covers; such a request does not follow redirects, so the
+/// token never reaches an origin it was not sent to.
+///
+/// A token the hub refuses (401) is reported to the operator as a notice and
+/// the catalog is fetched again without it: the public catalog is still the
+/// public catalog, and a lapsed token must not take the marketplace down.
+async fn fetch_catalog_response(
+    state: &AppState,
+    url: &str,
+    hub_base: Option<&str>,
+) -> anyhow::Result<reqwest::Response> {
+    let timeout = Duration::from_secs(MARKETPLACE_REGISTRY_FETCH_TIMEOUT_SECS);
+    if let Some(headers) =
+        crate::managers::hub_access::request_headers(&state.data_dir, hub_base, "GET", url)
+    {
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()?;
+        let mut request = client.get(url);
+        for (name, value) in headers {
+            request = request.header(name, value);
+        }
+        let resp = request.send().await?;
+        if resp.status() != reqwest::StatusCode::UNAUTHORIZED {
+            return Ok(resp);
+        }
+        warn!("the hub refused this kernel's access token; fetching the public catalog");
+        super::hub_access::report_refused(state, chrono::Utc::now()).await;
+    }
+    let client = reqwest::Client::builder().timeout(timeout).build()?;
+    Ok(client.get(url).send().await?)
 }
 
 // ── Toolchain detection ─────────────────────────────────────────────
@@ -2925,8 +2978,33 @@ async fn install_from_raw_url(
     tokio::fs::create_dir_all(&tmp_dir).await?;
     let archive_path = tmp_dir.join(format!("{}-raw-url.tar.gz", entry.id));
 
-    if !fetch_raw_url_archive(tx, &installer, entry, &resolved, &archive_path).await? {
-        return Ok(InstallOutcome::NotInstalled);
+    // A restricted connector is served by the hub only against this kernel's
+    // access token. The headers are attached only when the URL is on the hub
+    // the token was bound on; the engine never follows a redirect.
+    let access_headers = crate::managers::hub_access::request_headers(
+        &state.data_dir,
+        hub_base().as_deref(),
+        "GET",
+        &spec.url,
+    );
+    let presented_token = access_headers.is_some();
+    match fetch_raw_url_archive(
+        tx,
+        &installer,
+        entry,
+        &resolved,
+        &archive_path,
+        access_headers.unwrap_or_default(),
+    )
+    .await?
+    {
+        FetchOutcome::Fetched => {}
+        FetchOutcome::Refused { http_status } => {
+            if presented_token && http_status == Some(401) {
+                super::hub_access::report_refused(state, chrono::Utc::now()).await;
+            }
+            return Ok(InstallOutcome::NotInstalled);
+        }
     }
     materialize_with_installer(
         state,
@@ -2958,15 +3036,36 @@ pub async fn fetch_raw_url_archive(
     entry: &RegistryEntry,
     pinned: &[std::net::SocketAddr],
     archive_path: &std::path::Path,
-) -> anyhow::Result<bool> {
+    headers: Vec<(String, String)>,
+) -> anyhow::Result<FetchOutcome> {
+    // Handed over stdin, never argv: the headers carry the access token.
     let input = serde_json::json!({
         "entry": entry,
         "archive_path": archive_path,
         "pinned_addrs": pinned.iter().map(ToString::to_string).collect::<Vec<_>>(),
         "timeout_secs": TARBALL_DOWNLOAD_TIMEOUT_SECS,
+        "headers": headers.into_iter().collect::<HashMap<_, _>>(),
     });
     let result = crate::managers::installer::run_stage(installer, "fetch", &input, tx).await?;
-    Ok(result.get("ok").and_then(serde_json::Value::as_bool) == Some(true))
+    if result.get("ok").and_then(serde_json::Value::as_bool) == Some(true) {
+        return Ok(FetchOutcome::Fetched);
+    }
+    Ok(FetchOutcome::Refused {
+        http_status: result
+            .get("http_status")
+            .and_then(serde_json::Value::as_u64)
+            .and_then(|s| u16::try_from(s).ok()),
+    })
+}
+
+/// How stage 1 of a `raw_url` install ended.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FetchOutcome {
+    /// `archive_path` holds a verified archive.
+    Fetched,
+    /// The engine emitted a `StepError`; nothing is at `archive_path`.
+    /// `http_status` is set when the server answered with a non-2xx status.
+    Refused { http_status: Option<u16> },
 }
 
 /// Stage 2 of a `raw_url` install, run by the install engine: extract the
@@ -4913,7 +5012,7 @@ mod tests {
         ];
         let registry = registry_of(&["cpersona", "local", "terminal"]);
 
-        let unlisted = unlisted_installs(&rows, &registry, &[]);
+        let unlisted = unlisted_installs(&rows, &registry, &[], &[]);
         let names: Vec<&str> = unlisted.iter().map(|u| u.name.as_str()).collect();
 
         assert_eq!(names, vec!["stt", "imagegen"]);
@@ -4927,7 +5026,7 @@ mod tests {
     #[test]
     fn a_row_named_by_a_current_entry_is_not_unlisted() {
         let rows = vec![install_row("local", Some("mind.local"), "python")];
-        let unlisted = unlisted_installs(&rows, &registry_of(&["local"]), &[]);
+        let unlisted = unlisted_installs(&rows, &registry_of(&["local"]), &[], &[]);
         assert!(
             unlisted.is_empty(),
             "the catalog resolves this row through its name, so it is listed"
@@ -4951,7 +5050,7 @@ mod tests {
             ),
         ];
 
-        assert!(unlisted_installs(&rows, &registry_of(&["cpersona"]), &[]).is_empty());
+        assert!(unlisted_installs(&rows, &registry_of(&["cpersona"]), &[], &[]).is_empty());
     }
 
     /// With no catalog in hand, every install would look retired. Reporting
@@ -4965,9 +5064,148 @@ mod tests {
         ];
 
         assert!(
-            unlisted_installs(&rows, &registry_of(&[]), &[]).is_empty(),
+            unlisted_installs(&rows, &registry_of(&[]), &[], &[]).is_empty(),
             "no catalog is not evidence that these were dropped"
         );
+    }
+
+    // ─── Catalog fetch under a hub access token ─────────────────────────────
+
+    async fn state_with_token(tag: &str, hub_origin: &str) -> (Arc<AppState>, std::path::PathBuf) {
+        let dir = temp_dir(tag);
+        let state = crate::test_utils::create_test_app_state_in(dir.clone(), None).await;
+        crate::managers::hub_access::store_for_test(
+            &dir,
+            "acme-panel",
+            hub_origin,
+            chrono::Utc::now() + chrono::Duration::days(60),
+        );
+        (state, dir)
+    }
+
+    #[tokio::test]
+    async fn the_catalog_request_carries_the_token_to_the_hub() {
+        use wiremock::{matchers, Mock, MockServer, ResponseTemplate};
+        let hub = MockServer::start().await;
+        Mock::given(matchers::path("/api/catalog"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&hub)
+            .await;
+        let (state, dir) = state_with_token("catalog-token", &hub.uri()).await;
+        let url = format!("{}/api/catalog", hub.uri());
+
+        let resp = fetch_catalog_response(&state, &url, Some(&hub.uri()))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), 200);
+        let reqs = hub.received_requests().await.unwrap();
+        assert_eq!(reqs.len(), 1);
+        let auth = reqs[0]
+            .headers
+            .get("authorization")
+            .unwrap()
+            .to_str()
+            .unwrap();
+        assert!(auth.starts_with("Bearer chubr_"), "{auth}");
+        assert!(reqs[0].headers.contains_key("x-cloto-kernel-signature"));
+
+        // No hub configured: the same kernel sends nothing.
+        fetch_catalog_response(&state, &url, None).await.unwrap();
+        let reqs = hub.received_requests().await.unwrap();
+        assert!(!reqs[1].headers.contains_key("authorization"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn a_redirect_from_the_hub_does_not_carry_the_token_anywhere() {
+        use wiremock::{matchers, Mock, MockServer, ResponseTemplate};
+        let hub = MockServer::start().await;
+        let elsewhere = MockServer::start().await;
+        Mock::given(matchers::any())
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&elsewhere)
+            .await;
+        Mock::given(matchers::path("/api/catalog"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("location", format!("{}/api/catalog", elsewhere.uri())),
+            )
+            .mount(&hub)
+            .await;
+        let (state, dir) = state_with_token("catalog-redirect", &hub.uri()).await;
+
+        let resp = fetch_catalog_response(
+            &state,
+            &format!("{}/api/catalog", hub.uri()),
+            Some(&hub.uri()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), 302, "answered, not followed");
+        assert!(
+            elsewhere.received_requests().await.unwrap().is_empty(),
+            "the redirect target was never contacted"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn a_refused_token_falls_back_to_the_public_catalog_and_tells_the_operator() {
+        use wiremock::{matchers, Mock, MockServer, ResponseTemplate};
+        let hub = MockServer::start().await;
+        Mock::given(matchers::path("/api/catalog"))
+            .and(matchers::header_exists("authorization"))
+            .respond_with(ResponseTemplate::new(401))
+            .mount(&hub)
+            .await;
+        Mock::given(matchers::path("/api/catalog"))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&hub)
+            .await;
+        let (state, dir) = state_with_token("catalog-401", &hub.uri()).await;
+
+        let resp = fetch_catalog_response(
+            &state,
+            &format!("{}/api/catalog", hub.uri()),
+            Some(&hub.uri()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.status(), 200, "the public view, not an error");
+        let reqs = hub.received_requests().await.unwrap();
+        assert_eq!(reqs.len(), 2);
+        assert!(!reqs[1].headers.contains_key("authorization"));
+
+        let items = crate::db::list_notifications(&state.pool, 50, true)
+            .await
+            .unwrap();
+        assert!(
+            items.iter().any(|i| i
+                .item_id
+                .starts_with(super::super::hub_access::NOTICE_PREFIX)),
+            "the operator is told: {:?}",
+            items.iter().map(|i| &i.item_id).collect::<Vec<_>>()
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A restricted connector is never in the public catalog, and the catalog
+    /// falls back to that view when the token lapses. With the stored token
+    /// covering it, it is restricted, not dropped; a retired connector beside it
+    /// is still reported.
+    #[test]
+    fn a_connector_the_access_token_covers_is_not_reported_as_dropped() {
+        let rows = vec![
+            install_row("acme-panel", Some("acme-panel"), "python"),
+            install_row("stt", Some("voice.stt"), "python"),
+        ];
+        let restricted = vec!["acme-panel".to_string()];
+        let unlisted = unlisted_installs(&rows, &registry_of(&["cpersona"]), &[], &restricted);
+        let names: Vec<&str> = unlisted.iter().map(|u| u.name.as_str()).collect();
+        assert_eq!(names, vec!["stt"]);
+
+        let unlisted = unlisted_installs(&rows, &registry_of(&["cpersona"]), &[], &[]);
+        assert_eq!(unlisted.len(), 2, "without the token both are unlisted");
     }
 
     /// The asymmetric shape: files on disk make the catalog say "installed"

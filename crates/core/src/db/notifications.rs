@@ -398,6 +398,52 @@ pub async fn mark_notification_read(pool: &SqlitePool, item_id: &str) -> anyhow:
     Ok(db_timeout(query_future).await?.rows_affected() > 0)
 }
 
+/// Settle every unresolved item whose id starts with `prefix`, for a producer
+/// whose items all end together (a token renewed settles every notice about
+/// it). Compared with `substr`, not `LIKE`, so `_` and `%` in a prefix mean
+/// themselves. Returns how many rows it settled.
+pub async fn resolve_notifications_with_prefix(
+    pool: &SqlitePool,
+    prefix: &str,
+    decision: &str,
+) -> anyhow::Result<u64> {
+    resolve_prefix(pool, prefix, None, decision).await
+}
+
+/// As [`resolve_notifications_with_prefix`], leaving `keep` unresolved: a
+/// producer that re-raises daily settles yesterday's item when today's lands.
+pub async fn resolve_notifications_with_prefix_except(
+    pool: &SqlitePool,
+    prefix: &str,
+    keep: &str,
+    decision: &str,
+) -> anyhow::Result<u64> {
+    resolve_prefix(pool, prefix, Some(keep), decision).await
+}
+
+async fn resolve_prefix(
+    pool: &SqlitePool,
+    prefix: &str,
+    keep: Option<&str>,
+    decision: &str,
+) -> anyhow::Result<u64> {
+    let prefix_len = i64::try_from(prefix.chars().count())?;
+    let query_future = sqlx::query(
+        "UPDATE notifications SET resolved_at = ?, decision = ?, blocking = 0 \
+         WHERE resolved_at IS NULL AND substr(item_id, 1, ?) = ? \
+         AND (? IS NULL OR item_id <> ?)",
+    )
+    .bind(Utc::now().to_rfc3339())
+    .bind(decision)
+    .bind(prefix_len)
+    .bind(prefix)
+    .bind(keep)
+    .bind(keep)
+    .execute(pool);
+
+    Ok(db_timeout(query_future).await?.rows_affected())
+}
+
 /// Settle an item: record how it ended and stop it from blocking.
 ///
 /// Resolving is separate from reading on purpose — seeing that you were asked is

@@ -262,3 +262,68 @@ func TestAnAddressIsRequired(t *testing.T) {
 		t.Error("fetch must refuse to run without pinned addresses")
 	}
 }
+
+func TestHeadersTravelWithTheRequestAndNotAcrossARedirect(t *testing.T) {
+	h := newHarness(t)
+	archive := testhub.StandaloneArchive(testhub.ServerPy)
+	var seen http.Header
+	h.mux.HandleFunc("/dl/demo.tar.gz", func(w http.ResponseWriter, r *http.Request) {
+		seen = r.Header.Clone()
+		_, _ = w.Write(archive)
+	})
+	elsewhere := 0
+	h.mux.HandleFunc("/elsewhere", func(http.ResponseWriter, *http.Request) { elsewhere++ })
+	h.mux.HandleFunc("/dl/moved.tar.gz", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/elsewhere", http.StatusFound)
+	})
+	headers := map[string]string{
+		"Authorization":            "Bearer chubr_test",
+		"X-Cloto-Kernel-Signature": "sig",
+	}
+
+	in := &Input{
+		Entry:       h.entry(archive, h.url("demo.tar.gz")),
+		ArchivePath: h.archive,
+		PinnedAddrs: []string{strings.TrimPrefix(h.server.URL, "http://")},
+		Headers:     headers,
+	}
+	ok, status, err := RunWithStatus(in, events.New(&h.out), func(string, string) {})
+	if err != nil || !ok || status != 0 {
+		t.Fatalf("ok=%v status=%d err=%v", ok, status, err)
+	}
+	for name, value := range headers {
+		if seen.Get(name) != value {
+			t.Errorf("%s: got %q", name, seen.Get(name))
+		}
+	}
+
+	in.Entry = h.entry(archive, h.url("moved.tar.gz"))
+	if ok, _, _ := RunWithStatus(in, events.New(&h.out), func(string, string) {}); ok {
+		t.Fatal("a redirect must not succeed")
+	}
+	if elsewhere != 0 {
+		t.Errorf("the redirect target received %d request(s) carrying the token", elsewhere)
+	}
+}
+
+func TestAnUnauthorizedDownloadReportsItsStatus(t *testing.T) {
+	h := newHarness(t)
+	archive := testhub.StandaloneArchive(testhub.ServerPy)
+	h.mux.HandleFunc("/dl/demo.tar.gz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	in := &Input{
+		Entry:       h.entry(archive, h.url("demo.tar.gz")),
+		ArchivePath: h.archive,
+		PinnedAddrs: []string{strings.TrimPrefix(h.server.URL, "http://")},
+		Headers:     map[string]string{"Authorization": "Bearer chubr_test"},
+	}
+	ok, status, err := RunWithStatus(in, events.New(&h.out), func(string, string) {})
+	if err != nil || ok || status != http.StatusUnauthorized {
+		t.Fatalf("ok=%v status=%d err=%v", ok, status, err)
+	}
+	steps := h.steps()
+	if len(steps) != 1 || !strings.Contains(steps[0], "refused this kernel's access token") {
+		t.Errorf("steps: %v", steps)
+	}
+}

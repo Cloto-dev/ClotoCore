@@ -29,7 +29,7 @@ use axum::extract::{ConnectInfo, Query, State};
 use axum::http::HeaderMap;
 use cloto_core::handlers::marketplace::{
     catalog_handler, fetch_raw_url_archive, install_handler, materialize_with_installer,
-    run_install, CatalogQuery, InstallOutcome, InstallRequest, RegistryEntry,
+    run_install, CatalogQuery, FetchOutcome, InstallOutcome, InstallRequest, RegistryEntry,
 };
 use cloto_core::handlers::setup::SetupProgressEvent;
 use cloto_core::managers::installer::{self, InstallerState};
@@ -322,14 +322,16 @@ impl Harness {
         tokio::fs::create_dir_all(&tmp_dir).await?;
         let archive_path = tmp_dir.join(format!("{}-raw-url.tar.gz", entry.id));
         let engine = install_engine();
-        if !fetch_raw_url_archive(
+        if fetch_raw_url_archive(
             &self.state.setup_progress_tx,
             engine,
             entry,
             &[*self.mock.address()],
             &archive_path,
+            Vec::new(),
         )
         .await?
+            != FetchOutcome::Fetched
         {
             return Ok(InstallOutcome::NotInstalled);
         }

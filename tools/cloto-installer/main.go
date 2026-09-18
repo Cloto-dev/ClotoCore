@@ -90,13 +90,13 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return exitError
 		}
 		em := events.New(stdout)
-		ok, err := fetch.Run(&in, em, log)
+		ok, status, err := fetch.RunWithStatus(&in, em, log)
 		if err != nil {
 			log("error", err.Error())
 			return exitError
 		}
 		if !ok {
-			em.Result(fetch.Result{OK: false})
+			em.Result(fetch.Result{OK: false, HTTPStatus: status})
 			return exitNegative
 		}
 		return exitOK

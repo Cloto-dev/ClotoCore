@@ -65,6 +65,28 @@ const MAX_WRITE_BODY_BYTES: usize = 64 * 1024;
 const WRITES_PER_WINDOW: usize = 30;
 const RATE_WINDOW: Duration = Duration::from_secs(60);
 
+/// Route prefixes a panel may never declare in `writes`, whatever else holds.
+/// A prefix covers itself and everything below it, segment-wise:
+/// `/api/modules` refuses `/api/modules/x/write`, not `/api/modulesx`.
+///
+/// - `/api/modules` — a write routed back into this gate would let one
+///   consent stand in for another panel's.
+/// - `/api/hub-access` — the kernel's hub credential. Renewing or replacing it
+///   is the operator's act alone (`docs/HUB_ACCESS_DESIGN.md` §4); relaying it
+///   for a panel would let a panel act as the operator toward the hub.
+// HARDCODED(docs/HUB_ACCESS_DESIGN.md §4): the list is this gate's policy; each
+// entry names routes this kernel mounts in lib.rs.
+pub const DENIED_WRITE_PREFIXES: &[&str] = &["/api/modules", "/api/hub-access"];
+
+fn is_denied(path: &str) -> bool {
+    DENIED_WRITE_PREFIXES.iter().any(|prefix| {
+        path == *prefix
+            || path
+                .strip_prefix(prefix)
+                .is_some_and(|rest| rest.starts_with('/'))
+    })
+}
+
 /// Who is recorded as acting. The kernel has one operator — anything that
 /// authenticates to `/api` is it — so there is no finer identity to record.
 const OPERATOR: &str = "operator";
@@ -129,10 +151,8 @@ fn parse_write(entry: &str) -> Result<(&str, &str), &'static str> {
     if !path.starts_with("/api/") {
         return Err("is not an /api/ path");
     }
-    // A write routed back into this gate would let one consent stand in for
-    // another panel's.
-    if path.starts_with("/api/modules/") {
-        return Err("targets the module routes themselves");
+    if is_denied(path) {
+        return Err("targets a route no panel may write to");
     }
     // Exact means exact: no pattern, no query, and every segment a real one.
     // `.` and `..` are excluded because they read as one place and resolve to
@@ -675,6 +695,28 @@ mod tests {
     }
 
     #[test]
+    fn every_denied_prefix_is_refused_and_only_on_a_segment_boundary() {
+        for bad in [
+            "POST /api/modules/other-console/write",
+            "PATCH /api/modules/other-console/write-consent",
+            "POST /api/hub-access/token",
+            "POST /api/hub-access/renew",
+            "PATCH /api/hub-access",
+        ] {
+            assert!(
+                validate_writes(&w(&[bad])).is_err(),
+                "{bad} should be refused"
+            );
+        }
+        for fine in ["POST /api/hub-accessory/x", "POST /api/modulesx/y"] {
+            assert!(
+                validate_writes(&w(&[fine])).is_ok(),
+                "{fine} is another route"
+            );
+        }
+    }
+
+    #[test]
     fn the_digest_ignores_order_and_repeats_but_not_content() {
         let a = writes_digest(&w(&["POST /api/a", "POST /api/b"]));
         assert_eq!(
@@ -1063,6 +1105,73 @@ mod tests {
             !rows[0].1.contains("secret words") && !rows[0].2.contains("secret words"),
             "no body in audit"
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Stand-in for the renewal route: counts what reached it.
+    fn renewal_router(hits: Arc<Mutex<usize>>) -> Router {
+        Router::new().route(
+            "/api/hub-access/renew",
+            axum::routing::post(move || {
+                let hits = hits.clone();
+                async move {
+                    *hits.lock().unwrap() += 1;
+                    StatusCode::OK
+                }
+            }),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_panel_that_declares_the_renewal_route_cannot_relay_it() {
+        const RENEW: &str = "POST /api/hub-access/renew";
+        let (state, dir) = installed("deny-renew", "standard", &[SEND, RENEW]).await;
+        let hits = Arc::new(Mutex::new(0));
+        state
+            .panel_writes
+            .install_router(renewal_router(hits.clone()));
+        // Consent is attempted as an operator would. With the route denied the
+        // panel is not usable, so this is refused; without the deny list it
+        // succeeds and the write below would go through.
+        let _ = put_write_consent(
+            State(state.clone()),
+            auth_headers(),
+            Path(PANEL.to_string()),
+        )
+        .await;
+
+        let response = send(&state, "POST", "/api/hub-access/renew", "").await;
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            *hits.lock().unwrap(),
+            0,
+            "the renewal route was never reached"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// `docs/HUB_ACCESS_DESIGN.md` §6: a lapsed hub token stops updates, not an installed
+    /// panel. Nothing in the gate reads the token; this holds that in place.
+    #[tokio::test]
+    async fn an_expired_hub_token_does_not_stop_an_installed_panel_writing() {
+        let (state, dir) = installed("expired-token", "standard", &[SEND]).await;
+        crate::managers::hub_access::store_expired_for_test(&state.data_dir, CONNECTOR);
+        assert_eq!(
+            crate::managers::hub_access::status(&state.data_dir, chrono::Utc::now())
+                .unwrap()
+                .unwrap()
+                .stage,
+            crate::managers::hub_access::ExpiryStage::Expired
+        );
+        let seen = Seen::default();
+        state
+            .panel_writes
+            .install_router(target_router(seen.clone()));
+        assert_eq!(consent(&state).await, StatusCode::OK);
+
+        let response = send(&state, "POST", "/api/chat/agent.manager/messages", "hi").await;
+        assert_eq!(response.status(), StatusCode::CREATED);
+        assert_eq!(seen.0.lock().unwrap().len(), 1);
         let _ = std::fs::remove_dir_all(dir);
     }
 
