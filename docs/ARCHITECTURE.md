@@ -190,7 +190,9 @@ ClotoCore/
 | POST/GET | `/api/mcp/servers` | MCP server management |
 | DELETE | `/api/mcp/servers/:name` | Delete MCP server |
 | GET/PUT | `/api/mcp/servers/:name/settings` | Server settings |
-| GET/PUT | `/api/mcp/servers/:name/access` | Access control |
+| GET/PUT | `/api/mcp/servers/:name/access` | Access control (PUT replaces every agent's grants on the server) |
+| GET/PUT | `/api/agents/:id/mcp-access/:server` | One agent's grants on one server, replaced as a set; the answer carries the server's `default_policy`, which decides every tool the set does not name |
+| GET/PUT | `/api/agents/:id/argument-rules` | The argument values an agent's calls to a server's tools must carry (PUT replaces the set) |
 | GET | `/api/mcp/servers/:name/tools` | The server's tools with their descriptions |
 | POST | `/api/mcp/servers/:name/start\|stop\|restart` | Lifecycle |
 

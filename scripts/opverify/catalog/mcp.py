@@ -298,6 +298,8 @@ class McpServerSettings(Operation):
         "PUT /api/mcp/servers/{name}/settings",
         "GET /api/mcp/servers/{name}/access",
         "PUT /api/mcp/servers/{name}/access",
+        "GET /api/agents/{id}/mcp-access/{server}",
+        "PUT /api/agents/{id}/mcp-access/{server}",
         "POST /api/mcp/servers/{name}/restart",
         "POST /api/mcp/servers/{name}/start",
     ]
@@ -357,6 +359,20 @@ class McpServerSettings(Operation):
         )
         access_after_refusals = c.get(f"/api/mcp/servers/{name}/access")
 
+        # -- one agent's grants on this server --------------------------------
+        agent_grants_put = c.put(
+            f"/api/agents/{_GRANT_AGENT}/mcp-access/{name}",
+            body={
+                "server": None,
+                "tools": [{"tool_name": "ping", "permission": "allow"}],
+            },
+        )
+        agent_grants_get = c.get(f"/api/agents/{_GRANT_AGENT}/mcp-access/{name}")
+        access_after_agent_put = c.get(f"/api/mcp/servers/{name}/access")
+        unknown_server_status, _ = c.request_raw(
+            "GET", f"/api/agents/{_GRANT_AGENT}/mcp-access/opverify-no-such-server"
+        )
+
         # -- lifecycle ------------------------------------------------------
         c.post(f"/api/mcp/servers/{name}/restart", timeout=60.0)
         after_restart = wait_connected(c, name, timeout=30.0)
@@ -393,6 +409,10 @@ class McpServerSettings(Operation):
             "foreign_body": foreign_body,
             "capability_status": capability_status,
             "access_after_refusals": _entry_keys(access_after_refusals),
+            "agent_grants_put": agent_grants_put,
+            "agent_grants_get": agent_grants_get,
+            "access_after_agent_put": _entry_keys(access_after_agent_put),
+            "unknown_server_status": unknown_server_status,
             "after_restart": (after_restart or {}).get("status"),
             "call_after_restart": _text(call_after_restart),
             "stopped": (stopped or {}).get("status"),
@@ -452,6 +472,33 @@ class McpServerSettings(Operation):
         assert result["access_after_refusals"] == result["access_after"], (
             f"a refused access PUT still changed the entries: "
             f"{result['access_after_refusals']} != {result['access_after']}"
+        )
+
+        agent_put = result["agent_grants_put"] or {}
+        assert agent_put.get("server") is None and agent_put.get("tools") == [
+            {"tool_name": "ping", "permission": "allow"}
+        ], f"the agent's grant set was not stored as sent: {agent_put!r}"
+        assert agent_put.get("default_policy") == result["flipped"], (
+            f"the grant set answered with default_policy "
+            f"{agent_put.get('default_policy')!r}, but the server's is "
+            f"{result['flipped']!r}"
+        )
+        assert result["agent_grants_get"] == agent_put, (
+            f"GET does not read back what the PUT answered: "
+            f"{result['agent_grants_get']!r} != {agent_put!r}"
+        )
+        after = result["access_after_agent_put"]
+        assert ("tool_grant", _GRANT_AGENT, "ping") in after and (
+            "server_grant",
+            _GRANT_AGENT,
+            None,
+        ) not in after, (
+            f"the server's access list does not show the agent's set replacing "
+            f"its server grant: {after}"
+        )
+        assert result["unknown_server_status"] == 404, (
+            f"grants on a server nobody registered were answered with HTTP "
+            f"{result['unknown_server_status']}, not 404"
         )
 
         assert result["after_restart"] == "Connected", (

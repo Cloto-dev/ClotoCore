@@ -11,6 +11,18 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Added
 
+- **One agent's grants on one server, set in one call.**
+  `GET/PUT /api/agents/:id/mcp-access/:server` reads and replaces an agent's
+  server and tool grants on a single server, and nothing else — unlike
+  `PUT /api/mcp/servers/:name/access`, which replaces every agent's grants on
+  the server, so writing one agent's there meant reading back and resending
+  everyone else's. The answer carries the server's `default_policy`, which
+  decides every tool the set does not name. With no server grant on an
+  `opt-in` server, a set of allowed tools is closed: a tool the server adds
+  later has no grant and is refused, which a server-wide allow with per-tool
+  denies cannot say. A server or agent nobody registered is a 404, not a grant
+  stored against a name that decides nothing.
+
 - **Themes you can write.** A theme is now a JSON file of colours instead of a
   block of CSS compiled into the app. Import one from Settings → General →
   Theme packs — in the desktop app or in a browser — or, on the desktop, drop

@@ -1038,6 +1038,122 @@ pub async fn put_agent_argument_rules(
     ok_data(serde_json::json!({ "count": rules.len() }))
 }
 
+/// The agent's grants on the server as a call finds them, with the server's
+/// `default_policy`, which decides every tool the set does not name.
+async fn server_grant_set_response(
+    state: &Arc<AppState>,
+    agent_id: &str,
+    server_id: &str,
+    default_policy: &str,
+) -> AppResult<Json<serde_json::Value>> {
+    let set = crate::db::agent_grants_on_server(&state.pool, agent_id, server_id)
+        .await
+        .map_err(AppError::Internal)?;
+    ok_data(serde_json::json!({
+        "agent_id": agent_id,
+        "server_id": server_id,
+        "server": set.server,
+        "tools": set.tools,
+        "default_policy": default_policy,
+    }))
+}
+
+/// The agent must exist, and so must the server: a grant on a server name
+/// nobody registered would be stored and would decide nothing, which is the
+/// quiet failure a typo would otherwise produce.
+async fn agent_and_server_for_grants(
+    state: &Arc<AppState>,
+    agent_id: &str,
+    server_id: &str,
+) -> AppResult<String> {
+    if !state.agent_manager.agent_exists(agent_id).await? {
+        return Err(AppError::Cloto(cloto_shared::ClotoError::AgentNotFound(
+            agent_id.to_string(),
+        )));
+    }
+    let settings = crate::db::get_mcp_server_settings(&state.pool, server_id)
+        .await
+        .map_err(AppError::Internal)?
+        .ok_or_else(|| AppError::NotFound(format!("MCP server '{server_id}' not found")))?;
+    Ok(settings.default_policy)
+}
+
+/// GET /api/agents/:id/mcp-access/:server
+///
+/// The agent's grants on one server: `server` (the server-wide answer, or null
+/// when there is none), `tools` (tools with an answer of their own) and the
+/// server's `default_policy`, which decides every tool the set does not name.
+pub async fn get_agent_server_access(
+    State(state): State<Arc<AppState>>,
+    Path((agent_id, server_id)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    let default_policy = agent_and_server_for_grants(&state, &agent_id, &server_id).await?;
+    server_grant_set_response(&state, &agent_id, &server_id, &default_policy).await
+}
+
+/// PUT /api/agents/:id/mcp-access/:server
+///
+/// Replaces the agent's grants on one server with the body
+/// (`{ "server": "allow" | "deny" | null, "tools": [{ "tool_name", "permission" }] }`)
+/// and answers with the set as it now stands. Other agents' grants on the server
+/// and this agent's grants elsewhere are not touched, unlike
+/// `PUT /api/mcp/servers/:name/access`, which replaces every agent's.
+///
+/// `server: null` with `allow` tool grants on an `opt-in` server is "these tools
+/// and no others": a tool the server adds later has no grant and is refused. An
+/// explicit `server: "deny"` does not survive the dashboard's agent access save
+/// (`PUT /api/agents/:id/mcp-access`), which rewrites every server-wide answer
+/// for the agent.
+pub async fn put_agent_server_access(
+    State(state): State<Arc<AppState>>,
+    Path((agent_id, server_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+
+    let set: crate::db::ServerGrantSet = serde_json::from_value(body)
+        .map_err(|e| AppError::Validation(format!("Invalid grant set: {e}")))?;
+    let mut seen = std::collections::HashSet::new();
+    for grant in &set.tools {
+        if grant.tool_name.trim().is_empty() {
+            return Err(AppError::Validation(
+                "tool_name must not be empty; the server-wide answer is `server`".into(),
+            ));
+        }
+        if !seen.insert(grant.tool_name.as_str()) {
+            return Err(AppError::Validation(format!(
+                "More than one grant for tool '{}'",
+                grant.tool_name
+            )));
+        }
+    }
+    let default_policy = agent_and_server_for_grants(&state, &agent_id, &server_id).await?;
+
+    crate::db::replace_agent_grants_on_server(&state.pool, &agent_id, &server_id, &set, "admin")
+        .await
+        .map_err(AppError::Internal)?;
+
+    spawn_admin_audit(
+        state.pool.clone(),
+        "AGENT_SERVER_GRANTS_UPDATED",
+        agent_id.clone(),
+        format!(
+            "Agent grants on server '{server_id}' replaced with {} tool grant(s)",
+            set.tools.len()
+        ),
+        None,
+        Some(
+            serde_json::json!({ "server_id": server_id, "server": set.server, "tools": set.tools }),
+        ),
+        None,
+    );
+
+    server_grant_set_response(&state, &agent_id, &server_id, &default_policy).await
+}
+
 async fn server_lifecycle(
     state: &Arc<AppState>,
     name: &str,
@@ -2406,6 +2522,472 @@ mod tests {
         assert!(
             wiring.contains(
                 "get(handlers::get_agent_argument_rules).put(handlers::put_agent_argument_rules)"
+            ),
+            "the route does not reach both handlers"
+        );
+    }
+
+    async fn seed_grant_fixture(pool: &sqlx::SqlitePool) {
+        for (name, policy) in [
+            ("srv.a", "opt-in"),
+            ("srv.b", "opt-in"),
+            ("srv.open", "opt-out"),
+        ] {
+            sqlx::query(
+                "INSERT INTO mcp_servers (name, command, args, created_at, default_policy) \
+                 VALUES (?, 'config-loaded', '[]', strftime('%s', 'now'), ?)",
+            )
+            .bind(name)
+            .bind(policy)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+        for id in ["agent.x", "agent.y"] {
+            sqlx::query(
+                "INSERT INTO agents (id, name, description, default_engine_id, enabled) \
+                 VALUES (?, ?, '', '', 1)",
+            )
+            .bind(id)
+            .bind(id)
+            .execute(pool)
+            .await
+            .unwrap();
+        }
+    }
+
+    async fn grant_row(
+        pool: &sqlx::SqlitePool,
+        entry_type: &str,
+        agent: &str,
+        server: &str,
+        tool: Option<&str>,
+        permission: &str,
+        expires_at: Option<&str>,
+    ) {
+        sqlx::query(
+            "INSERT INTO mcp_access_control \
+             (entry_type, agent_id, server_id, tool_name, permission, granted_at, expires_at) \
+             VALUES (?, ?, ?, ?, ?, 't0', ?)",
+        )
+        .bind(entry_type)
+        .bind(agent)
+        .bind(server)
+        .bind(tool)
+        .bind(permission)
+        .bind(expires_at)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn grant_rows(
+        pool: &sqlx::SqlitePool,
+        agent: &str,
+        server: &str,
+    ) -> Vec<(String, Option<String>, String)> {
+        sqlx::query_as(
+            "SELECT entry_type, tool_name, permission FROM mcp_access_control \
+             WHERE agent_id = ? AND server_id = ? ORDER BY entry_type, tool_name",
+        )
+        .bind(agent)
+        .bind(server)
+        .fetch_all(pool)
+        .await
+        .unwrap()
+    }
+
+    fn row(
+        entry_type: &str,
+        tool: Option<&str>,
+        permission: &str,
+    ) -> (String, Option<String>, String) {
+        (entry_type.into(), tool.map(Into::into), permission.into())
+    }
+
+    async fn put_grants(
+        state: &Arc<crate::AppState>,
+        agent: &str,
+        server: &str,
+        body: serde_json::Value,
+    ) -> Result<serde_json::Value, (axum::http::StatusCode, serde_json::Value)> {
+        use axum::response::IntoResponse;
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", "admin-key".parse().unwrap());
+        match put_agent_server_access(
+            State(state.clone()),
+            Path((agent.to_string(), server.to_string())),
+            headers,
+            Json(body),
+        )
+        .await
+        {
+            Ok(Json(v)) => Ok(v["data"].clone()),
+            Err(e) => {
+                let response = e.into_response();
+                let status = response.status();
+                let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .unwrap();
+                Err((status, serde_json::from_slice(&bytes).unwrap()))
+            }
+        }
+    }
+
+    async fn get_grants(
+        state: &Arc<crate::AppState>,
+        agent: &str,
+        server: &str,
+    ) -> serde_json::Value {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", "admin-key".parse().unwrap());
+        let Json(v) = get_agent_server_access(
+            State(state.clone()),
+            Path((agent.to_string(), server.to_string())),
+            headers,
+        )
+        .await
+        .unwrap_or_else(|_| panic!("reading the grants must succeed"));
+        v["data"].clone()
+    }
+
+    async fn resolves(state: &Arc<crate::AppState>, agent: &str, server: &str, tool: &str) -> bool {
+        crate::db::resolve_tool_access(&state.pool, agent, server, tool)
+            .await
+            .unwrap()
+            == crate::db::PermissionLevel::Allow
+    }
+
+    /// The set replaces this agent's grants on this server — and only those:
+    /// another agent's grant on the same server, this agent's grant on another
+    /// server and a capability row all survive the PUT.
+    #[tokio::test]
+    async fn a_grant_set_replaces_this_agent_on_this_server_and_nothing_else() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        let pool = &state.pool;
+        seed_grant_fixture(pool).await;
+        grant_row(
+            pool,
+            "server_grant",
+            "agent.x",
+            "srv.a",
+            None,
+            "allow",
+            None,
+        )
+        .await;
+        grant_row(
+            pool,
+            "tool_grant",
+            "agent.x",
+            "srv.a",
+            Some("forget"),
+            "deny",
+            None,
+        )
+        .await;
+        grant_row(pool, "capability", "agent.x", "srv.a", None, "allow", None).await;
+        grant_row(
+            pool,
+            "server_grant",
+            "agent.y",
+            "srv.a",
+            None,
+            "allow",
+            None,
+        )
+        .await;
+        grant_row(
+            pool,
+            "server_grant",
+            "agent.x",
+            "srv.b",
+            None,
+            "allow",
+            None,
+        )
+        .await;
+
+        let answer = put_grants(
+            &state,
+            "agent.x",
+            "srv.a",
+            serde_json::json!({ "server": null, "tools": [
+                { "tool_name": "recall", "permission": "allow" },
+                { "tool_name": "store", "permission": "allow" },
+            ]}),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            grant_rows(pool, "agent.x", "srv.a").await,
+            vec![
+                row("capability", None, "allow"),
+                row("tool_grant", Some("recall"), "allow"),
+                row("tool_grant", Some("store"), "allow"),
+            ],
+            "the old server and tool grants go, the capability row stays"
+        );
+        assert_eq!(
+            grant_rows(pool, "agent.y", "srv.a").await,
+            vec![row("server_grant", None, "allow")],
+            "another agent's grant on the server was touched"
+        );
+        assert_eq!(
+            grant_rows(pool, "agent.x", "srv.b").await,
+            vec![row("server_grant", None, "allow")],
+            "this agent's grant on another server was touched"
+        );
+        assert_eq!(
+            answer,
+            serde_json::json!({
+                "agent_id": "agent.x",
+                "server_id": "srv.a",
+                "server": null,
+                "tools": [
+                    { "tool_name": "recall", "permission": "allow" },
+                    { "tool_name": "store", "permission": "allow" },
+                ],
+                "default_policy": "opt-in",
+            }),
+            "the PUT answers with the set as it now stands"
+        );
+    }
+
+    /// With no server grant on an opt-in server, the named tools are the only
+    /// ones allowed: a tool the server adds later has no grant and is refused.
+    /// That is what a server-wide allow with per-tool denies cannot say.
+    #[tokio::test]
+    async fn on_an_opt_in_server_the_set_is_every_tool_allowed() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        let pool = &state.pool;
+        seed_grant_fixture(pool).await;
+        grant_row(
+            pool,
+            "server_grant",
+            "agent.x",
+            "srv.a",
+            None,
+            "allow",
+            None,
+        )
+        .await;
+        grant_row(
+            pool,
+            "tool_grant",
+            "agent.x",
+            "srv.a",
+            Some("forget"),
+            "deny",
+            None,
+        )
+        .await;
+        assert!(
+            resolves(&state, "agent.x", "srv.a", "added_later").await,
+            "fixture: a server-wide allow lets a new tool through"
+        );
+
+        put_grants(
+            &state,
+            "agent.x",
+            "srv.a",
+            serde_json::json!({ "tools": [
+                { "tool_name": "recall", "permission": "allow" },
+                { "tool_name": "forget", "permission": "deny" },
+            ]}),
+        )
+        .await
+        .unwrap();
+        assert!(resolves(&state, "agent.x", "srv.a", "recall").await);
+        assert!(!resolves(&state, "agent.x", "srv.a", "forget").await);
+        assert!(
+            !resolves(&state, "agent.x", "srv.a", "added_later").await,
+            "a tool outside the set was allowed"
+        );
+
+        // A server-wide deny says the same and still lets a tool grant through.
+        put_grants(
+            &state,
+            "agent.x",
+            "srv.a",
+            serde_json::json!({ "server": "deny", "tools": [
+                { "tool_name": "recall", "permission": "allow" },
+            ]}),
+        )
+        .await
+        .unwrap();
+        assert!(resolves(&state, "agent.x", "srv.a", "recall").await);
+        assert!(!resolves(&state, "agent.x", "srv.a", "added_later").await);
+        assert_eq!(
+            get_grants(&state, "agent.x", "srv.a").await["server"],
+            "deny"
+        );
+
+        // On an opt-out server the same set is not closed, and the answer says
+        // which policy decides the tools it does not name.
+        let open = put_grants(
+            &state,
+            "agent.x",
+            "srv.open",
+            serde_json::json!({ "tools": [ { "tool_name": "recall", "permission": "allow" } ]}),
+        )
+        .await
+        .unwrap();
+        assert_eq!(open["default_policy"], "opt-out");
+        assert!(resolves(&state, "agent.x", "srv.open", "added_later").await);
+    }
+
+    /// GET reports what a call finds: an expired grant is not in force, so it is
+    /// not reported, and every reported answer is the one the call resolves.
+    #[tokio::test]
+    async fn get_reports_the_grants_a_call_finds() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        let pool = &state.pool;
+        seed_grant_fixture(pool).await;
+        grant_row(pool, "server_grant", "agent.x", "srv.a", None, "deny", None).await;
+        grant_row(
+            pool,
+            "tool_grant",
+            "agent.x",
+            "srv.a",
+            Some("store"),
+            "allow",
+            None,
+        )
+        .await;
+        let lapsed = Some("2000-01-01 00:00:00");
+        grant_row(
+            pool,
+            "tool_grant",
+            "agent.x",
+            "srv.a",
+            Some("recall"),
+            "allow",
+            lapsed,
+        )
+        .await;
+
+        let set = get_grants(&state, "agent.x", "srv.a").await;
+        assert_eq!(set["server"], "deny");
+        assert_eq!(
+            set["tools"],
+            serde_json::json!([ { "tool_name": "store", "permission": "allow" } ]),
+            "an expired grant was reported as in force"
+        );
+        assert!(resolves(&state, "agent.x", "srv.a", "store").await);
+        assert!(!resolves(&state, "agent.x", "srv.a", "recall").await);
+        assert_eq!(set["default_policy"], "opt-in");
+
+        // A PUT clears the expired row too: what remains is exactly the set.
+        put_grants(
+            &state,
+            "agent.x",
+            "srv.a",
+            serde_json::json!({ "tools": [] }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(grant_rows(pool, "agent.x", "srv.a").await, vec![]);
+    }
+
+    /// A set that cannot mean what it says, or that names an agent or server
+    /// nobody registered, is refused whole and the stored grants stay as they were.
+    #[tokio::test]
+    async fn a_grant_set_that_cannot_apply_is_refused_and_changes_nothing() {
+        let state = crate::test_utils::create_test_app_state(Some("admin-key".into())).await;
+        let pool = &state.pool;
+        seed_grant_fixture(pool).await;
+        grant_row(
+            pool,
+            "server_grant",
+            "agent.x",
+            "srv.a",
+            None,
+            "allow",
+            None,
+        )
+        .await;
+        let before = grant_rows(pool, "agent.x", "srv.a").await;
+        let one =
+            serde_json::json!({ "tools": [ { "tool_name": "recall", "permission": "allow" } ] });
+
+        for (agent, server, body, status, says) in [
+            (
+                "agent.x",
+                "srv.a",
+                serde_json::json!({ "tools": [
+                    { "tool_name": "recall", "permission": "allow" },
+                    { "tool_name": "recall", "permission": "deny" },
+                ]}),
+                axum::http::StatusCode::BAD_REQUEST,
+                "More than one grant",
+            ),
+            (
+                "agent.x",
+                "srv.a",
+                serde_json::json!({ "tools": [ { "tool_name": " ", "permission": "allow" } ] }),
+                axum::http::StatusCode::BAD_REQUEST,
+                "must not be empty",
+            ),
+            (
+                "agent.x",
+                "srv.a",
+                serde_json::json!({ "tools": [ { "tool_name": "recall", "permission": "maybe" } ] }),
+                axum::http::StatusCode::BAD_REQUEST,
+                "Invalid grant set",
+            ),
+            (
+                "agent.x",
+                "srv.a",
+                serde_json::json!({ "server": "sometimes" }),
+                axum::http::StatusCode::BAD_REQUEST,
+                "Invalid grant set",
+            ),
+            (
+                "agent.x",
+                "srv.typo",
+                one.clone(),
+                axum::http::StatusCode::NOT_FOUND,
+                "srv.typo",
+            ),
+            (
+                "agent.nobody",
+                "srv.a",
+                one.clone(),
+                axum::http::StatusCode::NOT_FOUND,
+                "agent.nobody",
+            ),
+        ] {
+            let (got, err) = put_grants(&state, agent, server, body).await.unwrap_err();
+            assert_eq!(got, status, "{says}: {err}");
+            let message = err["error"]["message"].as_str().unwrap_or_default();
+            assert!(message.contains(says), "expected '{says}', got: {message}");
+            assert_eq!(
+                grant_rows(pool, "agent.x", "srv.a").await,
+                before,
+                "{says}: a refused PUT changed the grants"
+            );
+        }
+        let nothing_stored: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM mcp_access_control WHERE server_id = 'srv.typo' OR agent_id = 'agent.nobody'",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        assert_eq!(nothing_stored, 0, "a refused PUT stored a grant");
+    }
+
+    #[test]
+    fn the_agent_server_access_route_is_registered() {
+        let wiring = include_str!("../lib.rs");
+        assert!(
+            wiring.contains("\"/agents/{id}/mcp-access/{server}\""),
+            "route not registered"
+        );
+        assert!(
+            wiring.contains(
+                "get(handlers::get_agent_server_access).put(handlers::put_agent_server_access)"
             ),
             "the route does not reach both handlers"
         );
