@@ -320,6 +320,12 @@ absent loading state while the grants and the always-loaded files are read).
   not read an agent's conversations (a rate limit was enough). It names the
   agents it could not read, lists what it could, offers another try, and makes
   the "nothing" claim only once every agent has been read.
+- A conversation that already has a name no longer asks the agent's engine for
+  one after its first exchange. The answer was always thrown away, and asking
+  is a whole engine run — for an agent on a CLI harness, one more `codex exec`
+  or `claude -p` against its subscription. A conversation that is still untitled,
+  or still titled by its first line, is named by the engine as before, and a
+  rename made while the engine is thinking still wins.
 
 ## [0.6.9a1] — 2026-09-08
 <!-- release-title: an agent gets files it always reads, and skills it loads when it needs them -->

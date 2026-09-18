@@ -474,10 +474,23 @@ impl SystemHandler {
         }
     }
 
+    /// Whether a conversation's title is still the provisional one — none yet,
+    /// or the first line of its first message — and so may be replaced by the
+    /// engine's. Any other title was chosen by someone and is theirs.
+    fn title_is_provisional(title: &str, first_line: &str) -> bool {
+        title.is_empty() || title == first_line
+    }
+
     /// After a reply is stored: touch the conversation, and after the first
     /// exchange ask the engine for a title. The engine's title replaces the
     /// first-line one only while that one still stands — a name the person
     /// typed in the meantime is theirs.
+    ///
+    /// A conversation that already has a chosen name is not asked about at
+    /// all. Asking is a whole engine run — for an agent on a CLI harness, one
+    /// more `codex exec` or `claude -p` against a subscription quota — and its
+    /// answer could only be thrown away. The check after the answer stays,
+    /// because the person can rename while the engine is thinking.
     async fn after_reply_persisted(
         &self,
         agent: &AgentMetadata,
@@ -498,6 +511,11 @@ impl SystemHandler {
             return;
         }
         let first_line = crate::db::title_from_first_message(user_text);
+        if let Ok(Some(row)) = crate::db::get_conversation(&self.pool, conversation_id).await {
+            if !Self::title_is_provisional(&row.title, &first_line) {
+                return;
+            }
+        }
         let pool = self.pool.clone();
         let mcp = self.registry.mcp_manager.clone();
         let caller = crate::managers::Caller::Agent(agent.id.clone());
@@ -526,7 +544,7 @@ impl SystemHandler {
                 return;
             }
             if let Ok(Some(row)) = crate::db::get_conversation(&pool, &conversation_id).await {
-                if row.title == first_line || row.title.is_empty() {
+                if Self::title_is_provisional(&row.title, &first_line) {
                     if let Err(e) =
                         crate::db::rename_conversation(&pool, &conversation_id, title).await
                     {
