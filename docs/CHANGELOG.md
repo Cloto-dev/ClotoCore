@@ -49,6 +49,15 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   motion with no meaning) and part of a fifth (an error state with nothing to
   do about it); the new turn carries none.
 
+- **A message that could not be sent is no longer thrown away.** When the
+  kernel could not be reached, the message you wrote disappeared and a warning
+  in the style of a date line showed for five seconds, then went too — what
+  you had typed was gone. The message now stays where you wrote it, stepped
+  back and marked "Not sent." with the reason, and **Send again** sends it
+  as it was. **Edit** puts it back in the composer; what you send then
+  replaces it as a new message, not as a branch of one the kernel never
+  received.
+
 - **The box under "Create an agent" says what it is for.** On the new-chat
   screen, with nobody facing you, the composer was an empty box with a greyed
   send arrow: pressing it or typing anything opened the form, and what you had

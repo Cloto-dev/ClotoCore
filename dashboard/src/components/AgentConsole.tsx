@@ -47,7 +47,6 @@ import { TypewriterMessage } from './TypewriterMessage';
 
 // Legacy localStorage key prefix for migration
 const LEGACY_SESSION_KEY_PREFIX = 'cloto-chat-';
-const ERROR_DISPLAY_MS = 5000;
 /** How many earlier threads the empty room offers to continue from. */
 const CONTINUE_FROM_COUNT = 3;
 
@@ -189,6 +188,11 @@ export function AgentConsole({
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null);
   // The engine error a report is being written for, while the report is open.
   const [reportOf, setReportOf] = useState<string | null>(null);
+  // Messages that never reached the kernel, by id: why, and what to send again.
+  // They stay in the room where they were written; nothing here is stored.
+  const [failedSends, setFailedSends] = useState<
+    Record<string, { reason: string; blocks: ContentBlock[]; engineOverride: string | null }>
+  >({});
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement>(null);
   const hasVrm = agent.metadata?.has_vrm === 'true';
@@ -786,23 +790,35 @@ export function AgentConsole({
       await api.postChat(outgoing.dispatched);
       refreshConversations();
     } catch (err) {
-      setMessages((prev) => prev.filter((m) => m.id !== msgId));
+      // The message stays where it was written — taking it away took what the
+      // user typed with it — marked as not sent, with the reason, until it is
+      // sent again or edited.
       setIsTyping(false);
       inflightSourceIdRef.current = null;
-      const errMsg = err instanceof Error ? err.message : 'Failed to send message';
-      if (import.meta.env.DEV) console.error('Failed to send message:', errMsg);
-      const errId = `err-${msgId}`;
-      const errBubble: ChatMessage = {
-        id: errId,
-        agent_id: agent.id,
-        user_id: identity.id,
-        source: 'system',
-        content: [{ type: 'text', text: `⚠ ${errMsg}` }],
-        created_at: Date.now(),
-      };
-      setMessages((prev) => [...prev, errBubble]);
-      setTimeout(() => setMessages((prev) => prev.filter((m) => m.id !== errId)), ERROR_DISPLAY_MS);
+      const reason = err instanceof Error ? err.message : '';
+      if (import.meta.env.DEV) console.error('Failed to send message:', reason);
+      setFailedSends((prev) => ({
+        ...prev,
+        [msgId]: { reason, blocks: contentBlocks, engineOverride: engineOverride ?? null },
+      }));
     }
+  };
+
+  // Take a message that was never sent out of the room (it is sent again, or
+  // replaced by its edit, as a new message).
+  const dropFailedSend = (id: string) => {
+    setMessages((prev) => prev.filter((m) => m.id !== id));
+    setFailedSends((prev) => {
+      const { [id]: _, ...rest } = prev;
+      return rest;
+    });
+  };
+
+  const sendAgain = (msg: ChatMessage) => {
+    const failed = failedSends[msg.id];
+    if (!failed || isTyping || pendingResponse) return;
+    dropFailedSend(msg.id);
+    sendMessage(failed.blocks, undefined, failed.engineOverride);
   };
 
   // The new chat screen hands its first message over by mounting this console
@@ -957,13 +973,19 @@ export function AgentConsole({
 
   const handleChatSend = useCallback(
     (blocks: ContentBlock[], rawText: string, engineOverride: string | null) => {
-      if (editingMessage) {
+      if (editingMessage && failedSends[editingMessage.id]) {
+        // A message the kernel never received has nothing to branch from: its
+        // edit is sent as a new message in its place.
+        dropFailedSend(editingMessage.id);
+        setEditingMessage(null);
+        sendMessage(blocks, rawText, engineOverride);
+      } else if (editingMessage) {
         handleEditMessage(blocks, rawText, engineOverride);
       } else {
         sendMessage(blocks, rawText, engineOverride);
       }
     },
-    [editingMessage, handleEditMessage, sendMessage],
+    [editingMessage, failedSends, dropFailedSend, handleEditMessage, sendMessage],
   );
 
   // Retry handler: remove old response immediately, re-generate in place
@@ -1207,14 +1229,25 @@ export function AgentConsole({
                 } else if (msg.source === 'system') {
                   turn = <div className="day">{firstText}</div>;
                 } else if (isUser) {
+                  const failed = failedSends[msg.id];
                   turn = (
-                    <div className={`me${editingMessage?.id === msg.id ? ' editing' : ''}`}>
+                    <div className={`me${failed ? ' failed' : ''}${editingMessage?.id === msg.id ? ' editing' : ''}`}>
                       <div className="wrap">
                         <div className="b select-text">
                           <MessageContent content={msg.content} />
                         </div>
                         <div className="meta">
+                          {failed && (
+                            <span className="why">
+                              {t('console.send_failed')} {failed.reason}
+                            </span>
+                          )}
                           <span className="acts">
+                            {failed && (
+                              <button type="button" disabled={generating} onClick={() => sendAgain(msg)}>
+                                {t('console.send_again')}
+                              </button>
+                            )}
                             <button
                               type="button"
                               disabled={generating}
@@ -1225,9 +1258,11 @@ export function AgentConsole({
                             >
                               {t('console.edit_message')}
                             </button>
-                            <button type="button" onClick={() => copyText(msg.content as ContentBlock[])}>
-                              {t('console.copy')}
-                            </button>
+                            {!failed && (
+                              <button type="button" onClick={() => copyText(msg.content as ContentBlock[])}>
+                                {t('console.copy')}
+                              </button>
+                            )}
                           </span>
                           {navigator}
                           {when}

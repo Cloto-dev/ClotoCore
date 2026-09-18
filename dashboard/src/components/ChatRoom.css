@@ -336,6 +336,22 @@
 .msg.fail .meta .acts {
   opacity: 1;
 }
+/* A message the kernel never received stays where it was written, stepped back
+ * onto the receding surface, with the reason in the state colour and a way to
+ * send it again shown without a hover. */
+.me.failed .b {
+  background: hsl(var(--surface-secondary));
+  color: hsl(var(--text-secondary));
+}
+.me.failed .meta .why {
+  color: hsl(6 70% 72%);
+}
+.me.failed .meta .acts {
+  opacity: 1;
+}
+.me.failed .meta .acts button {
+  color: hsl(var(--text-secondary));
+}
 .me .wrap {
   max-width: 76%;
   display: flex;

@@ -363,6 +363,42 @@ describe('a turn the engine could not produce', () => {
   });
 });
 
+describe('a message that could not be sent', () => {
+  async function failToSend(text: string): Promise<HTMLElement> {
+    draw();
+    await screen.findByText('console.remark');
+    api.postChat.mockRejectedValueOnce(new Error('kernel unreachable'));
+    await send(text);
+    const turn = (await screen.findByText(text)).closest('.me') as HTMLElement;
+    await vi.waitFor(() => expect(turn.classList.contains('failed')).toBe(true));
+    return turn;
+  }
+
+  it('stays where it was written, says why, and is sent again from there', async () => {
+    const turn = await failToSend('are you there');
+    expect(within(turn).getByText(/console\.send_failed kernel unreachable/)).toBeTruthy();
+
+    fireEvent.click(within(turn).getByRole('button', { name: 'console.send_again' }));
+    await vi.waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(2));
+    expect((api.postChat.mock.calls[1][0] as { content: string }).content).toBe('are you there');
+    // Sent once more, not twice over: one copy, and it is no longer marked.
+    expect(screen.getAllByText('are you there')).toHaveLength(1);
+    expect(document.querySelector('.me.failed')).toBeNull();
+  });
+
+  it('is edited into a new message in its place, not a branch of one the kernel never had', async () => {
+    const turn = await failToSend('first try');
+    fireEvent.click(within(turn).getByRole('button', { name: 'console.edit_message' }));
+    fireEvent.change(box(), { target: { value: 'second try' } });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    await vi.waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(2));
+    const sent = api.postChat.mock.calls[1][0] as { content: string; metadata: Record<string, string> };
+    expect(sent.content).toBe('second try');
+    expect(sent.metadata.parent_id).toBeUndefined();
+    expect(screen.queryByText('first try')).toBeNull();
+  });
+});
+
 describe('a console mounted on the new chat', () => {
   const first = { blocks: [{ type: 'text' as const, text: 'hello' }], rawText: 'hello', engineOverride: null };
 
