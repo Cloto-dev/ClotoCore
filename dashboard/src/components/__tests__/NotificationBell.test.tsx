@@ -18,7 +18,25 @@ vi.mock('../../hooks/useApi', () => ({
   useApi: () => ({ getNotificationSummary, getNotifications, markNotificationRead, answerNotification }),
 }));
 
-import { NotificationBell } from '../NotificationBell';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { inAppLink, NotificationBell } from '../NotificationBell';
+
+/** Where the router is now, rendered so a test can read it. */
+function Where() {
+  const loc = useLocation();
+  return <span data-testid="where">{loc.pathname + loc.search + loc.hash}</span>;
+}
+
+function renderBell() {
+  return render(
+    <MemoryRouter initialEntries={['/']}>
+      <NotificationBell />
+      <Routes>
+        <Route path="*" element={<Where />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
 function item(over: Partial<Record<string, unknown>> = {}) {
   return {
@@ -53,7 +71,7 @@ afterEach(() => {
 
 describe('NotificationBell', () => {
   it('shows nothing when nothing is waiting', async () => {
-    render(<NotificationBell />);
+    renderBell();
     await waitFor(() => expect(getNotificationSummary).toHaveBeenCalled());
     expect(screen.queryByTestId('notification-badge')).toBeNull();
   });
@@ -68,7 +86,7 @@ describe('NotificationBell', () => {
     getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 1 });
     getNotifications.mockResolvedValue([item({ severity: 'warning' })]);
 
-    render(<NotificationBell />);
+    renderBell();
 
     const badge = await screen.findByTestId('notification-badge');
     expect(badge.textContent).toBe('1');
@@ -88,7 +106,7 @@ describe('NotificationBell', () => {
     getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 1 });
     getNotifications.mockResolvedValue([item({ severity: 'warning' })]);
 
-    render(<NotificationBell />);
+    renderBell();
     fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
 
     expect(await screen.findByTestId('will-interrupt')).toBeTruthy();
@@ -98,7 +116,7 @@ describe('NotificationBell', () => {
     getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 1 });
     getNotifications.mockResolvedValue([item()]);
 
-    render(<NotificationBell />);
+    renderBell();
     fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
 
     fireEvent.click(await screen.findByText('notifications.mark_read'));
@@ -116,7 +134,7 @@ describe('NotificationBell', () => {
     getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 0 });
     getNotifications.mockResolvedValue([item({ blocking: false })]);
 
-    render(<NotificationBell />);
+    renderBell();
     fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
 
     const panel = (await screen.findAllByTestId('notification-item'))[0].closest('.select-text');
@@ -134,9 +152,11 @@ describe('NotificationBell', () => {
     getNotifications.mockResolvedValue([item({ blocking: false })]);
 
     const { container } = render(
-      <div data-testid="header" className="relative z-10">
-        <NotificationBell />
-      </div>,
+      <MemoryRouter>
+        <div data-testid="header" className="relative z-10">
+          <NotificationBell />
+        </div>
+      </MemoryRouter>,
     );
     fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
 
@@ -157,7 +177,7 @@ describe('NotificationBell', () => {
     getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 0 });
     getNotifications.mockResolvedValue([item({ blocking: false })]);
 
-    render(<NotificationBell />);
+    renderBell();
     fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
 
     const panel = (await screen.findAllByTestId('notification-item'))[0].closest('.select-text');
@@ -169,7 +189,7 @@ describe('NotificationBell', () => {
 
   it('keeps showing the last known count when a poll fails', async () => {
     getNotificationSummary.mockResolvedValueOnce({ waiting: 2, blocking: 0 });
-    render(<NotificationBell />);
+    renderBell();
     expect((await screen.findByTestId('notification-badge')).textContent).toBe('2');
 
     getNotificationSummary.mockRejectedValue(new Error('offline'));
@@ -191,7 +211,7 @@ describe('NotificationBell', () => {
     window.addEventListener('cloto-raise-approval', onRaise);
 
     try {
-      render(<NotificationBell />);
+      renderBell();
       fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
       fireEvent.click(await screen.findByTestId('raise-approval'));
 
@@ -212,7 +232,7 @@ describe('NotificationBell', () => {
       item({ item_id: 'p1', kind: 'proposal', blocking: false, title: 'Shall I retire the timer?' }),
     ]);
 
-    render(<NotificationBell />);
+    renderBell();
     fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
     fireEvent.click(await screen.findByTestId('answer-yes'));
 
@@ -228,7 +248,7 @@ describe('NotificationBell', () => {
       item({ item_id: 'a1', kind: 'approval', blocking: true }),
     ]);
 
-    render(<NotificationBell />);
+    renderBell();
     fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
     await screen.findAllByTestId('notification-item');
 
@@ -242,10 +262,37 @@ describe('NotificationBell', () => {
     getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 0 });
     getNotifications.mockResolvedValue([item({ blocking: false, kind: 'notice' })]);
 
-    render(<NotificationBell />);
+    renderBell();
     fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
     await screen.findByTestId('notification-item');
 
     expect(screen.queryByTestId('raise-approval')).not.toBeInTheDocument();
+  });
+});
+
+describe('a notice that links somewhere in the app', () => {
+  it('offers to open the page it names and goes there', async () => {
+    getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 0 });
+    getNotifications.mockResolvedValue([
+      item({
+        item_id: 'hub-access:expiry:T1:2026-11-19',
+        kind: 'notice',
+        blocking: false,
+        metadata: { link: '/settings?section=security#hub-access' },
+      }),
+    ]);
+    renderBell();
+    fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
+    fireEvent.click(await screen.findByTestId('open-link'));
+    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/settings?section=security#hub-access'));
+  });
+
+  it('accepts only a path inside this app', () => {
+    expect(inAppLink({ link: '/settings?section=security' })).toBe('/settings?section=security');
+    for (const bad of ['https://evil.example/', '//evil.example/x', '/\\evil.example', 'settings', 42]) {
+      expect(inAppLink({ link: bad })).toBeNull();
+    }
+    expect(inAppLink(null)).toBeNull();
+    expect(inAppLink({})).toBeNull();
   });
 });

@@ -8,6 +8,7 @@ import { useApi } from '../../hooks/useApi';
 import { useAsyncAction } from '../../hooks/useAsyncAction';
 import { api } from '../../services/api';
 import { SettingsGroup, SettingsRow } from './common';
+import { HubAccessToken } from './HubAccessToken';
 import { LlmProvidersSection } from './LlmProvidersSection';
 import { PanelWriteConsents } from './PanelWriteConsents';
 
@@ -177,6 +178,8 @@ export function SecuritySection() {
         onConfirm={handleRegenerate}
         onCancel={() => setConfirmRegenerate(false)}
       />
+
+      <HubAccessToken />
 
       <PanelWriteConsents />
 

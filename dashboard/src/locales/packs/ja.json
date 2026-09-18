@@ -93,7 +93,8 @@
       "mark_read": "既読にする",
       "answer": "カードを開く",
       "answer_yes": "はい",
-      "answer_no": "いいえ"
+      "answer_no": "いいえ",
+      "open_link": "開く"
     }
   },
   "agents": {
@@ -683,7 +684,31 @@
       "panel_consents_granted": "{{date}} に許可",
       "panel_consents_revoke": "取り消す",
       "panel_consents_load_failed": "許可したパネルの一覧を読み込めませんでした",
-      "panel_consents_revoke_failed": "許可を取り消せませんでした"
+      "panel_consents_revoke_failed": "許可を取り消せませんでした",
+      "hub_access_title": "ハブのアクセストークン",
+      "hub_access_desc": "ハブで発行したトークンを設定すると、あなたにだけ公開されたコネクタをこのカーネルで表示・インストールできます。トークンはこのマシンに保存され、設定したハブにだけ送られます。",
+      "hub_access_none": "トークンは設定されていません。",
+      "hub_access_connectors": "対象のコネクタ",
+      "hub_access_expires": "有効期限",
+      "hub_access_fingerprint": "このカーネルの鍵",
+      "hub_access_fingerprint_desc": "ハブのトークン一覧に表示される値の先頭です。ポインタを重ねると全体が表示されます。",
+      "hub_access_renew": "再発行",
+      "hub_access_set_label": "トークンを設定",
+      "hub_access_replace_label": "トークンを置き換える",
+      "hub_access_set_desc": "ハブで一度だけ表示されたトークンを貼り付けてください。設定するとこのカーネルに紐付きます。紐付けられるのは 1 つのカーネルだけで、発行から 24 時間以内に限られます。",
+      "hub_access_set": "設定",
+      "hub_access_forget": "トークンを削除",
+      "hub_access_forget_confirm": "このカーネルは限定公開のコネクタを表示・更新できなくなります。インストール済みのコネクタはそのまま動きます。トークン自体は、ハブで期限切れか失効になるまで有効なままです。",
+      "hub_access_load_failed": "ハブのアクセストークンを読み込めませんでした",
+      "hub_access_set_failed": "トークンを設定できませんでした",
+      "hub_access_renew_failed": "トークンを再発行できませんでした",
+      "hub_access_forget_failed": "トークンを削除できませんでした",
+      "hub_access_valid": "{{date}} まで",
+      "hub_access_expires_soon": "{{date}} に期限切れ",
+      "hub_access_expired": "{{date}} に期限切れ",
+      "hub_access_valid_desc": "再発行すると、3 か月有効な新しいトークンに置き換わります。今のトークンはその時点で使えなくなります。",
+      "hub_access_expires_soon_desc": "更新を受け取り続けるには再発行してください。新しいトークンは 3 か月有効で、今のトークンはその時点で使えなくなります。",
+      "hub_access_expired_desc": "インストール済みのコネクタはそのまま動きますが、更新は受け取れません。期限切れのトークンは再発行できないので、ハブで新しいトークンを発行してもらい、下の欄に設定してください。"
     },
     "display": {
       "cursor_title": "カーソル",
@@ -792,7 +817,8 @@
       "seal_unverified_tooltip": "Magic Seal なし — カーネルは実行時にトラストレベルを untrusted に強制します (MGP v0.6.3 §10 不変条件 3)。",
       "unlisted_title": "現在のカタログにありません",
       "unlisted_hint": "このマシンにインストールされていますが、カタログのどのエントリとも一致しません。多くは配布元でコネクタが廃止された、または移動した場合です。カタログは以前の名前を記録していないため、これらの代わりになるものをお伝えすることはできません。削除するまで動作し続けます。",
-      "unlisted_running": "実行中"
+      "unlisted_running": "実行中",
+      "restricted": "ハブのアクセストークンを通じて、あなたにだけ公開されています。"
     },
     "status_connecting": "起動中",
     "logs": {

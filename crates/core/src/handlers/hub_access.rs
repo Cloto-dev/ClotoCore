@@ -26,6 +26,12 @@ use crate::{AppError, AppResult, AppState};
 /// or forgetting the token can settle all of them at once.
 pub(crate) const NOTICE_PREFIX: &str = "hub-access:";
 
+/// Where in the dashboard the operator acts on these notices. Carried in the
+/// notice's metadata as `link`, an in-app path the bell offers to open.
+// HARDCODED(dashboard/src/components/SettingsView.tsx::sectionFromQuery): the
+// dashboard owns its routes; the kernel names one so a notice can lead to it.
+pub(crate) const SETTINGS_LINK: &str = "/settings?section=security#hub-access";
+
 /// Refuse a request that carries an agent token. Checked before the admin
 /// key, so the answer does not depend on whether the key was also sent.
 fn refuse_agent(headers: &HeaderMap) -> AppResult<()> {
@@ -223,6 +229,7 @@ pub(crate) fn expiry_notice(status: &AccessStatus, now: DateTime<Utc>) -> Option
             "token_id": status.token_id,
             "expires_at": status.expires_at,
             "action": "renew",
+            "link": SETTINGS_LINK,
         })),
     )
 }
@@ -261,7 +268,7 @@ pub async fn report_refused(state: &AppState, now: DateTime<Utc>) {
         "Restricted connectors are hidden from the catalog and cannot be updated until a \
          valid token is set in Settings → Security. Installed ones keep working.",
     )
-    .metadata(serde_json::json!({ "token_id": token_id }));
+    .metadata(serde_json::json!({ "token_id": token_id, "link": SETTINGS_LINK }));
     raise_daily(state, item, &format!("{NOTICE_PREFIX}refused:")).await;
 }
 
@@ -317,6 +324,11 @@ mod tests {
         assert_ne!(first.item_id, next_day.item_id, "re-raised the next day");
         assert!(first.item_id.starts_with(NOTICE_PREFIX));
         assert_eq!(first.severity, McpLogLevel::Warning);
+        assert_eq!(
+            first.metadata.as_ref().unwrap()["link"],
+            SETTINGS_LINK,
+            "the notice leads to where it can be acted on"
+        );
         let expired = expiry_notice(&s, at("2026-12-19T00:00:00Z")).unwrap();
         assert_eq!(expired.severity, McpLogLevel::Error);
     }

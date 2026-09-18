@@ -11,6 +11,17 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Added
 
+- **Settings → Security: the hub access token.** Paste a token issued on the
+  hub to bind it; the field is cleared as soon as it is sent. The group shows
+  the connectors it opens, the expiry, and the start of this kernel's key
+  fingerprint (the full value on hover), with Renew beside the expiry. An
+  expired token offers no Renew and says to ask for a new one on the hub.
+  Forget is behind a confirmation. A notice that names an in-app page (the
+  expiry and refusal notices do) now has Open in the bell, which goes to that
+  page; only a path inside the app is followed. The marketplace says, under
+  the description, when an entry is published only to you through the token.
+  Checked against the review checklist (`docs/DESIGN_PHILOSOPHY.md` §6): 1 of
+  25 — the loading state shows only the heading until the status arrives.
 - **Restricted connectors: a hub access token for this kernel.** The hub can
   now publish a connector only to kernels that hold an access token for it.
   Paste a token issued on the hub into `POST /api/hub-access/token`; the

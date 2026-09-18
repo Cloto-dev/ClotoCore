@@ -123,6 +123,14 @@ export function MarketplaceCard({ entry, onInstall, onUninstall, actionsDisabled
       {/* Description */}
       <p className="text-xs font-sans text-content-tertiary line-clamp-2 leading-relaxed">{entry.description}</p>
 
+      {/* Published to this kernel through its hub access token: a sentence, not
+          a badge, because it explains why the entry is here at all. */}
+      {entry.restricted && (
+        <p data-testid="restricted-note" className="text-xs font-sans text-content-secondary">
+          {t('marketplace.restricted')}
+        </p>
+      )}
+
       {/* Tags */}
       {entry.tags.length > 0 && (
         <div className="flex flex-wrap gap-1">

@@ -94,6 +94,21 @@ export type NotificationSeverity =
 /** What an item does to the agent that raised it. */
 export type NotificationKind = 'approval' | 'proposal' | 'notice';
 
+/**
+ * What the kernel shows about its hub access token (docs/HUB_ACCESS_DESIGN.md
+ * §4). Never the token itself: only enough to tell tokens apart.
+ */
+export interface HubAccessStatus {
+  token_prefix: string;
+  token_id: string;
+  connector_ids: string[];
+  /** SHA-256 hex of the kernel's public key, as the hub shows it. */
+  fingerprint: string;
+  expires_at: string;
+  hub_origin: string;
+  stage: 'valid' | 'expires_soon' | 'expired';
+}
+
 export interface NotificationItem {
   item_id: string;
   kind: NotificationKind;
@@ -778,6 +793,32 @@ export const api = {
     if (!res.ok) throw new Error(`Failed to revoke: ${res.status} ${res.statusText}`);
   },
 
+  /** `null` when no token is stored. */
+  getHubAccess: async (apiKey: string): Promise<HubAccessStatus | null> =>
+    (await fetchJson<{ token: HubAccessStatus | null }>('/hub-access', 'read the hub access token', apiKey)).token,
+
+  setHubAccessToken: async (token: string, apiKey: string): Promise<HubAccessStatus> => {
+    const res = await mutate(
+      '/hub-access/token',
+      'POST',
+      'set the hub access token',
+      { token },
+      { 'X-API-Key': apiKey },
+    );
+    return (await res.json()).data.token;
+  },
+
+  renewHubAccessToken: async (apiKey: string): Promise<HubAccessStatus> => {
+    const res = await mutate('/hub-access/renew', 'POST', 'renew the hub access token', undefined, {
+      'X-API-Key': apiKey,
+    });
+    return (await res.json()).data.token;
+  },
+
+  forgetHubAccessToken: async (apiKey: string): Promise<void> => {
+    await mutate('/hub-access/token', 'DELETE', 'forget the hub access token', undefined, { 'X-API-Key': apiKey });
+  },
+
   listModuleWriteConsents: async (apiKey: string): Promise<PanelWriteConsent[]> => {
     const res = await fetch(`${API_BASE}/modules/write-consents`, {
       headers: { 'X-API-Key': apiKey },
@@ -1377,6 +1418,10 @@ export function createAuthenticatedApi(apiKey: string) {
     putModuleWriteConsent: (id: string) => api.putModuleWriteConsent(id, k),
     deleteModuleWriteConsent: (id: string) => api.deleteModuleWriteConsent(id, k),
     listModuleWriteConsents: () => api.listModuleWriteConsents(k),
+    getHubAccess: () => api.getHubAccess(k),
+    setHubAccessToken: (token: string) => api.setHubAccessToken(token, k),
+    renewHubAccessToken: () => api.renewHubAccessToken(k),
+    forgetHubAccessToken: () => api.forgetHubAccessToken(k),
     // MCP servers
     callMcpTool: (toolName: string, args: Record<string, unknown>, serverId?: string) =>
       api.callMcpTool(toolName, args, k, serverId),
