@@ -160,8 +160,26 @@ pub(super) fn is_safe_path_segment(id: &str) -> bool {
 }
 
 /// Directory holding every agent's always-loaded instruction files.
+#[cfg(not(test))]
 pub(super) fn agent_instructions_root() -> PathBuf {
     crate::config::data_dir().join("agents")
+}
+
+/// Under `cargo test`, a directory that belongs to this test process.
+///
+/// `data_dir()` is the dev kernel's data when the test binary sits inside the
+/// repository, and an installed ClotoCore's data when it does not (an
+/// out-of-tree `CARGO_TARGET_DIR`). The skill-wiring tests write under this
+/// root, so they must write into neither (bug-514). Production code and the
+/// tests still reach the root only through this function, so a wiring test
+/// still fails if the code under test reads the root from anywhere else.
+#[cfg(test)]
+pub(super) fn agent_instructions_root() -> PathBuf {
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
+        std::env::temp_dir().join(format!("cloto-unit-test-agents-{}", std::process::id()))
+    })
+    .clone()
 }
 
 /// Read an agent's always-loaded files from `base/<agent_id>/` and decide which
@@ -5745,15 +5763,16 @@ while True:\n\
         );
     }
 
-    /// A scratch skill directory under the **real** [`agent_instructions_root`].
+    /// A scratch skill directory under [`agent_instructions_root`], the same
+    /// root the production code resolves (under `cargo test`, a per-process
+    /// temporary directory; see bug-514).
     ///
     /// The composition itself is tested against a temporary tree in
     /// `mcp_agent_skills`. These tests are about the wiring instead, so they
     /// must not hand the production code a base of their own: a test that did
     /// would stay green with the enricher pointed at the wrong root, which is
     /// the one mistake only the wiring can make. The id carries the process id
-    /// so parallel test binaries cannot collide, and cannot be mistaken for a
-    /// real agent.
+    /// so it cannot be mistaken for a real agent.
     struct ScratchSkills {
         agent_id: String,
         dir: PathBuf,
@@ -5781,7 +5800,39 @@ while True:\n\
         fn drop(&mut self) {
             // Only the directory this test created, and only if it is there.
             let _ = std::fs::remove_dir_all(&self.dir);
+            // The per-process root too, once no other test is still using it
+            // (`remove_dir` refuses a directory that is not empty).
+            let _ = std::fs::remove_dir(agent_instructions_root());
         }
+    }
+
+    /// bug-514: unit tests must not write into a real data directory. The
+    /// skill-wiring tests above write under `agent_instructions_root()`, which
+    /// used to be `data_dir()/agents`: the dev kernel's data inside the
+    /// repository, an installed ClotoCore's data outside it.
+    #[test]
+    fn unit_tests_keep_the_agent_root_out_of_every_real_data_dir() {
+        let root = agent_instructions_root();
+        let data = crate::config::data_dir();
+        assert!(
+            !root.starts_with(&data),
+            "under cargo test the agent root must not sit in data_dir(); got {} under {}",
+            root.display(),
+            data.display()
+        );
+        if let Some(installed) = dirs::data_dir() {
+            assert!(
+                !root.starts_with(&installed),
+                "under cargo test the agent root must not sit in the OS data dir; got {} under {}",
+                root.display(),
+                installed.display()
+            );
+        }
+        assert!(
+            root.starts_with(std::env::temp_dir()),
+            "under cargo test the agent root should be a temporary directory; got {}",
+            root.display()
+        );
     }
 
     async fn skills_manager() -> McpClientManager {
