@@ -14,6 +14,7 @@ vi.mock('../../../contexts/ApiKeyContext', () => ({
 
 // The providers panel fetches on mount and has nothing to do with rotation.
 vi.mock('../LlmProvidersSection', () => ({ LlmProvidersSection: () => null }));
+vi.mock('../HubAccessToken', () => ({ HubAccessToken: () => null }));
 
 const regenerateApiKey = vi.fn();
 vi.mock('../../../hooks/useApi', () => ({

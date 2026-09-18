@@ -22,10 +22,23 @@ import { Bell } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
 import { type DisplayLevel, displayLevel, interrupts, loadThreshold, saveThreshold } from '../lib/notificationSeverity';
 import type { NotificationItem, NotificationSummary } from '../services/api';
 import { RAISE_APPROVAL_EVENT } from './CommandApprovalDeck';
+
+/**
+ * The in-app page a notice leads to, from its metadata's `link`. Only a path
+ * inside this app is accepted: a notice's metadata can come from an agent, and
+ * the bell must not become a way to send the reader somewhere else.
+ */
+export function inAppLink(metadata: Record<string, unknown> | null): string | null {
+  const link = metadata?.link;
+  if (typeof link !== 'string') return null;
+  if (!link.startsWith('/') || link.startsWith('//') || link.includes('\\')) return null;
+  return link;
+}
 
 /** How often the badge re-asks. Cheap query, two integers. */
 const POLL_MS = 15_000;
@@ -39,6 +52,7 @@ const LEVEL_STYLE: Record<DisplayLevel, string> = {
 export function NotificationBell() {
   const { t } = useTranslation();
   const api = useApi();
+  const navigate = useNavigate();
   const [summary, setSummary] = useState<NotificationSummary>({ waiting: 0, blocking: 0 });
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [open, setOpen] = useState(false);
@@ -329,6 +343,19 @@ export function NotificationBell() {
                                 className="text-content-primary hover:text-agent transition-colors"
                               >
                                 {t('notifications.answer', { defaultValue: 'Answer' })}
+                              </button>
+                            )}
+                            {inAppLink(item.metadata) && (
+                              <button
+                                type="button"
+                                data-testid="open-link"
+                                onClick={() => {
+                                  navigate(inAppLink(item.metadata) as string);
+                                  setOpen(false);
+                                }}
+                                className="text-content-primary hover:text-agent transition-colors"
+                              >
+                                {t('notifications.open_link', { defaultValue: 'Open' })}
                               </button>
                             )}
                             {interrupts(item.severity, threshold) && (

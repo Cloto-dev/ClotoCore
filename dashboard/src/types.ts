@@ -411,6 +411,8 @@ export interface MarketplaceCatalogEntry {
   installed_version?: string;
   update_available: boolean;
   running: boolean;
+  /** Listed only because this kernel's hub access token covers it. */
+  restricted?: boolean;
   changelog?: string;
 }
 

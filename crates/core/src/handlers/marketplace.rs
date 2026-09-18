@@ -335,6 +335,9 @@ pub struct CatalogEntry {
     pub installed_version: Option<String>,
     pub update_available: bool,
     pub running: bool,
+    /// Listed only because this kernel's hub access token covers it. The
+    /// public catalog does not show it.
+    pub restricted: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -625,6 +628,7 @@ pub async fn catalog_handler(
 
     let running_servers = state.mcp_manager.list_servers().await;
 
+    let restricted = crate::managers::hub_access::covered_connectors(&state.data_dir);
     let entries: Vec<CatalogEntry> = registry
         .servers
         .iter()
@@ -674,6 +678,7 @@ pub async fn catalog_handler(
                 installed_version,
                 update_available,
                 running,
+                restricted: restricted.contains(&entry.id),
             }
         })
         .collect();
@@ -686,7 +691,6 @@ pub async fn catalog_handler(
         )
     };
 
-    let restricted = crate::managers::hub_access::covered_connectors(&state.data_dir);
     let unlisted = unlisted_installs(&install_rows, &registry, &running_servers, &restricted);
     if !unlisted.is_empty() {
         warn!(
@@ -5186,6 +5190,51 @@ mod tests {
             "the operator is told: {:?}",
             items.iter().map(|i| &i.item_id).collect::<Vec<_>>()
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The catalog marks an entry the stored token covers, so the dashboard can
+    /// say it is published to this kernel only. Served from the cache: no hub.
+    #[tokio::test]
+    async fn the_catalog_marks_what_the_access_token_covers() {
+        let dir = temp_dir("catalog-restricted");
+        let state =
+            crate::test_utils::create_test_app_state_in(dir.clone(), Some("k".into())).await;
+        crate::managers::hub_access::store_for_test(
+            &dir,
+            "acme-panel",
+            "https://hub.example",
+            chrono::Utc::now() + chrono::Duration::days(60),
+        );
+        {
+            let mut cache = state.marketplace_cache.write().await;
+            cache.data = Some(registry_of(&["acme-panel", "cpersona"]));
+            cache.fetched_at = Some(tokio::time::Instant::now());
+        }
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", "k".parse().unwrap());
+        let Ok(axum::Json(body)) = catalog_handler(
+            State(state.clone()),
+            headers,
+            Query(CatalogQuery {
+                force_refresh: false,
+            }),
+        )
+        .await
+        else {
+            panic!("catalog handler returned an error");
+        };
+        let flag = |id: &str| {
+            body["data"]["servers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["id"] == id)
+                .unwrap()["restricted"]
+                .clone()
+        };
+        assert_eq!(flag("acme-panel"), serde_json::json!(true));
+        assert_eq!(flag("cpersona"), serde_json::json!(false));
         let _ = std::fs::remove_dir_all(dir);
     }
 

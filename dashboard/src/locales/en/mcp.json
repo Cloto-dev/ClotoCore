@@ -49,7 +49,8 @@
     "seal_unverified_tooltip": "No Magic Seal — kernel will force trust level to untrusted at runtime (MGP v0.6.3 §10 invariant 3).",
     "unlisted_title": "Not in the current catalog",
     "unlisted_hint": "These are installed on this machine, but no entry in the catalog matches them — usually because the connector was retired or moved upstream. The catalog keeps no record of what an entry used to be called, so there is no way to tell you what replaces one of these. They keep running until you remove them.",
-    "unlisted_running": "running"
+    "unlisted_running": "running",
+    "restricted": "Published only to you, through your hub access token."
   },
   "logs": {
     "waiting": "No log lines yet.",
