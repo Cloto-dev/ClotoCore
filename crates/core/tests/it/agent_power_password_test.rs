@@ -181,7 +181,7 @@ async fn an_unknown_agent_is_not_found() {
 /// inline during boot, so the wiring is asserted where it is written.
 #[test]
 fn the_route_is_registered() {
-    let wiring = include_str!("../src/lib.rs");
+    let wiring = include_str!("../../src/lib.rs");
     assert!(
         wiring.contains(concat!("\"/agents/{id}/power-", "password\"")),
         "the power-password route is not registered"

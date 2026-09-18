@@ -20,8 +20,7 @@ use std::net::{TcpListener, TcpStream};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-#[path = "common/kernel_spawn.rs"]
-mod kernel_spawn;
+use crate::kernel_spawn;
 use kernel_spawn::spawn_retrying_busy;
 
 /// The stream must end because the handler ended it, not because the exit

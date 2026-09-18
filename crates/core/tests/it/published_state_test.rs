@@ -246,7 +246,7 @@ async fn an_unauthenticated_caller_reaches_neither_side() {
 /// running one what it registered.
 #[test]
 fn the_kernel_serves_the_path_a_module_would_declare() {
-    let wiring = include_str!("../src/lib.rs");
+    let wiring = include_str!("../../src/lib.rs");
     assert!(
         wiring.contains("\"/published/{publisher}\""),
         "the route is not registered — a module declaring GET /api/published/<id> would be refused"

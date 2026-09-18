@@ -227,7 +227,7 @@ fn the_routes_are_registered() {
     // The router is assembled inline during boot, so a running kernel cannot be
     // asked what it registered. Handler tests above would pass just as happily
     // for handlers nothing routes to.
-    let wiring = include_str!("../src/lib.rs");
+    let wiring = include_str!("../../src/lib.rs");
     assert!(
         wiring.contains("\"/notifications\""),
         "the listing route is not registered"

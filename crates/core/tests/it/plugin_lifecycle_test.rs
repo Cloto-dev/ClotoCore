@@ -1,15 +1,13 @@
 //! Plugin lifecycle failure handling tests.
 //! Tests that initialization failures are isolated and Magic Seal is enforced.
 
-mod common;
-
 use cloto_core::managers::PluginRegistry;
 use cloto_shared::ClotoId;
 use std::sync::Arc;
 
 #[tokio::test]
 async fn test_panic_plugin_does_not_crash_normal_plugin() {
-    use common::{create_mock_plugin, create_panicking_plugin};
+    use crate::common::{create_mock_plugin, create_panicking_plugin};
 
     let registry = PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let id_panic = ClotoId::new();
@@ -110,7 +108,7 @@ async fn test_plugin_registry_empty_on_creation() {
 
 #[tokio::test]
 async fn test_cascading_depth_limit_enforced() {
-    use common::create_mock_plugin;
+    use crate::common::create_mock_plugin;
 
     let registry = PluginRegistry::new(5, 3, 50, cloto_core::test_utils::test_mcp_manager().await); // depth limit = 3
     let id = ClotoId::new();

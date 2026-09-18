@@ -241,7 +241,7 @@ async fn a_repeated_id_is_one_item_only_where_the_producer_says_so() {
 
 #[test]
 fn the_capability_escalation_path_records_what_it_is_blocked_on() {
-    let wiring = include_str!("../src/managers/mcp.rs");
+    let wiring = include_str!("../../src/managers/mcp.rs");
     assert!(
         wiring.contains("ClotoEventData::PermissionRequested"),
         "the event this is anchored to has moved — re-anchor the assertion rather than deleting it"
@@ -255,7 +255,7 @@ fn the_capability_escalation_path_records_what_it_is_blocked_on() {
 
 #[test]
 fn the_tool_rejection_path_records_the_rejection() {
-    let wiring = include_str!("../src/handlers/system.rs");
+    let wiring = include_str!("../../src/handlers/system.rs");
     assert!(
         wiring.contains("ClotoEventData::ToolRejected"),
         "the event this is anchored to has moved — re-anchor the assertion rather than deleting it"
@@ -269,7 +269,7 @@ fn the_tool_rejection_path_records_the_rejection() {
 
 #[test]
 fn the_shutdown_path_records_why_the_kernel_stopped() {
-    let wiring = include_str!("../src/handlers.rs");
+    let wiring = include_str!("../../src/handlers.rs");
     assert!(
         wiring.contains("SystemNotification"),
         "the event this is anchored to has moved — re-anchor the assertion rather than deleting it"

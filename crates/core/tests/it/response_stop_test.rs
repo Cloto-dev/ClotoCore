@@ -93,7 +93,7 @@ async fn the_route_wants_the_admin_key() {
 /// inline during boot, so the wiring is asserted where it is written.
 #[test]
 fn the_route_is_registered() {
-    let wiring = include_str!("../src/lib.rs");
+    let wiring = include_str!("../../src/lib.rs");
     assert!(
         wiring.contains(r#".route("/chat/{agent_id}/stop", post(handlers::chat::stop_response))"#),
         "POST /api/chat/{{agent_id}}/stop is not routed"
@@ -106,7 +106,7 @@ fn the_route_is_registered() {
 /// waits for the agent's previous turn — and hands the turn that registration.
 #[test]
 fn a_reply_is_registered_before_it_waits_its_turn() {
-    let events = include_str!("../src/events.rs");
+    let events = include_str!("../../src/events.rs");
     let registered = events
         .find(".register(&msg.id, &handler.target_agent_of(&msg))")
         .expect("the event loop does not register replies");

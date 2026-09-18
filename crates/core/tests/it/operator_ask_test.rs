@@ -242,7 +242,7 @@ async fn one_agent_does_not_read_another_agent_s_answers() {
 /// itself, the way `published_state_test.rs` does.
 #[test]
 fn the_tool_and_the_answer_route_are_actually_registered() {
-    let dispatch = include_str!("../src/managers/mcp.rs");
+    let dispatch = include_str!("../../src/managers/mcp.rs");
     assert!(
         dispatch.contains("TOOL_NAME_OPERATOR_ASK =>"),
         "nothing dispatches the asking tool — an agent calling it would be told no such tool"
@@ -260,7 +260,7 @@ fn the_tool_and_the_answer_route_are_actually_registered() {
         "the replies schema is never injected"
     );
 
-    let wiring = include_str!("../src/lib.rs");
+    let wiring = include_str!("../../src/lib.rs");
     assert!(
         wiring.contains("\"/notifications/{item_id}/answer\""),
         "the answer route is not registered — the question would be unanswerable, which is \

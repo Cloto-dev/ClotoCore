@@ -115,7 +115,7 @@ async fn the_tools_route_answers_for_a_registered_server_and_not_for_a_stranger(
 /// tell. Read out of the source that builds the router.
 #[test]
 fn the_kernel_registers_the_tools_route() {
-    let wiring = include_str!("../src/lib.rs");
+    let wiring = include_str!("../../src/lib.rs");
     for needle in [
         "\"/mcp/servers/{name}/tools\"",
         "handlers::get_mcp_server_tools",

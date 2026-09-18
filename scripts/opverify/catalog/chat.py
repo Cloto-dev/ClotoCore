@@ -376,7 +376,7 @@ class ChatStop(Operation):
 
     Only the "nothing to stop" side is driven here: stopping a reply in flight
     needs a reasoning engine producing one, which phase 0 does not have. The
-    kernel's own tests stop turns (``crates/core/tests/response_stop_test.rs``);
+    kernel's own tests stop turns (``crates/core/tests/it/response_stop_test.rs``);
     this proves the route is served by the running binary and refuses what it
     must.
     """

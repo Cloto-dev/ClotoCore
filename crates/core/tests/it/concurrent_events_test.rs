@@ -1,8 +1,6 @@
 //! Concurrent event dispatch tests.
 //! Verifies no deadlocks or crashes under high event load.
 
-mod common;
-
 use cloto_core::managers::PluginRegistry;
 use cloto_core::EnvelopedEvent;
 use cloto_shared::ClotoId;
@@ -10,7 +8,7 @@ use std::sync::Arc;
 
 #[tokio::test]
 async fn test_concurrent_event_dispatch_100() {
-    use common::create_mock_plugin;
+    use crate::common::create_mock_plugin;
 
     let registry = Arc::new(PluginRegistry::new(
         5,
@@ -60,7 +58,7 @@ async fn test_concurrent_event_dispatch_100() {
 
 #[tokio::test]
 async fn test_event_depth_limit_prevents_infinite_loop() {
-    use common::create_mock_plugin;
+    use crate::common::create_mock_plugin;
 
     let registry = PluginRegistry::new(2, 2, 50, cloto_core::test_utils::test_mcp_manager().await); // depth limit = 2
     let id = ClotoId::new();

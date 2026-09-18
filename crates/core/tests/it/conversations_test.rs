@@ -711,7 +711,7 @@ async fn the_bulk_actions_cover_every_conversation_of_the_agent_and_user() {
 /// state test does.
 #[test]
 fn the_kernel_registers_the_conversation_routes() {
-    let wiring = include_str!("../src/lib.rs");
+    let wiring = include_str!("../../src/lib.rs");
     for needle in [
         "\"/chat/{agent_id}/conversations\"",
         "\"/chat/{agent_id}/conversations/{conversation_id}\"",

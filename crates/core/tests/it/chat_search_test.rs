@@ -551,7 +551,7 @@ async fn a_blank_query_is_refused() {
 
 #[test]
 fn the_kernel_registers_the_search_route() {
-    let wiring = include_str!("../src/lib.rs");
+    let wiring = include_str!("../../src/lib.rs");
     for needle in ["\"/chat/search\"", "handlers::chat::search_messages"] {
         assert!(wiring.contains(needle), "{needle} is not wired in lib.rs");
     }

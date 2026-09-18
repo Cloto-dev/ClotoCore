@@ -36,9 +36,13 @@ on:
         required: false
         default: "cloto_core"
       test:
-        description: "Integration test target (the --test name)"
+        description: "Integration test target (the --test name; most kernel tests live in `it`)"
         required: false
-        default: "corrupt_db_recovery_test"
+        default: "it"
+      filter:
+        description: "Test name filter passed to the binary (e.g. a module path like `corrupt_db_recovery_test::`)"
+        required: false
+        default: "corrupt_db_recovery_test::"
       waves:
         description: "How many waves of concurrent runs"
         required: false
@@ -61,7 +65,8 @@ jobs:
       SCCACHE_IGNORE_SERVER_IO_ERROR: "1"
       RUST_LOG: warn
       PACKAGE: ${{ github.event.inputs.package || 'cloto_core' }}
-      TEST: ${{ github.event.inputs.test || 'corrupt_db_recovery_test' }}
+      TEST: ${{ github.event.inputs.test || 'it' }}
+      FILTER: ${{ github.event.inputs.filter || 'corrupt_db_recovery_test::' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -133,6 +138,15 @@ jobs:
           fi
           echo "binary: $bin"
 
+          # A filter that selects nothing makes every run pass with "0 passed",
+          # which would print a failure rate of zero for a test that never ran.
+          selected=$("$bin" ${FILTER:+"$FILTER"} --list 2>/dev/null | grep -c ': test$' || true)
+          if [ "$selected" -lt 1 ]; then
+            echo "::error::filter '${FILTER}' selects no test in ${TEST}"
+            exit 1
+          fi
+          echo "filter '${FILTER}' selects $selected test(s)"
+
           # A counter that can only ever report zero would make a green result
           # meaningless, and it is what a surviving errexit turns this into.
           # Prove the loop counts a known failure before trusting what it counts.
@@ -157,7 +171,7 @@ jobs:
               # Each copy gets its own cwd; the test makes its own tempdir, so
               # concurrent copies never contend for the same file -- the only
               # thing they share is the CPU, which is what widens the window.
-              ( "$bin" > "$workdir/w${wave}s${slot}.log" 2>&1 ) &
+              ( "$bin" ${FILTER:+"$FILTER"} > "$workdir/w${wave}s${slot}.log" 2>&1 ) &
               pids="$pids $!"
             done
             for pid in $pids; do
@@ -170,7 +184,7 @@ jobs:
 
           echo "=============================================="
           echo "RESULT: $fail failure(s) in $total run(s) (${WAVES} waves x ${PARALLEL} concurrent)"
-          echo "  package=${PACKAGE} test=${TEST}"
+          echo "  package=${PACKAGE} test=${TEST} filter=${FILTER}"
           echo "=============================================="
 
           if [ "$fail" -gt 0 ]; then

@@ -12,8 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-#[path = "common/kernel_spawn.rs"]
-mod kernel_spawn;
+use crate::kernel_spawn;
 use kernel_spawn::spawn_retrying_busy;
 
 const KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";

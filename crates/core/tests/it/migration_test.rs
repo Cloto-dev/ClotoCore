@@ -381,7 +381,7 @@ async fn test_phase_c_migration_preserves_manual_choice() {
     .unwrap();
 
     // Re-execute Phase C SQL: the guard should preserve the manual choice.
-    let phase_c = include_str!("../migrations/20260524000000_backfill_default_memory.sql");
+    let phase_c = include_str!("../../migrations/20260524000000_backfill_default_memory.sql");
     sqlx::raw_sql(phase_c).execute(&pool).await.unwrap();
 
     let preferred: Option<String> = sqlx::query_scalar(

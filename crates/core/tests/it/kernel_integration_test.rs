@@ -1,5 +1,3 @@
-mod common;
-
 use sqlx::SqlitePool;
 use std::sync::Arc;
 
@@ -35,9 +33,9 @@ async fn test_capability_injection_logic() {
 
 #[tokio::test]
 async fn test_panic_isolation() {
+    use crate::common::{create_mock_plugin, create_panicking_plugin};
     use cloto_core::managers::PluginRegistry;
     use cloto_shared::ClotoId;
-    use common::{create_mock_plugin, create_panicking_plugin};
 
     let registry = PluginRegistry::new(5, 10, 50, cloto_core::test_utils::test_mcp_manager().await);
     let id_panic = ClotoId::new();
