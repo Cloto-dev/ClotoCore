@@ -205,7 +205,7 @@ Three routes support the dashboard. Each takes `{id}` as the panel id:
 | Route | Purpose |
 | --- | --- |
 | `GET /api/modules/{id}/write-access` | Whether the panel is eligible (and why not), what it declares, and whether a consent exists and still holds |
-| `PUT /api/modules/{id}/write-consent` / `DELETE` | Give or revoke consent. `PUT` is refused for an ineligible panel |
+| `PUT /api/modules/{id}/write-consent` / `DELETE` | Give or revoke consent. `PUT` is refused for an ineligible panel. It takes an optional `{"note": "..."}` (one line, at most 200 characters) that goes into the audit row, so a consent given by a release script can be told from one given on the sheet — both use the admin credential, so the actor cannot. The note is declared by the caller, not verified |
 | `GET /api/modules/write-consents` | Every recorded consent, for the settings list |
 
 If all checks pass, the handler dispatches the inner request to the kernel's

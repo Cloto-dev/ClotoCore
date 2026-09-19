@@ -410,12 +410,20 @@ pub async fn get_write_access(
 ///
 /// Refused for a panel that is not eligible: a consent that nothing could honour
 /// would sit in the list looking like a grant.
+///
+/// The body is optional. `{"note": "..."}` is written into the audit row, so a
+/// consent given by a script (a release tool re-consenting after it shipped a
+/// new version) can be told apart from one given on the consent sheet: both
+/// hold the same admin credential, so the actor alone cannot say which it was.
+/// The note is what the caller declares, not something the kernel verified.
 pub async fn put_write_consent(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Path(id): Path<String>,
+    body: Bytes,
 ) -> Result<Response, AppError> {
     check_auth(&state, &headers)?;
+    let note = consent_note(&body)?;
     let module =
         find_panel(&state, &id).ok_or_else(|| AppError::NotFound("Module not found".into()))?;
     let servers_root = super::marketplace::resolve_servers_dir(&state);
@@ -438,16 +446,57 @@ pub async fn put_write_consent(
         "PANEL_WRITE_CONSENT_GRANTED",
         &id,
         "granted",
-        "operator consented to the declared writes",
+        &match &note {
+            Some(note) => format!("operator consented to the declared writes ({note})"),
+            None => "operator consented to the declared writes".to_string(),
+        },
         serde_json::json!({
             "writes": module.manifest.writes,
             "writes_digest": digest,
             "connector_version": eligible.connector_version,
             "trust_level": trust_name(eligible.trust_level),
+            "note": note,
         }),
     )
     .await;
     Ok(ok_data(serde_json::json!({ "panel_id": id, "consented": true }))?.into_response())
+}
+
+/// Longest note a consent may carry, in characters. A label, not a document.
+const CONSENT_NOTE_MAX_CHARS: usize = 200;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ConsentRequest {
+    #[serde(default)]
+    note: Option<String>,
+}
+
+/// The optional note of a consent request. An empty body is no note (the
+/// consent sheet sends none); anything else must be the documented shape.
+fn consent_note(body: &[u8]) -> Result<Option<String>, AppError> {
+    if body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(None);
+    }
+    let req: ConsentRequest = serde_json::from_slice(body)
+        .map_err(|e| AppError::Validation(format!("invalid consent request: {e}")))?;
+    let Some(note) = req.note.map(|n| n.trim().to_string()) else {
+        return Ok(None);
+    };
+    if note.is_empty() {
+        return Ok(None);
+    }
+    if note.chars().count() > CONSENT_NOTE_MAX_CHARS {
+        return Err(AppError::Validation(format!(
+            "a consent note is at most {CONSENT_NOTE_MAX_CHARS} characters"
+        )));
+    }
+    if note.chars().any(char::is_control) {
+        return Err(AppError::Validation(
+            "a consent note is one line of text".to_string(),
+        ));
+    }
+    Ok(Some(note))
 }
 
 /// DELETE /api/modules/:id/write-consent — revoke a panel's consent.
@@ -853,10 +902,15 @@ mod tests {
     }
 
     async fn consent(state: &Arc<AppState>) -> StatusCode {
+        consent_with(state, "").await
+    }
+
+    async fn consent_with(state: &Arc<AppState>, body: &str) -> StatusCode {
         put_write_consent(
             State(state.clone()),
             auth_headers(),
             Path(PANEL.to_string()),
+            Bytes::from(body.to_string()),
         )
         .await
         .unwrap_or_else(|_| panic!("consent returned an error"))
@@ -1137,6 +1191,7 @@ mod tests {
             State(state.clone()),
             auth_headers(),
             Path(PANEL.to_string()),
+            Bytes::new(),
         )
         .await;
 
@@ -1354,6 +1409,49 @@ mod tests {
         )
         .await;
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// A consent from a script says so in the audit row; one from the sheet
+    /// (no body) carries no note. Both still record the same actor.
+    #[tokio::test]
+    async fn a_consent_note_is_recorded_in_the_audit_row() {
+        let (state, dir) = installed("note", "standard", &[SEND]).await;
+        assert_eq!(consent(&state).await, StatusCode::OK);
+        assert_eq!(
+            consent_with(&state, r#"{"note":"  cil console ship-panel  "}"#).await,
+            StatusCode::OK
+        );
+        let rows = audit_rows(&state, "PANEL_WRITE_CONSENT_GRANTED").await;
+        assert_eq!(rows.len(), 2);
+        let sheet: serde_json::Value = serde_json::from_str(&rows[0].2).unwrap();
+        assert!(sheet["note"].is_null(), "{sheet}");
+        assert_eq!(rows[0].1, "operator consented to the declared writes");
+        let script: serde_json::Value = serde_json::from_str(&rows[1].2).unwrap();
+        assert_eq!(script["note"], "cil console ship-panel");
+        assert_eq!(
+            rows[1].1,
+            "operator consented to the declared writes (cil console ship-panel)"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_consent_note_must_be_a_short_single_line() {
+        // `Some(note)` = accepted, `None` = refused (AppError has no Debug).
+        let read = |body: &[u8]| consent_note(body).ok();
+        assert_eq!(read(b""), Some(None));
+        assert_eq!(read(b" \n"), Some(None));
+        assert_eq!(read(b"{}"), Some(None));
+        assert_eq!(read(br#"{"note":"   "}"#), Some(None));
+        assert_eq!(read(br#"{"note":"ok"}"#), Some(Some("ok".to_string())));
+        let at_cap = format!(r#"{{"note":"{}"}}"#, "あ".repeat(CONSENT_NOTE_MAX_CHARS));
+        assert!(matches!(read(at_cap.as_bytes()), Some(Some(_))));
+        let over = format!(r#"{{"note":"{}"}}"#, "a".repeat(CONSENT_NOTE_MAX_CHARS + 1));
+        assert_eq!(read(over.as_bytes()), None);
+        assert_eq!(read(br#"{"note":"a\nb"}"#), None);
+        assert_eq!(read(br#"{"note":1}"#), None);
+        assert_eq!(read(br#"{"by":"x"}"#), None);
+        assert_eq!(read(b"not json"), None);
     }
 
     /// The router is built inline at boot, so no handler test can show the
