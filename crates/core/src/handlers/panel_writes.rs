@@ -1441,7 +1441,7 @@ mod tests {
         let read = |body: &[u8]| consent_note(body).ok();
         assert_eq!(read(b""), Some(None));
         assert_eq!(read(b" \n"), Some(None));
-        assert_eq!(read(br#"{}"#), Some(None));
+        assert_eq!(read(b"{}"), Some(None));
         assert_eq!(read(br#"{"note":"   "}"#), Some(None));
         assert_eq!(read(br#"{"note":"ok"}"#), Some(Some("ok".to_string())));
         let at_cap = format!(r#"{{"note":"{}"}}"#, "あ".repeat(CONSENT_NOTE_MAX_CHARS));
