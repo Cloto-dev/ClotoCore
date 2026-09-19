@@ -1574,6 +1574,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )
         .route("/agents/{id}/power", post(handlers::power_toggle))
         .route(
+            "/agents/{id}/engine-selection",
+            post(handlers::engine_selection::select_engine),
+        )
+        .route(
             "/agents/{id}/power-password",
             post(handlers::set_power_password),
         )

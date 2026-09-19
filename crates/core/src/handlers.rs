@@ -12,6 +12,7 @@ pub(crate) mod command_approval;
 pub mod commands;
 pub mod cron;
 pub mod diagnostics;
+pub mod engine_selection;
 pub mod events;
 pub mod health;
 pub mod hub_access;

@@ -3399,33 +3399,13 @@ impl SystemHandler {
         let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
             return;
         };
-        let Some(usage) = json.get("usage") else {
-            return;
-        };
-        let Some((prompt, completion, total)) =
-            crate::managers::usage_tracker::normalize_usage(usage)
-        else {
-            return;
-        };
-
         let provider_id = engine_id.strip_prefix("mind.").unwrap_or(engine_id);
         let provider = crate::db::get_llm_provider(&self.pool, provider_id)
             .await
             .ok();
-
-        self.last_usage.record(
-            agent_id,
-            crate::managers::usage_tracker::LastUsage {
-                prompt_tokens: prompt,
-                completion_tokens: completion,
-                total_tokens: total,
-                context_length: provider.as_ref().and_then(|p| p.context_length),
-                provider_id: provider_id.to_string(),
-                model_id: provider.map_or_else(String::new, |p| p.model_id),
-                is_estimate: false,
-                updated_at: chrono::Utc::now(),
-            },
-        );
+        if let Some(usage) = last_usage_from(&json, provider_id, provider) {
+            self.last_usage.record(agent_id, usage);
+        }
     }
 
     /// Extract text content from MCP think() response.
@@ -4935,5 +4915,89 @@ mod session_scope_tests {
         );
         assert_eq!(source_id, "");
         assert_eq!(channel, "chat");
+    }
+}
+
+/// The per-agent usage summary for one engine response, or `None` when the
+/// engine reported no usage. The model and effort are what the engine says it
+/// ran on when it says so; the provider row answers only what was configured.
+fn last_usage_from(
+    json: &serde_json::Value,
+    provider_id: &str,
+    provider: Option<crate::db::LlmProviderRow>,
+) -> Option<crate::managers::usage_tracker::LastUsage> {
+    let (prompt, completion, total) =
+        crate::managers::usage_tracker::normalize_usage(json.get("usage")?)?;
+    Some(crate::managers::usage_tracker::LastUsage {
+        prompt_tokens: prompt,
+        completion_tokens: completion,
+        total_tokens: total,
+        context_length: provider.as_ref().and_then(|p| p.context_length),
+        provider_id: provider_id.to_string(),
+        model_id: reported_string(json, "model")
+            .unwrap_or_else(|| provider.map_or_else(String::new, |p| p.model_id)),
+        reasoning_effort: reported_string(json, "reasoning_effort"),
+        is_estimate: false,
+        updated_at: chrono::Utc::now(),
+    })
+}
+
+/// A non-empty string field an engine reported at the top of its response.
+fn reported_string(json: &serde_json::Value, key: &str) -> Option<String> {
+    json.get(key)
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
+#[cfg(test)]
+mod reported_usage_tests {
+    use super::{last_usage_from, reported_string};
+
+    fn provider(model: &str) -> crate::db::LlmProviderRow {
+        serde_json::from_value(serde_json::json!({
+            "id": "p", "display_name": "P", "api_url": "", "api_key": "", "model_id": model,
+            "timeout_secs": 30, "enabled": true, "created_at": "", "auth_type": "none",
+            "context_length": 1000
+        }))
+        .expect("provider row shape")
+    }
+
+    #[test]
+    fn the_engine_reported_model_wins_over_the_configured_one() {
+        let json = serde_json::json!({"usage": {"input_tokens": 3, "output_tokens": 2},
+                                      "model": "gpt-5.6-luna", "reasoning_effort": "high"});
+        let u = last_usage_from(&json, "cli_agent", Some(provider("configured"))).unwrap();
+        assert_eq!(u.model_id, "gpt-5.6-luna");
+        assert_eq!(u.reasoning_effort.as_deref(), Some("high"));
+        assert_eq!(u.context_length, Some(1000));
+    }
+
+    #[test]
+    fn without_a_report_the_configured_model_stands_and_no_effort_is_claimed() {
+        let json = serde_json::json!({"usage": {"input_tokens": 3, "output_tokens": 2}});
+        let u = last_usage_from(&json, "p", Some(provider("configured"))).unwrap();
+        assert_eq!(u.model_id, "configured");
+        assert_eq!(u.reasoning_effort, None);
+        assert!(last_usage_from(&serde_json::json!({"model": "m"}), "p", None).is_none());
+    }
+
+    #[test]
+    fn an_engine_reported_model_and_effort_are_read_when_present() {
+        let j =
+            serde_json::json!({"model": " gpt-5.6-sol ", "reasoning_effort": "xhigh", "usage": {}});
+        assert_eq!(reported_string(&j, "model").as_deref(), Some("gpt-5.6-sol"));
+        assert_eq!(
+            reported_string(&j, "reasoning_effort").as_deref(),
+            Some("xhigh")
+        );
+        for absent in [
+            serde_json::json!({}),
+            serde_json::json!({"model": ""}),
+            serde_json::json!({"model": 3}),
+        ] {
+            assert_eq!(reported_string(&absent, "model"), None, "{absent}");
+        }
     }
 }
