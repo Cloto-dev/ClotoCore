@@ -271,6 +271,18 @@ mod tests {
     }
 
     #[test]
+    fn an_empty_range_is_reported_as_no_range_not_as_outside_it() {
+        // The operator's next step differs: an empty list is set in the ledger.
+        let e = apply_selection(
+            r#"{"allowed_models":[],"allowed_efforts":["high"]}"#,
+            "m",
+            "high",
+        )
+        .unwrap_err();
+        assert!(e.contains("has no `allowed_models` range"), "{e}");
+    }
+
+    #[test]
     fn without_a_range_nothing_can_be_chosen() {
         for binding in [
             r#"{"model":"m","effort":"high"}"#,
