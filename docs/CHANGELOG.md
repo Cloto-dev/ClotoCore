@@ -11,6 +11,15 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ### Added
 
+- **Two chat routes a connector panel can be given.** `POST /api/chat/{agent}/send`
+  says something to the agent in the path, in one of its conversations, and has
+  it answer; the kernel takes the sender from the conversation's owner, never
+  from the request. `GET /api/chat/{agent}/conversations/{id}` reads one
+  conversation with its newest messages. Until now a panel could store a
+  message (`POST .../messages`) but not get an answer: the route that makes an
+  agent reply names its target in the body, so no exact path could pin it, and
+  reading one conversation needed a query string a panel cannot declare.
+
 - **Settings → Security: the hub access token.** Paste a token issued on the
   hub to bind it; the field is cleared as soon as it is sent. The group shows
   the connectors it opens, the expiry, and the start of this kernel's key

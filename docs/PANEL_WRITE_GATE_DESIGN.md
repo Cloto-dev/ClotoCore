@@ -18,8 +18,8 @@ operations console for a small organisation of agents, shipped as a connector.
 It shows the organisation and what each department is doing. It also lets the
 operator talk to a manager agent from the same screen. Reading the
 organisation fits in the current model, but talking to an agent is a write:
-it creates a conversation and posts messages
-(`POST /api/chat/{agent_id}/conversations`, `POST /api/chat/{agent_id}/messages`).
+it creates a conversation and sends messages that the agent answers
+(`POST /api/chat/{agent_id}/conversations`, `POST /api/chat/{agent_id}/send`).
 
 This document makes the decision that the comment asks for. It covers which
 panels may write, what they may write, how the operator sees it, and where the
@@ -62,9 +62,22 @@ declaring `core` in its own handshake.
    connector version changes. The operator is not asked to confirm each
    write. A chat message is a write, and a confirmation on every message would
    make the panel unusable without making anything safer.
-3. **Initial scope: creating a conversation and posting a message to one named
+3. **Initial scope: creating a conversation and sending a message to one named
    agent.** Control actions (pause, resume, run now, decide a proposal) come
    later, under the same gate.
+
+   *Revised 2026-09-19.* The first version named `POST /api/chat/{agent_id}/messages`
+   as the send. That route only stores a message; the agent never answers it.
+   What makes an agent answer is `POST /api/chat`, and that route takes the
+   target and the sender from the body, so an exact path pins neither. The
+   kernel therefore gained `POST /api/chat/{agent_id}/send`: the path names the
+   agent, the conversation must belong to it, and the sender is the
+   conversation's owner, all decided by the kernel. It also gained
+   `GET /api/chat/{agent_id}/conversations/{conversation_id}`, because the
+   existing read narrows to a conversation with `?conversation_id=`, and a
+   declaration cannot carry a query string (`moduleBridge.ts`,
+   `matchesSegmentWildcard`). A panel reads its thread with the one-segment
+   wildcard `GET /api/chat/{agent_id}/conversations/*`.
 
 ## 4. Design
 
@@ -121,10 +134,10 @@ Panels get a new field, `writes`, separate from `requires`:
     "panels": [{
       "id": "console",
       "name": "Operations Console",
-      "requires": ["GET /api/published/*", "GET /api/chat/agent.manager/messages"],
+      "requires": ["GET /api/published/*", "GET /api/chat/agent.manager/conversations/*"],
       "writes": [
         "POST /api/chat/agent.manager/conversations",
-        "POST /api/chat/agent.manager/messages"
+        "POST /api/chat/agent.manager/send"
       ]
     }]
   }
@@ -174,7 +187,7 @@ through a new route:
 
 ```
 POST /api/modules/{id}/write
-{ "method": "POST", "path": "/api/chat/agent.manager/messages", "body": { ... } }
+{ "method": "POST", "path": "/api/chat/agent.manager/send", "body": { ... } }
 ```
 
 The handler runs these checks in order. Every refusal returns 403 with a reason
@@ -302,4 +315,4 @@ same verification code a live install uses.
   the option to evaluate is a declared placeholder for ids the same panel
   created, not a general wildcard.
 - **Streaming replies.** The first version reads replies by polling the
-  declared `GET` message route. Streaming is a separate decision.
+  declared `GET` conversation route. Streaming is a separate decision.

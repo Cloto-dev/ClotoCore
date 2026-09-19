@@ -508,6 +508,86 @@ pub async fn chat_handler(
     ok_data(serde_json::json!({}))
 }
 
+// --- Speaking to one agent (docs/PANEL_WRITE_GATE_DESIGN.md §4.2) ---
+
+/// The name a message sent through `send_to_agent` carries. The kernel does not
+/// know the name a person chose in their browser, and the dashboard falls back
+/// to this same word when they chose none.
+const DEFAULT_USER_NAME: &str = "User";
+
+#[derive(Deserialize)]
+pub struct SendRequest {
+    pub conversation_id: String,
+    pub content: String,
+}
+
+/// The message `send_to_agent` hands to the agent. Everything that decides who
+/// is speaking to whom comes from the path and the conversation row, never from
+/// the request: the sender is always the person who owns the conversation.
+#[must_use]
+pub fn message_for_send(
+    agent_id: &str,
+    conversation: &db::ConversationRow,
+    content: &str,
+) -> cloto_shared::ClotoMessage {
+    let mut msg = cloto_shared::ClotoMessage::new(
+        cloto_shared::MessageSource::User {
+            id: conversation.user_id.clone(),
+            name: DEFAULT_USER_NAME.to_string(),
+        },
+        content.to_string(),
+    );
+    msg.target_agent = Some(agent_id.to_string());
+    msg.metadata
+        .insert("target_agent_id".to_string(), agent_id.to_string());
+    msg.metadata
+        .insert("conversation_id".to_string(), conversation.id.clone());
+    msg
+}
+
+/// POST /api/chat/:agent_id/send — say something to the agent in the path, in
+/// one of its conversations, and have it answer.
+///
+/// `POST /api/chat` does the same with the target and the sender in the body,
+/// which is why a connector panel cannot be allowed it: an exact path would pin
+/// nothing. Here the path names the agent, the conversation must belong to it,
+/// and the sender is the conversation's owner. The reply is filed under the
+/// returned `id` with `-resp` appended.
+pub async fn send_to_agent(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+    Json(payload): Json<SendRequest>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let (agent, _) = state
+        .agent_manager
+        .get_agent_config(&agent_id)
+        .await
+        .map_err(|_| AppError::NotFound(format!("agent '{agent_id}'")))?;
+    if !agent.enabled {
+        return Err(AppError::Validation(format!(
+            "Agent '{agent_id}' is powered off"
+        )));
+    }
+    let content = payload.content.trim();
+    if content.is_empty() {
+        return Err(AppError::Validation("content is required".to_string()));
+    }
+    let conversation = owned_conversation(&state, &agent_id, &payload.conversation_id).await?;
+    let msg = message_for_send(&agent_id, &conversation, content);
+    let id = msg.id.clone();
+    let envelope =
+        crate::EnvelopedEvent::system(cloto_shared::ClotoEventData::MessageReceived(msg));
+    if let Err(e) = state.event_tx.send(envelope).await {
+        error!("Failed to send chat message event: {}", e);
+        return Err(AppError::Internal(anyhow::anyhow!(
+            "Failed to accept message"
+        )));
+    }
+    ok_data(serde_json::json!({ "id": id, "conversation_id": conversation.id }))
+}
+
 // --- Search across conversations ---
 
 #[derive(Deserialize)]
@@ -604,6 +684,50 @@ pub struct UpdateConversationRequest {
     pub title: Option<String>,
     /// `true` archives (hidden, kept whole), `false` unarchives; absent leaves it.
     pub archived: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+pub struct ConversationReadQuery {
+    pub limit: Option<i64>,
+}
+
+/// GET /api/chat/:agent_id/conversations/:conversation_id — the conversation and
+/// its newest messages, newest first.
+///
+/// The same messages are reachable as `GET /api/chat/:agent_id/messages?conversation_id=`,
+/// but a connector panel can only declare paths, not query strings. Taking the
+/// id from the path is what lets a panel read the thread it writes to.
+pub async fn get_conversation(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((agent_id, conversation_id)): Path<(String, String)>,
+    Query(params): Query<ConversationReadQuery>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let conversation = owned_conversation(&state, &agent_id, &conversation_id).await?;
+    let limit = params
+        .limit
+        .unwrap_or(50)
+        .max(1)
+        .min(state.config.max_chat_query_limit);
+    let messages = db::get_chat_messages(
+        &state.pool,
+        &agent_id,
+        &conversation.user_id,
+        Some(&conversation.id),
+        None,
+        limit + 1,
+        state.config.max_chat_query_limit,
+    )
+    .await?;
+    #[allow(clippy::cast_possible_wrap)]
+    let has_more = messages.len() as i64 > limit;
+    let messages: Vec<ChatMessageRow> = messages.into_iter().take(limit as usize).collect();
+    ok_data(serde_json::json!({
+        "conversation": conversation,
+        "messages": messages,
+        "has_more": has_more,
+    }))
 }
 
 /// PATCH /api/chat/:agent_id/conversations/:conversation_id — rename, archive, unarchive.

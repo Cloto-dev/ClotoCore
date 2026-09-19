@@ -638,7 +638,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
     use crate::handlers::{self, system::SystemHandler};
     use crate::managers::{AgentManager, PluginManager};
     use axum::{
-        routing::{delete, get, patch, post, put},
+        routing::{delete, get, post, put},
         Router,
     };
     use tower_http::cors::CorsLayer;
@@ -1678,6 +1678,9 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             post(handlers::chat::retry_response),
         )
         .route("/chat/{agent_id}/stop", post(handlers::chat::stop_response))
+        // The agent is pinned by the path, the sender by the conversation row,
+        // so a connector panel can be given this one (PANEL_WRITE_GATE_DESIGN.md §4.2).
+        .route("/chat/{agent_id}/send", post(handlers::chat::send_to_agent))
         .route("/chat/search", get(handlers::chat::search_messages))
         // Conversations (docs/CONVERSATIONS_DESIGN.md §3). The two bulk routes
         // are registered before the `{conversation_id}` route so their literal
@@ -1696,7 +1699,9 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         )
         .route(
             "/chat/{agent_id}/conversations/{conversation_id}",
-            patch(handlers::chat::update_conversation).delete(handlers::chat::delete_conversation),
+            get(handlers::chat::get_conversation)
+                .patch(handlers::chat::update_conversation)
+                .delete(handlers::chat::delete_conversation),
         )
         .route(
             "/chat/attachments/{attachment_id}",

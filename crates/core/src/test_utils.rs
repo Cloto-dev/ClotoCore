@@ -50,12 +50,37 @@ pub async fn create_test_app_state_with_access(
     admin_api_key: Option<String>,
     access_verifier: Arc<crate::managers::access_assertion::AccessVerifier>,
 ) -> Arc<crate::AppState> {
+    // The receiver is dropped here, so anything the state sends on `event_tx`
+    // fails — what these tests have always seen.
+    build_test_app_state(data_dir, admin_api_key, access_verifier)
+        .await
+        .0
+}
+
+/// Like [`create_test_app_state`], but the caller keeps the receiving end of
+/// `event_tx`, for tests that check what a handler hands to the agent loop.
+pub async fn create_test_app_state_with_events(
+    admin_api_key: Option<String>,
+) -> (Arc<crate::AppState>, mpsc::Receiver<crate::EnvelopedEvent>) {
+    build_test_app_state(
+        std::path::PathBuf::from("data"),
+        admin_api_key,
+        Arc::new(crate::managers::access_assertion::AccessVerifier::new(None)),
+    )
+    .await
+}
+
+async fn build_test_app_state(
+    data_dir: std::path::PathBuf,
+    admin_api_key: Option<String>,
+    access_verifier: Arc<crate::managers::access_assertion::AccessVerifier>,
+) -> (Arc<crate::AppState>, mpsc::Receiver<crate::EnvelopedEvent>) {
     let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
     crate::db::init_db(&pool, "sqlite::memory:", None)
         .await
         .unwrap();
 
-    let (event_tx, _event_rx) = mpsc::channel(100);
+    let (event_tx, event_rx) = mpsc::channel(100);
     let (tx, _rx) = broadcast::channel::<crate::events::SequencedEvent>(100);
 
     let mcp_manager = Arc::new(crate::managers::McpClientManager::new(
@@ -82,7 +107,7 @@ pub async fn create_test_app_state_with_access(
 
     let shutdown = crate::shutdown::ShutdownSignal::new();
 
-    Arc::new(crate::AppState {
+    let state = Arc::new(crate::AppState {
         tx,
         registry,
         event_tx,
@@ -126,5 +151,6 @@ pub async fn create_test_app_state_with_access(
         response_stops: crate::managers::response_stop::ResponseStops::new(),
         session_manager: Arc::new(crate::managers::session_manager::SessionManager::new()),
         panel_writes: crate::handlers::panel_writes::PanelWriteState::default(),
-    })
+    });
+    (state, event_rx)
 }
