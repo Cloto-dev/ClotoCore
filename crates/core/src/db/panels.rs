@@ -48,6 +48,18 @@ pub async fn upsert_install_receipt(
     Ok(())
 }
 
+/// Every receipt. The marketplace reads these as the install record of a
+/// connector that registers no server (its only record of what version was
+/// placed).
+pub async fn list_install_receipts(pool: &SqlitePool) -> anyhow::Result<Vec<InstallReceipt>> {
+    let query_future = sqlx::query_as::<_, InstallReceipt>(
+        "SELECT connector_dir, trust_level, seal, version, installed_at \
+         FROM connector_install_receipts",
+    )
+    .fetch_all(pool);
+    db_timeout(query_future).await
+}
+
 pub async fn get_install_receipt(
     pool: &SqlitePool,
     connector_dir: &str,

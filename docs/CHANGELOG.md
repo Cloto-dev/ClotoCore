@@ -400,6 +400,11 @@ absent loading state while the grants and the always-loaded files are read).
 
 ### Fixed
 
+- **A connector that ships only panels is offered its updates.** The
+  marketplace read the installed version only from a connector's server row,
+  and a panel-only connector has none, so it showed no version and a newer
+  catalog version was never offered as an update. The version is now read from
+  the install receipt when there is no row (bug-515).
 - Settings → Conversations no longer says "nothing is archived" when it could
   not read an agent's conversations (a rate limit was enough). It names the
   agents it could not read, lists what it could, offers another try, and makes
