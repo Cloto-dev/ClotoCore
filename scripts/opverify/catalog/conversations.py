@@ -210,3 +210,61 @@ class ConversationsBulk(Operation):
 
     def teardown(self, ctx: RunContext):
         _drop_agent(ctx, "conversations_bulk_agent")
+
+
+@register
+class ConversationsPanelRoutes(Operation):
+    """The two routes a connector panel is given (docs/PANEL_WRITE_GATE_DESIGN.md
+    §4.2): one conversation read by path, and speaking to the agent in the path.
+
+    A successful send reaches the agent's engine, which phase-0 does not have, so
+    here the send is driven only to the answers that must stop it before the
+    agent loop: nothing to say, and a conversation of another agent or none."""
+
+    domain = "conversations"
+    name = "panel-routes"
+    covers = [
+        "GET /api/chat/{agent_id}/conversations/{conversation_id}",
+        "POST /api/chat/{agent_id}/send",
+    ]
+    phase0 = True
+
+    def drive(self, ctx: RunContext):
+        c = ctx.client
+        agent_id = _make_agent(ctx, "conversations_panel_agent")
+        base = f"/api/chat/{agent_id}/conversations"
+        conv_id = c.post(base, body={"user_id": _USER})["id"]
+
+        read = c.get(f"{base}/{conv_id}")
+        foreign_read, _ = c.request_raw("GET", f"/api/chat/agent.not-the-owner/conversations/{conv_id}")
+
+        send = f"/api/chat/{agent_id}/send"
+        blank_send, _ = c.request_raw("POST", send, body={"conversation_id": conv_id, "content": "   "})
+        unknown_send, _ = c.request_raw(
+            "POST", send, body={"conversation_id": "no-such-conversation", "content": "hello"}
+        )
+        foreign_send, _ = c.request_raw(
+            "POST",
+            "/api/chat/agent.not-the-owner/send",
+            body={"conversation_id": conv_id, "content": "hello"},
+        )
+        return {
+            "conv_id": conv_id,
+            "read": read,
+            "foreign_read": foreign_read,
+            "blank_send": blank_send,
+            "unknown_send": unknown_send,
+            "foreign_send": foreign_send,
+        }
+
+    def assert_success(self, ctx: RunContext, result):
+        read = result["read"]
+        assert read["conversation"]["id"] == result["conv_id"], f"read the wrong conversation: {read!r}"
+        assert read["messages"] == [] and read["has_more"] is False, f"a new conversation holds {read!r}"
+        assert result["foreign_read"] == 404, f"another agent's path read it: HTTP {result['foreign_read']}"
+        assert result["blank_send"] == 400, f"an empty message was accepted: HTTP {result['blank_send']}"
+        assert result["unknown_send"] == 404, f"sent into no conversation: HTTP {result['unknown_send']}"
+        assert result["foreign_send"] == 404, f"another agent's path sent into it: HTTP {result['foreign_send']}"
+
+    def teardown(self, ctx: RunContext):
+        _drop_agent(ctx, "conversations_panel_agent")

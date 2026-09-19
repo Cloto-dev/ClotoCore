@@ -9,12 +9,13 @@ use axum::Json;
 use cloto_core::db::{self, ChatMessageRow};
 use cloto_core::handlers::chat::{
     archive_all_conversations, create_conversation, delete_all_conversations, delete_conversation,
-    get_messages, list_conversations, post_message, update_conversation, ConversationsQuery,
-    CreateConversationRequest, GetMessagesQuery, PostMessageRequest, UpdateConversationRequest,
+    get_conversation, get_messages, list_conversations, post_message, send_to_agent,
+    update_conversation, ConversationReadQuery, ConversationsQuery, CreateConversationRequest,
+    GetMessagesQuery, PostMessageRequest, SendRequest, UpdateConversationRequest,
 };
 use cloto_core::handlers::system::SystemHandler;
 use cloto_core::managers::{AgentManager, McpClientManager, PluginRegistry};
-use cloto_core::test_utils::create_test_app_state;
+use cloto_core::test_utils::{create_test_app_state, create_test_app_state_with_events};
 use cloto_core::AppState;
 use cloto_shared::{ClotoMessage, MessageSource};
 use sqlx::SqlitePool;
@@ -706,6 +707,151 @@ async fn the_bulk_actions_cover_every_conversation_of_the_agent_and_user() {
     assert!(db::get_conversation(&s.pool, &b1).await.unwrap().is_some());
 }
 
+// ---------------------------------------------------------------------------
+// A connector panel's two routes (docs/PANEL_WRITE_GATE_DESIGN.md §4.2): the
+// agent comes from the path, never from the body.
+
+async fn read_one(
+    state: &Arc<AppState>,
+    agent: &str,
+    conversation: &str,
+) -> (StatusCode, serde_json::Value) {
+    read(
+        get_conversation(
+            State(state.clone()),
+            headers(),
+            Path((agent.to_string(), conversation.to_string())),
+            Query(ConversationReadQuery::default()),
+        )
+        .await,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn one_conversation_reads_by_path_and_only_through_its_own_agent() {
+    let s = state().await;
+    let mine = create(&s, "agent.a").await;
+    let other = create(&s, "agent.a").await;
+    for (id, conv, at) in [("m1", &mine, 1), ("m2", &other, 2), ("m3", &mine, 3)] {
+        db::save_chat_message(
+            &s.pool,
+            &row(id, "agent.a", "default", "user", id, at, Some(conv)),
+        )
+        .await
+        .unwrap();
+    }
+
+    let (status, body) = read_one(&s, "agent.a", &mine).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"]["conversation"]["id"], mine.as_str());
+    let ids: Vec<&str> = body["data"]["messages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(
+        ids,
+        ["m3", "m1"],
+        "newest first, and only this conversation"
+    );
+    assert_eq!(body["data"]["has_more"], false);
+
+    let (status, _) = read_one(&s, "agent.b", &mine).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+async fn send(
+    state: &Arc<AppState>,
+    agent: &str,
+    conversation: &str,
+    content: &str,
+) -> (StatusCode, serde_json::Value) {
+    read(
+        send_to_agent(
+            State(state.clone()),
+            headers(),
+            Path(agent.to_string()),
+            Json(SendRequest {
+                conversation_id: conversation.to_string(),
+                content: content.to_string(),
+            }),
+        )
+        .await,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn send_hands_the_agent_in_the_path_a_message_from_the_conversations_owner() {
+    let (s, mut events) = create_test_app_state_with_events(Some(API_KEY.into())).await;
+    insert_agent(&s.pool, "agent.a").await;
+    insert_agent(&s.pool, "agent.b").await;
+    let (status, body) = read(
+        create_conversation(
+            State(s.clone()),
+            headers(),
+            Path("agent.a".to_string()),
+            Some(Json(CreateConversationRequest {
+                user_id: Some("owner".into()),
+            })),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let c = body["data"]["id"].as_str().unwrap().to_string();
+
+    let (status, body) = send(&s, "agent.a", &c, "  hello  ").await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let event = events
+        .try_recv()
+        .expect("the message reached the agent loop");
+    let cloto_shared::ClotoEventData::MessageReceived(msg) = &event.event.data else {
+        panic!("not a received message: {:?}", event.event.data);
+    };
+    assert_eq!(
+        body["data"]["id"],
+        msg.id.as_str(),
+        "the reply is found by this id"
+    );
+    assert_eq!(msg.target_agent.as_deref(), Some("agent.a"));
+    assert_eq!(msg.content, "hello");
+    assert_eq!(
+        msg.metadata.get("conversation_id").map(String::as_str),
+        Some(c.as_str())
+    );
+    assert_eq!(
+        msg.metadata.get("target_agent_id").map(String::as_str),
+        Some("agent.a")
+    );
+    match &msg.source {
+        MessageSource::User { id, .. } => assert_eq!(id, "owner"),
+        other => panic!("the sender must be the conversation's owner, got {other:?}"),
+    }
+
+    // Refusals hand nothing on.
+    let (status, _) = send(&s, "agent.b", &c, "hello").await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "another agent's conversation"
+    );
+    let (status, _) = send(&s, "agent.a", &c, "   ").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "nothing to say");
+    sqlx::query("UPDATE agents SET enabled = 0 WHERE id = 'agent.a'")
+        .execute(&s.pool)
+        .await
+        .unwrap();
+    let (status, _) = send(&s, "agent.a", &c, "hello").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "powered off");
+    assert!(
+        events.try_recv().is_err(),
+        "a refused send reached the agent"
+    );
+}
+
 /// The routes exist only if the kernel registers them; the handlers cannot
 /// tell. Read out of the source that builds the router, as the published
 /// state test does.
@@ -723,6 +869,9 @@ fn the_kernel_registers_the_conversation_routes() {
         "handlers::chat::delete_conversation",
         "handlers::chat::archive_all_conversations",
         "handlers::chat::delete_all_conversations",
+        "\"/chat/{agent_id}/send\"",
+        "handlers::chat::send_to_agent",
+        "get(handlers::chat::get_conversation)",
         "set_max_conversation_context(config.max_conversation_context)",
     ] {
         assert!(wiring.contains(needle), "{needle} is not wired in lib.rs");
