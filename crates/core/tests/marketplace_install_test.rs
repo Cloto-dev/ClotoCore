@@ -550,6 +550,29 @@ async fn a_connector_that_ships_no_server_installs_its_files_and_registers_nothi
         cloto_core::managers::tree_seal::verify_tree_seal(&install_dir, &seal, &seal_key).unwrap(),
         "the recorded seal covers the installed tree"
     );
+
+    // With no row, the receipt is also the only record of the version placed.
+    // The catalog reads it there, so the entry shows its version and a newer
+    // catalog version is offered as an update — as it is for a server.
+    assert_eq!(
+        h.catalog_state("demo").await,
+        serde_json::json!({
+            "installed": true,
+            "installed_version": "1.0.0",
+            "update_available": false,
+            "running": false,
+        })
+    );
+    let newer = h
+        .hub
+        .entry("demo", "", "1.1.0", PANEL_HTML, &[], &url, None, &[]);
+    h.mock.reset().await; // earlier mounts on the same path take precedence
+    h.serve_catalog(&[&newer]).await;
+    assert_eq!(
+        h.catalog_state("demo").await["update_available"],
+        true,
+        "a panel connector is offered the update it is due"
+    );
 }
 
 #[tokio::test]

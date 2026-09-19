@@ -435,6 +435,9 @@ struct InstallState<'a> {
     /// probe built to catch exactly that shape of fault — would fire on every
     /// healthy install of one.
     registers_no_server: bool,
+    /// The version the install receipt recorded for this entry's directory.
+    /// The only record of what was installed for a connector with no row.
+    receipt_version: Option<&'a str>,
 }
 
 impl<'a> InstallState<'a> {
@@ -463,7 +466,27 @@ impl<'a> InstallState<'a> {
                         install_dir,
                     ),
                 ),
+            receipt_version: None,
         }
+    }
+
+    /// Consult the install receipts too. A receipt answers only while the files
+    /// it describes are on disk: uninstall deletes both, and a receipt beside no
+    /// files describes nothing that is installed.
+    fn with_receipts(
+        mut self,
+        receipts: &'a [crate::db::InstallReceipt],
+        entry: &RegistryEntry,
+    ) -> Self {
+        if self.has_files {
+            let dir = effective_install_dir(entry);
+            self.receipt_version = receipts
+                .iter()
+                .find(|r| r.connector_dir == dir)
+                .map(|r| r.version.as_str())
+                .filter(|v| !v.is_empty());
+        }
+        self
     }
 
     /// What the catalog reports to the dashboard.
@@ -511,9 +534,14 @@ impl<'a> InstallState<'a> {
     /// scored as nothing to do, because `catalog_offers_an_update` returns false
     /// without one. The entry would sit at "installed", show no version, and
     /// never prompt for the update it is due.
+    ///
+    /// A connector that ships only panels has no row at all, so its version is
+    /// read from the install receipt. Without that, a panel connector never
+    /// shows a version and is never offered the update it is due.
     fn installed_version(&self) -> Option<&str> {
         self.recorded_in()
             .and_then(|r| r.installed_version.as_deref())
+            .or(self.receipt_version)
     }
 
     fn installed_archive_sha256(&self) -> Option<&str> {
@@ -625,6 +653,9 @@ pub async fn catalog_handler(
         .await
         .unwrap_or_default();
     let servers_root = state.data_dir.join("mcp-servers");
+    let receipts = crate::db::list_install_receipts(&state.pool)
+        .await
+        .unwrap_or_default();
 
     let running_servers = state.mcp_manager.list_servers().await;
 
@@ -633,7 +664,8 @@ pub async fn catalog_handler(
         .servers
         .iter()
         .map(|entry| {
-            let install = InstallState::resolve(&install_rows, entry, &servers_root);
+            let install = InstallState::resolve(&install_rows, entry, &servers_root)
+                .with_receipts(&receipts, entry);
             let installed = install.shown_as_installed();
             let installed_version = install.installed_version().map(str::to_string);
             let update_available = catalog_offers_an_update(
@@ -4797,6 +4829,56 @@ mod tests {
         );
         assert!(!state.keys_disagree(), "and the two readers agree");
 
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    fn receipt(dir: &str, version: &str) -> crate::db::InstallReceipt {
+        crate::db::InstallReceipt {
+            connector_dir: dir.into(),
+            trust_level: "standard".into(),
+            seal: None,
+            version: version.into(),
+            installed_at: String::new(),
+        }
+    }
+
+    /// A panel connector has no row, so its version comes from the receipt —
+    /// and with it, the update check has something to compare.
+    #[test]
+    fn a_panel_connectors_version_is_read_from_its_receipt() {
+        let root = temp_dir("receipt-version");
+        place_connector(
+            &root,
+            "cil-console",
+            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+        );
+        let receipts = vec![receipt("cil-console", "1.0.0"), receipt("other", "9.9.9")];
+        let mut newer = entry("cil-console", "");
+        newer.version = "1.1.0".into();
+
+        let state = InstallState::resolve(&[], &newer, &root).with_receipts(&receipts, &newer);
+        assert_eq!(state.installed_version(), Some("1.0.0"));
+        assert!(catalog_offers_an_update(
+            state.installed_version(),
+            state.installed_archive_sha256(),
+            &newer
+        ));
+
+        // Without the receipts consulted there is nothing to compare.
+        let bare = InstallState::resolve(&[], &newer, &root);
+        assert_eq!(bare.installed_version(), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Uninstall removes files and receipt together; a receipt left beside no
+    /// files describes nothing installed and must not answer.
+    #[test]
+    fn a_receipt_without_files_is_not_an_installed_version() {
+        let root = temp_dir("receipt-no-files");
+        let receipts = vec![receipt("cil-console", "1.0.0")];
+        let e = entry("cil-console", "");
+        let state = InstallState::resolve(&[], &e, &root).with_receipts(&receipts, &e);
+        assert_eq!(state.installed_version(), None);
         let _ = std::fs::remove_dir_all(&root);
     }
 
