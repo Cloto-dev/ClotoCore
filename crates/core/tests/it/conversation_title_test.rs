@@ -37,10 +37,13 @@ const ENGINE_TITLE: &str = "Named by the engine";
 /// the argument `slow-title`, it takes a second over a title — long enough for
 /// a test to rename the conversation while the engine is thinking. Requests are
 /// answered one at a time, so a `calls` sent meanwhile returns after the title.
+/// A third tool, `title_metadata`, returns the agent metadata the last title
+/// request carried — what the engine would read its model and effort from.
 const FAKE_ENGINE: &str = r#"
 import sys, json, time
 slow_title = sys.argv[1:] == ["slow-title"]
 calls = 0
+title_metadata = "null"
 def send(obj):
     sys.stdout.write(json.dumps(obj) + "\n")
     sys.stdout.flush()
@@ -61,15 +64,19 @@ for line in sys.stdin:
         schema = {"type": "object"}
         send({"jsonrpc": "2.0", "id": rid, "result": {"tools": [
             {"name": "think", "description": "answer", "inputSchema": schema},
-            {"name": "calls", "description": "think calls answered so far", "inputSchema": schema}]}})
+            {"name": "calls", "description": "think calls answered so far", "inputSchema": schema},
+            {"name": "title_metadata", "description": "agent metadata of the last title request", "inputSchema": schema}]}})
     elif method == "tools/call":
         params = req.get("params") or {}
         if params.get("name") == "calls":
             text = str(calls)
+        elif params.get("name") == "title_metadata":
+            text = title_metadata
         else:
             calls += 1
             asked = ((params.get("arguments") or {}).get("message") or {}).get("content", "")
             if asked.startswith("Give this conversation a title"):
+                title_metadata = json.dumps(((params.get("arguments") or {}).get("agent") or {}).get("metadata"))
                 if slow_title:
                     time.sleep(1)
                 text = "Named by the engine"
@@ -364,4 +371,60 @@ async fn a_conversation_someone_named_costs_no_engine_run_for_a_title() {
         "only the reply may run the engine — a title for a named conversation would be thrown away"
     );
     assert_eq!(title(&rig.pool, &conversation).await, chosen);
+}
+
+/// The title is a side run made on the agent's behalf, and it runs on the
+/// agent's own model at the bottom of its effort range — not on whatever the
+/// harness defaults to, which is what an engine on a CLI harness runs when the
+/// request carries no settings (on a host without a harness config, the most
+/// expensive model the account has). The agent's working directory, which
+/// holds its brief, is not passed.
+#[tokio::test]
+async fn the_title_runs_on_the_agents_model_at_the_bottom_of_its_range() {
+    let Some(rig) = rig().await else { return };
+    let binding = r#"{"harness":"codex","cwd":"/brief","model":"m-sol","effort":"xhigh","allowed_models":["m-sol","m-luna"],"allowed_efforts":["xhigh","high","max"]}"#;
+    let metadata = serde_json::json!({ ENGINE: binding }).to_string();
+    sqlx::query("UPDATE agents SET metadata = ? WHERE id = ?")
+        .bind(&metadata)
+        .bind(AGENT)
+        .execute(&rig.pool)
+        .await
+        .unwrap();
+    let conversation = new_conversation(&rig.pool).await;
+
+    rig.handler
+        .handle_message(user_message("hello there", &conversation))
+        .await
+        .unwrap();
+    let asked = Instant::now();
+    while title(&rig.pool, &conversation).await != ENGINE_TITLE {
+        assert!(
+            asked.elapsed() < Duration::from_secs(30),
+            "the engine never named the conversation"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let result = rig
+        .mcp
+        .call_server_tool(
+            &Caller::System,
+            ENGINE,
+            "title_metadata",
+            serde_json::json!({}),
+        )
+        .await
+        .expect("the fake engine reports the title request");
+    let value = serde_json::to_value(&result).unwrap();
+    let carried: serde_json::Value =
+        serde_json::from_str(value["content"][0]["text"].as_str().unwrap()).unwrap();
+    let settings: serde_json::Value = serde_json::from_str(
+        carried[ENGINE]
+            .as_str()
+            .unwrap_or_else(|| panic!("no settings under the engine key: {carried}")),
+    )
+    .unwrap();
+    assert_eq!(settings["model"], "m-sol");
+    assert_eq!(settings["effort"], "high");
+    assert_eq!(settings["cwd"], serde_json::Value::Null);
 }

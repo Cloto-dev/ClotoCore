@@ -106,6 +106,56 @@ pub fn apply_selection(binding: &str, model: &str, effort: &str) -> Result<Selec
     })
 }
 
+/// Reasoning effort words from least to most (the words the `cli_agent`
+/// engine accepts). Used only to find the bottom of a range.
+const EFFORT_ORDER: [&str; 6] = ["low", "medium", "high", "xhigh", "max", "ultra"];
+
+/// The engine settings for a side run the kernel makes on an agent's behalf —
+/// a conversation title, an episode summary — derived from the agent's own
+/// binding.
+///
+/// Without them the engine falls back to the harness's own default model,
+/// which is whatever the harness ships with rather than anything the agent's
+/// range allows (on a host with no harness config that was the most expensive
+/// model the account can run, once per title and several times per archived
+/// episode). So the side run keeps the agent's model and harness, and takes the
+/// lowest effort the range allows: a title does not need the reasoning a
+/// manager's own work does. The working directory is left out on purpose — it
+/// holds the agent's brief, which a harness reads as instructions and which has
+/// nothing to do with naming a conversation — and so is the subagent policy.
+///
+/// `None` when the binding is not a JSON object; the caller then sends no
+/// settings, as before.
+pub fn side_run_binding(binding: &str) -> Option<String> {
+    let object: serde_json::Map<String, serde_json::Value> = serde_json::from_str(binding).ok()?;
+    let mut side = serde_json::Map::new();
+    for key in ["harness", "model", "allowed_models", "allowed_efforts"] {
+        if let Some(value) = object.get(key) {
+            side.insert(key.into(), value.clone());
+        }
+    }
+    let rank = |effort: &str| {
+        EFFORT_ORDER
+            .iter()
+            .position(|known| *known == effort)
+            .unwrap_or(usize::MAX)
+    };
+    let floor = object
+        .get("allowed_efforts")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .min_by_key(|effort| rank(effort))
+        })
+        .or_else(|| object.get("effort").and_then(serde_json::Value::as_str));
+    if let Some(effort) = floor {
+        side.insert("effort".into(), effort.into());
+    }
+    Some(serde_json::Value::Object(side).to_string())
+}
+
 /// Compare-and-set: replace the binding only if it still reads `old`. False
 /// when something else changed it after it was read.
 pub async fn write_if_unchanged(
@@ -243,6 +293,38 @@ mod tests {
 
     fn field(binding: &str, key: &str) -> serde_json::Value {
         serde_json::from_str::<serde_json::Value>(binding).unwrap()[key].clone()
+    }
+
+    #[test]
+    fn a_side_run_keeps_the_model_and_takes_the_bottom_of_the_range() {
+        let side = side_run_binding(RANGED).expect("a JSON object");
+        assert_eq!(field(&side, "model"), "gpt-5.6-sol");
+        assert_eq!(field(&side, "harness"), "codex");
+        assert_eq!(field(&side, "effort"), "high");
+        // The range travels too, so the engine's own range check still applies.
+        assert_eq!(
+            field(&side, "allowed_efforts"),
+            serde_json::json!(["high", "xhigh", "max"])
+        );
+        // The brief's directory and the subagent policy do not.
+        assert_eq!(field(&side, "cwd"), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn the_bottom_of_the_range_is_by_effort_not_by_list_order() {
+        let binding = r#"{"model":"m","effort":"max","allowed_efforts":["xhigh","max","medium"],"subagent_model":"s","subagent_effort_min":"high"}"#;
+        let side = side_run_binding(binding).expect("a JSON object");
+        assert_eq!(field(&side, "effort"), "medium");
+        assert_eq!(field(&side, "subagent_model"), serde_json::Value::Null);
+        assert_eq!(field(&side, "subagent_effort_min"), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn without_a_range_a_side_run_keeps_the_agents_effort() {
+        let side = side_run_binding(r#"{"model":"m","effort":"low","cwd":"/w"}"#).expect("object");
+        assert_eq!(field(&side, "effort"), "low");
+        assert_eq!(field(&side, "model"), "m");
+        assert_eq!(side_run_binding("not json"), None);
     }
 
     #[test]

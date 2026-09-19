@@ -519,6 +519,7 @@ impl SystemHandler {
         let pool = self.pool.clone();
         let mcp = self.registry.mcp_manager.clone();
         let caller = crate::managers::Caller::Agent(agent.id.clone());
+        let engine_settings = Self::side_run_settings(agent, engine_id);
         let engine_id = engine_id.to_string();
         let conversation_id = conversation_id.to_string();
         let prompt = format!(
@@ -532,6 +533,7 @@ impl SystemHandler {
                 &mcp,
                 &caller,
                 &engine_id,
+                engine_settings.as_deref(),
                 &prompt,
                 "You name conversations.",
             )
@@ -1716,6 +1718,7 @@ impl SystemHandler {
 
             // Episode auto-archival check (background, non-blocking)
             let ep_engine_id = default_engine_id.clone();
+            let ep_engine_settings = Self::side_run_settings(&agent, &default_engine_id);
             let ep_memory_timeout = Duration::from_secs(self.memory_timeout_secs);
             tokio::spawn(async move {
                 Self::maybe_archive_episode(
@@ -1723,6 +1726,7 @@ impl SystemHandler {
                     &ep_server_id,
                     &ep_agent_id,
                     &ep_engine_id,
+                    ep_engine_settings,
                     ep_memory_timeout,
                 )
                 .await;
@@ -3978,6 +3982,7 @@ impl SystemHandler {
         server_id: &str,
         agent_id: &str,
         engine_id: &str,
+        engine_settings: Option<String>,
         memory_timeout: Duration,
     ) {
         // All memory/episode/profile/engine calls below operate on this agent's
@@ -4090,6 +4095,7 @@ impl SystemHandler {
                     mcp,
                     &caller,
                     engine_id,
+                    engine_settings.as_deref(),
                     &format!(
                         "Summarize the following conversation concisely (800-1200 characters).\n\
                          Preserve proper nouns, dates, decisions, and key technical details.\n\n{}",
@@ -4118,6 +4124,7 @@ impl SystemHandler {
                     mcp,
                     &caller,
                     engine_id,
+                    engine_settings.as_deref(),
                     &format!(
                         "Extract 5-10 search keywords from this summary. \
                          Output space-separated keywords only.\n\n{}",
@@ -4137,6 +4144,7 @@ impl SystemHandler {
                     mcp,
                     &caller,
                     engine_id,
+                    engine_settings.as_deref(),
                     &format!(
                         "Based on this conversation summary, was the main task completed? \
                          Output ONLY 'true' or 'false'.\n\n{}",
@@ -4231,6 +4239,7 @@ impl SystemHandler {
                 mcp,
                 &caller,
                 engine_id,
+                engine_settings.as_deref(),
                 &format!(
                     "Extract facts about the user from the following conversation.\n\
                      Output a concise profile in bullet-point format.\n\
@@ -4292,18 +4301,25 @@ impl SystemHandler {
     /// `caller` carries the owning agent's identity so the engine think is gated
     /// by that agent's grant (bug-421) — background maintenance still runs under
     /// the agent whose episodes are being summarized.
-    async fn call_engine_think_simple(
-        mcp: &Arc<McpClientManager>,
-        caller: &crate::managers::Caller,
+    /// The arguments of a side run. `engine_settings` is the agent's binding
+    /// already narrowed by `engine_selection::side_run_binding`; it goes under
+    /// the engine's own metadata key, where the engine reads per-agent settings.
+    /// Without it an engine on a CLI harness runs the harness's default model.
+    fn think_simple_args(
         engine_id: &str,
+        engine_settings: Option<&str>,
         prompt: &str,
         system_desc: &str,
-    ) -> Option<String> {
-        let args = serde_json::json!({
+    ) -> serde_json::Value {
+        let mut metadata = serde_json::Map::new();
+        if let Some(settings) = engine_settings {
+            metadata.insert(engine_id.to_string(), settings.into());
+        }
+        serde_json::json!({
             "agent": {
                 "name": "system",
                 "description": system_desc,
-                "metadata": {},
+                "metadata": metadata,
             },
             "message": {
                 "content": prompt,
@@ -4311,7 +4327,27 @@ impl SystemHandler {
                 "metadata": {},
             },
             "context": [],
-        });
+        })
+    }
+
+    /// The side-run settings for an agent on `engine_id`: its binding narrowed
+    /// to the model it runs and the bottom of its effort range.
+    fn side_run_settings(agent: &AgentMetadata, engine_id: &str) -> Option<String> {
+        agent
+            .metadata
+            .get(engine_id)
+            .and_then(|binding| super::engine_selection::side_run_binding(binding))
+    }
+
+    async fn call_engine_think_simple(
+        mcp: &Arc<McpClientManager>,
+        caller: &crate::managers::Caller,
+        engine_id: &str,
+        engine_settings: Option<&str>,
+        prompt: &str,
+        system_desc: &str,
+    ) -> Option<String> {
+        let args = Self::think_simple_args(engine_id, engine_settings, prompt, system_desc);
         match mcp
             .call_kind_at(caller, engine_id, &crate::managers::ToolKind::Think, args)
             .await
@@ -4999,5 +5035,28 @@ mod reported_usage_tests {
         ] {
             assert_eq!(reported_string(&absent, "model"), None, "{absent}");
         }
+    }
+}
+
+#[cfg(test)]
+mod side_run_args_tests {
+    use super::SystemHandler;
+
+    /// The agent's narrowed settings reach the engine under the engine's own
+    /// key — the only place a CLI-harness engine looks for a model. Without
+    /// them it runs whatever the harness defaults to.
+    #[test]
+    fn a_side_run_carries_the_agents_settings_under_the_engine_key() {
+        let settings = r#"{"model":"gpt-5.6-sol","effort":"high"}"#;
+        let args = SystemHandler::think_simple_args("cli_agent", Some(settings), "p", "d");
+        assert_eq!(args["agent"]["metadata"]["cli_agent"], settings);
+        assert_eq!(args["message"]["content"], "p");
+        assert_eq!(args["agent"]["description"], "d");
+    }
+
+    #[test]
+    fn without_settings_a_side_run_sends_empty_metadata() {
+        let args = SystemHandler::think_simple_args("cli_agent", None, "p", "d");
+        assert_eq!(args["agent"]["metadata"], serde_json::json!({}));
     }
 }
