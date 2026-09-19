@@ -61,6 +61,12 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   placed, because a connector that ships only panels has no server row to keep
   them in. Design: `docs/PANEL_WRITE_GATE_DESIGN.md`.
 
+- **A consent can say who gave it.** `PUT /api/modules/:id/write-consent`
+  accepts an optional `{"note": "..."}` and writes it into the audit row. A
+  release script that re-consents after shipping a new version and a person
+  pressing Allow hold the same admin credential, so the audit actor alone could
+  not tell them apart.
+
 - **The dashboard asks before a panel acts for you.** A panel that declares
   writes and is allowed to make them shows a consent sheet the first time:
   what it may do, in words ("Send messages to agent.manager"), with Allow and
