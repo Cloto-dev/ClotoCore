@@ -4608,7 +4608,8 @@
       "pattern": "\\.or\\(self\\.receipt_version\\)",
       "expected": "present",
       "status": "fixed",
-      "notes": "Found in an end-to-end run: a panel connector installed at 1.0.0 (receipt version 1.0.0, no mcp_servers row); after 1.1.0 was published the catalog answered installed=true, installed_version=null, update_available=false. The pinned pattern is the fallback that reads the receipt's version when no row records one (InstallState::installed_version). A receipt is consulted only while the connector's files are on disk. Same-version republishes are still not detected for these connectors, because the receipt carries no archive digest."
+      "notes": "Found in an end-to-end run: a panel connector installed at 1.0.0 (receipt version 1.0.0, no mcp_servers row); after 1.1.0 was published the catalog answered installed=true, installed_version=null, update_available=false. The pinned pattern is the fallback that reads the receipt's version when no row records one (InstallState::installed_version). A receipt is consulted only while the connector's files are on disk. Same-version republishes are still not detected for these connectors, because the receipt carries no archive digest.",
+      "github_issue": 633
     }
   ]
 }
