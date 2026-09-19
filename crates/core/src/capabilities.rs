@@ -16,11 +16,12 @@ const CAPABILITY_HTTP_PROBE_TIMEOUT_SECS: u64 = 30;
 
 /// Whitelist-independent SSRF IP guard: `true` when `ip` falls in a range that
 /// outbound requests must never reach — loopback, private, link-local (incl. the
-/// cloud-metadata 169.254.0.0/16), broadcast, documentation, unspecified, and the
-/// IPv4-mapped / unique-local / multicast IPv6 equivalents. A free function (not
-/// only the `SafeHttpClient` method) so non-whitelist callers such as the
-/// marketplace `raw_url` download (bug-431) reuse the exact same block-list
-/// without holding a client instance.
+/// cloud-metadata 169.254.0.0/16), broadcast, documentation, unspecified,
+/// multicast, the special-purpose blocks in `is_special_purpose_v4`, and the
+/// IPv4-mapped / NAT64 / unique-local / multicast IPv6 equivalents. A free
+/// function (not only the `SafeHttpClient` method) so non-whitelist callers such
+/// as the marketplace `raw_url` download (bug-431) reuse the exact same
+/// block-list without holding a client instance.
 #[must_use]
 pub fn is_restricted_ip(ip: IpAddr) -> bool {
     match ip {
@@ -31,7 +32,8 @@ pub fn is_restricted_ip(ip: IpAddr) -> bool {
                 || v4.is_broadcast()
                 || v4.is_documentation()
                 || v4.is_unspecified()
-                || v4.octets()[0] == 0
+                || v4.is_multicast()
+                || is_special_purpose_v4(v4)
         }
         IpAddr::V6(v6) => {
             // IPv4-mapped addresses (::ffff:a.b.c.d) must be checked against the
@@ -40,6 +42,14 @@ pub fn is_restricted_ip(ip: IpAddr) -> bool {
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return is_restricted_ip(IpAddr::V4(v4));
             }
+            // NAT64 (64:ff9b::/96, RFC 6052) carries an IPv4 address in its last
+            // 32 bits, and a DNS64 resolver hands these out for IPv4-only names —
+            // so 64:ff9b::a.b.c.d reaches a.b.c.d and must meet the IPv4 rules.
+            let seg = v6.segments();
+            if seg[..6] == [0x0064, 0xff9b, 0, 0, 0, 0] {
+                let [.., a, b, c, d] = v6.octets();
+                return is_restricted_ip(IpAddr::V4(std::net::Ipv4Addr::new(a, b, c, d)));
+            }
             v6.is_loopback()
                 || v6.is_unspecified()
                 || (v6.segments()[0] & 0xfe00) == 0xfc00 // fc00::/7 unique-local
@@ -47,6 +57,24 @@ pub fn is_restricted_ip(ip: IpAddr) -> bool {
                 || v6.is_multicast()
         }
     }
+}
+
+/// IPv4 special-purpose blocks that `std` has no stable predicate for
+/// (`Ipv4Addr::is_shared` / `is_benchmarking` / `is_reserved` are unstable), so
+/// each is spelled out as a prefix match:
+/// - 0.0.0.0/8 "this network"
+/// - 100.64.0.0/10 shared address space (RFC 6598) — carrier-grade NAT, and the
+///   range Tailscale assigns, so a hit reaches other hosts on the machine's tailnet
+/// - 192.0.0.0/24 IETF protocol assignments
+/// - 198.18.0.0/15 benchmarking (RFC 2544)
+/// - 240.0.0.0/4 reserved (includes the limited broadcast)
+fn is_special_purpose_v4(v4: std::net::Ipv4Addr) -> bool {
+    let [a, b, c, _] = v4.octets();
+    a == 0
+        || (a == 100 && (b & 0xc0) == 64)
+        || (a == 192 && b == 0 && c == 0)
+        || (a == 198 && (b & 0xfe) == 18)
+        || (a & 0xf0) == 240
 }
 
 /// Resolve `host:port` and reject if ANY resolved address is restricted
@@ -547,6 +575,104 @@ mod tests {
         // ::ffff:8.8.8.8 (public) must remain allowed
         assert!(!client.is_restricted_addr(IpAddr::V6(Ipv6Addr::new(
             0, 0, 0, 0, 0, 0xffff, 0x0808, 0x0808
+        ))));
+    }
+
+    fn v4(a: u8, b: u8, c: u8, d: u8) -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(a, b, c, d))
+    }
+
+    // Each special-purpose block is pinned at both of its ends, and the
+    // addresses just outside it are pinned as allowed, so a block that is
+    // dropped, widened, or narrowed turns this red.
+    #[test]
+    fn test_is_restricted_ip_special_purpose_v4_blocks() {
+        let blocks: [(&str, IpAddr, IpAddr, IpAddr, IpAddr); 4] = [
+            (
+                "100.64.0.0/10 shared (CGNAT / Tailscale)",
+                v4(100, 64, 0, 0),
+                v4(100, 127, 255, 255),
+                v4(100, 63, 255, 255),
+                v4(100, 128, 0, 0),
+            ),
+            (
+                "192.0.0.0/24 IETF protocol assignments",
+                v4(192, 0, 0, 0),
+                v4(192, 0, 0, 255),
+                v4(191, 255, 255, 255),
+                v4(192, 0, 1, 0),
+            ),
+            (
+                "198.18.0.0/15 benchmarking",
+                v4(198, 18, 0, 0),
+                v4(198, 19, 255, 255),
+                v4(198, 17, 255, 255),
+                v4(198, 20, 0, 0),
+            ),
+            (
+                "240.0.0.0/4 reserved",
+                v4(240, 0, 0, 0),
+                v4(255, 255, 255, 254),
+                v4(239, 255, 255, 255),
+                v4(239, 255, 255, 255),
+            ),
+        ];
+        for (name, first, last, below, above) in blocks {
+            assert!(
+                is_restricted_ip(first),
+                "{name}: first address {first} must be denied"
+            );
+            assert!(
+                is_restricted_ip(last),
+                "{name}: last address {last} must be denied"
+            );
+            if name.starts_with("240.") {
+                // 239.255.255.255 is multicast, denied on its own account
+                continue;
+            }
+            assert!(
+                !is_restricted_ip(below),
+                "{name}: {below} is outside the block"
+            );
+            assert!(
+                !is_restricted_ip(above),
+                "{name}: {above} is outside the block"
+            );
+        }
+        // A Tailscale node address, the case that motivated this guard.
+        assert!(is_restricted_ip(v4(100, 101, 102, 103)));
+    }
+
+    #[test]
+    fn test_is_restricted_ip_v4_multicast() {
+        assert!(is_restricted_ip(v4(224, 0, 0, 1)));
+        assert!(is_restricted_ip(v4(239, 255, 255, 255)));
+        assert!(!is_restricted_ip(v4(223, 255, 255, 255)));
+    }
+
+    #[test]
+    fn test_is_restricted_ip_nat64_embeds_ipv4() {
+        let nat64 = |a: u8, b: u8, c: u8, d: u8| {
+            IpAddr::V6(Ipv6Addr::new(
+                0x0064,
+                0xff9b,
+                0,
+                0,
+                0,
+                0,
+                u16::from_be_bytes([a, b]),
+                u16::from_be_bytes([c, d]),
+            ))
+        };
+        assert!(is_restricted_ip(nat64(127, 0, 0, 1)));
+        assert!(is_restricted_ip(nat64(169, 254, 169, 254)));
+        assert!(is_restricted_ip(nat64(10, 0, 0, 1)));
+        assert!(is_restricted_ip(nat64(100, 64, 0, 1)));
+        // A public IPv4 behind NAT64 is an ordinary public destination.
+        assert!(!is_restricted_ip(nat64(1, 1, 1, 1)));
+        // Only the /96 is NAT64: a neighbour prefix is not unwrapped.
+        assert!(!is_restricted_ip(IpAddr::V6(Ipv6Addr::new(
+            0x0064, 0xff9b, 0, 0, 0, 1, 0x7f00, 0x0001
         ))));
     }
 
