@@ -543,6 +543,23 @@ async fn a_connector_that_ships_no_server_installs_its_files_and_registers_nothi
         .expect("the install recorded a receipt");
     assert_eq!(receipt.trust_level, entry.trust_level);
     assert_eq!(receipt.version, "1.0.0");
+    // And the archive it was installed from, which a same-version republish is
+    // compared against — the connector has no row to keep it on.
+    let Some(InstallShape {
+        source:
+            SourceSpec::RawUrl(RawUrlSpec {
+                sha256: Some(catalog_digest),
+                ..
+            }),
+        ..
+    }) = &entry.install
+    else {
+        panic!("the hub entry carries an archive digest");
+    };
+    assert_eq!(
+        receipt.archive_sha256.as_deref(),
+        Some(catalog_digest.as_str())
+    );
     let seal = receipt.seal.expect("a verified install records its seal");
     assert!(seal.starts_with("tree-sha256:"), "{seal}");
     let seal_key = std::fs::read(h.data_dir.join("seal.key")).unwrap();
@@ -572,6 +589,26 @@ async fn a_connector_that_ships_no_server_installs_its_files_and_registers_nothi
         h.catalog_state("demo").await["update_available"],
         true,
         "a panel connector is offered the update it is due"
+    );
+
+    // The ordinary shape of a panel update: the manifest changed, the version
+    // did not. The archive digest is what tells the two builds apart.
+    let rebuilt = h.hub.entry(
+        "demo",
+        "",
+        "1.0.0",
+        PANEL_HTML,
+        b"a rebuilt archive",
+        &url,
+        None,
+        &[],
+    );
+    h.mock.reset().await;
+    h.serve_catalog(&[&rebuilt]).await;
+    assert_eq!(
+        h.catalog_state("demo").await["update_available"],
+        true,
+        "a same-version republish of a panel connector is offered as an update"
     );
 }
 

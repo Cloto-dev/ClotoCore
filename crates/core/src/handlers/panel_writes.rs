@@ -835,9 +835,16 @@ mod tests {
             crate::test_utils::create_test_app_state_in(data_dir.clone(), Some(KEY.into())).await;
         place_tree(&data_dir, writes, "");
         let seal = seal_tree(&data_dir);
-        crate::db::upsert_install_receipt(&state.pool, CONNECTOR, trust, Some(&seal), "1.0.0")
-            .await
-            .unwrap();
+        crate::db::upsert_install_receipt(
+            &state.pool,
+            CONNECTOR,
+            trust,
+            Some(&seal),
+            "1.0.0",
+            None,
+        )
+        .await
+        .unwrap();
         (state, data_dir)
     }
 
@@ -944,9 +951,16 @@ mod tests {
         assert!(eligibility(&state).await.is_ok());
         for low in ["experimental", "untrusted", "nonsense"] {
             let seal = seal_tree(&dir);
-            crate::db::upsert_install_receipt(&state.pool, CONNECTOR, low, Some(&seal), "1.0.0")
-                .await
-                .unwrap();
+            crate::db::upsert_install_receipt(
+                &state.pool,
+                CONNECTOR,
+                low,
+                Some(&seal),
+                "1.0.0",
+                None,
+            )
+            .await
+            .unwrap();
             let why = eligibility(&state).await.expect_err(low);
             assert!(why.contains("trust level"), "{low}: {why}");
         }
@@ -969,6 +983,7 @@ mod tests {
             "experimental",
             Some(&seal),
             "1.0.0",
+            None,
         )
         .await
         .unwrap();
@@ -980,7 +995,7 @@ mod tests {
     async fn no_seal_an_entry_point_seal_or_no_receipt_is_not_eligible() {
         let (state, dir) = installed("seal", "standard", &[SEND]).await;
 
-        crate::db::upsert_install_receipt(&state.pool, CONNECTOR, "standard", None, "1.0.0")
+        crate::db::upsert_install_receipt(&state.pool, CONNECTOR, "standard", None, "1.0.0", None)
             .await
             .unwrap();
         assert!(eligibility(&state)
@@ -994,6 +1009,7 @@ mod tests {
             "standard",
             Some("sha256:00"),
             "1.0.0",
+            None,
         )
         .await
         .unwrap();
@@ -1058,9 +1074,16 @@ mod tests {
         std::os::unix::fs::symlink(&outside, base.join("servers")).unwrap();
 
         let seal = seal_tree(&data_dir);
-        crate::db::upsert_install_receipt(&state.pool, CONNECTOR, "standard", Some(&seal), "1.0.0")
-            .await
-            .unwrap();
+        crate::db::upsert_install_receipt(
+            &state.pool,
+            CONNECTOR,
+            "standard",
+            Some(&seal),
+            "1.0.0",
+            None,
+        )
+        .await
+        .unwrap();
 
         let why = eligibility(&state)
             .await
@@ -1305,9 +1328,16 @@ mod tests {
             "",
         );
         let seal = seal_tree(&dir);
-        crate::db::upsert_install_receipt(&state.pool, CONNECTOR, "standard", Some(&seal), "1.0.0")
-            .await
-            .unwrap();
+        crate::db::upsert_install_receipt(
+            &state.pool,
+            CONNECTOR,
+            "standard",
+            Some(&seal),
+            "1.0.0",
+            None,
+        )
+        .await
+        .unwrap();
         assert_denied(
             &state,
             &seen,
@@ -1319,9 +1349,16 @@ mod tests {
 
         // Consent again, then only the version moves.
         assert_eq!(consent(&state).await, StatusCode::OK);
-        crate::db::upsert_install_receipt(&state.pool, CONNECTOR, "standard", Some(&seal), "1.1.0")
-            .await
-            .unwrap();
+        crate::db::upsert_install_receipt(
+            &state.pool,
+            CONNECTOR,
+            "standard",
+            Some(&seal),
+            "1.1.0",
+            None,
+        )
+        .await
+        .unwrap();
         assert_denied(
             &state,
             &seen,

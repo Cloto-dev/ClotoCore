@@ -438,6 +438,9 @@ struct InstallState<'a> {
     /// The version the install receipt recorded for this entry's directory.
     /// The only record of what was installed for a connector with no row.
     receipt_version: Option<&'a str>,
+    /// The archive digest the install receipt recorded, for the same reason:
+    /// a connector with no row has nowhere else to keep it.
+    receipt_archive_sha256: Option<&'a str>,
 }
 
 impl<'a> InstallState<'a> {
@@ -467,6 +470,7 @@ impl<'a> InstallState<'a> {
                     ),
                 ),
             receipt_version: None,
+            receipt_archive_sha256: None,
         }
     }
 
@@ -480,11 +484,11 @@ impl<'a> InstallState<'a> {
     ) -> Self {
         if self.has_files {
             let dir = effective_install_dir(entry);
-            self.receipt_version = receipts
-                .iter()
-                .find(|r| r.connector_dir == dir)
+            let receipt = receipts.iter().find(|r| r.connector_dir == dir);
+            self.receipt_version = receipt
                 .map(|r| r.version.as_str())
                 .filter(|v| !v.is_empty());
+            self.receipt_archive_sha256 = receipt.and_then(|r| r.archive_sha256.as_deref());
         }
         self
     }
@@ -544,9 +548,16 @@ impl<'a> InstallState<'a> {
             .or(self.receipt_version)
     }
 
+    /// The archive digest of what was installed, read the way
+    /// [`Self::installed_version`] is: the row first, the receipt when there is
+    /// no row. Without the receipt, a connector that ships only panels has no
+    /// digest, and a republish that kept its version is never offered — which
+    /// is the ordinary shape of a panel update (its manifest's `writes` change,
+    /// its version does not).
     fn installed_archive_sha256(&self) -> Option<&str> {
         self.recorded_in()
             .and_then(|r| r.installed_archive_sha256.as_deref())
+            .or(self.receipt_archive_sha256)
     }
 
     /// The catalog and the install guard reach opposite answers for this entry.
@@ -1963,6 +1974,7 @@ async fn record_install_receipt(state: &AppState, entry: &RegistryEntry, seal: O
         &entry.trust_level,
         seal,
         &entry.version,
+        catalog_archive_digest(entry).as_deref(),
     )
     .await
     {
@@ -4839,6 +4851,7 @@ mod tests {
             seal: None,
             version: version.into(),
             installed_at: String::new(),
+            archive_sha256: None,
         }
     }
 
@@ -5839,6 +5852,47 @@ mod tests {
             package_manager: None,
         });
         e
+    }
+
+    /// The same case for a connector that ships only panels. It has no row, so
+    /// the digest it was installed from lives on the receipt; without reading
+    /// it there, a republish that changed the panel and kept the version never
+    /// shows as an update.
+    #[test]
+    fn a_panel_connectors_republish_is_an_update_through_its_receipt() {
+        let root = temp_dir("receipt-digest");
+        place_connector(
+            &root,
+            "demo",
+            r#"{"spec_version":1,"connector_type":"ui_module"}"#,
+        );
+        let mut installed = receipt("demo", "0.1.0");
+        installed.archive_sha256 = Some(ARCHIVE_A.into());
+        let receipts = vec![installed];
+
+        let offers = |catalog: &RegistryEntry| {
+            let state =
+                InstallState::resolve(&[], catalog, &root).with_receipts(&receipts, catalog);
+            catalog_offers_an_update(
+                state.installed_version(),
+                state.installed_archive_sha256(),
+                catalog,
+            )
+        };
+        assert!(offers(&entry_with_archive("0.1.0", Some(ARCHIVE_B))));
+        assert!(!offers(&entry_with_archive("0.1.0", Some(ARCHIVE_A))));
+
+        // A row, where there is one, still answers first.
+        let republished = entry_with_archive("0.1.0", Some(ARCHIVE_B));
+        let mut row = install_row("demo", Some("demo"), "python");
+        row.installed_version = Some("0.1.0".into());
+        row.installed_archive_sha256 = Some(ARCHIVE_B.into());
+        let rows = [row];
+        let state = InstallState::resolve(&rows, &republished, &root)
+            .with_receipts(&receipts, &republished);
+        assert_eq!(state.installed_archive_sha256(), Some(ARCHIVE_B));
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]
