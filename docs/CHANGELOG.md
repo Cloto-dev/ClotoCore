@@ -61,6 +61,23 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   placed, because a connector that ships only panels has no server row to keep
   them in. Design: `docs/PANEL_WRITE_GATE_DESIGN.md`.
 
+- **An agent's model and effort can be chosen within a range.**
+  `POST /api/agents/:id/engine-selection` changes only `model` and `effort` in
+  the agent's engine settings (the metadata key named after its engine), and
+  only to values listed in the same settings' `allowed_models` and
+  `allowed_efforts`. The range itself is written elsewhere — by whoever owns the
+  agent's desired state — and cannot be widened here. The write is a
+  compare-and-set, so a concurrent change is a 409 rather than a lost update,
+  and every change is audited (`AGENT_ENGINE_SELECTED`, from and to). It exists
+  so a connector panel can offer the choice without being given
+  `POST /api/agents/:id`, which can rename the agent or change its engine.
+
+- **Last usage shows the model an engine actually ran on.** When an engine
+  reports `model` / `reasoning_effort` in its response, `GET
+  /api/agents/:id/last-usage` shows those instead of the provider's configured
+  model. An engine that drives an external harness knows what the harness ran;
+  the provider row only knows what was configured.
+
 - **A consent can say who gave it.** `PUT /api/modules/:id/write-consent`
   accepts an optional `{"note": "..."}` and writes it into the audit row. A
   release script that re-consents after shipping a new version and a person

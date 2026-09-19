@@ -27,7 +27,13 @@ pub struct LastUsage {
     /// compute "input/max" without a second DB lookup.
     pub context_length: Option<i64>,
     pub provider_id: String,
+    /// The model the engine reports it ran on, when it reports one (an engine
+    /// driving an external harness knows it and the provider row does not);
+    /// otherwise the provider's configured model.
     pub model_id: String,
+    /// The reasoning effort the engine reports it ran at, when it reports one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     /// True when `prompt_tokens` came from the pre-flight char-based estimate
     /// rather than the provider's reported usage (e.g. if the MCP server didn't
     /// include the `usage` field).
@@ -104,6 +110,7 @@ mod tests {
             context_length: Some(4096),
             provider_id: "local".into(),
             model_id: "qwen/qwen3.5-9b".into(),
+            reasoning_effort: None,
             is_estimate: false,
             updated_at: Utc::now(),
         };
@@ -124,6 +131,7 @@ mod tests {
             context_length: None,
             provider_id: "p".into(),
             model_id: "m".into(),
+            reasoning_effort: None,
             is_estimate: false,
             updated_at: Utc::now(),
         };
