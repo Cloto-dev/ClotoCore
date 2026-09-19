@@ -865,8 +865,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             Some((val,)) if !val.is_empty() => val,
             _ => std::env::var("LANG")
                 .ok()
-                .and_then(|l| l.split(['_', '.']).next().map(str::to_string))
-                .filter(|s| !s.is_empty())
+                .and_then(|l| language_from_locale(&l))
                 .unwrap_or_else(|| "en".to_string()),
         }
     };
@@ -2142,6 +2141,41 @@ async fn bind_with_retry(
         }
     }
     unreachable!()
+}
+
+/// The language a POSIX locale names, when it names one: `ja_JP.UTF-8` -> `ja`.
+///
+/// `C` and `POSIX` are locales without a language — the usual `LANG` of a
+/// system service — and taking their first segment as a language code puts
+/// "respond in C" into every agent's prompt, which a model reads as the
+/// programming language. Only a 2–3 letter ISO 639 code is taken; anything
+/// else is no answer, and the caller falls back to its default.
+fn language_from_locale(locale: &str) -> Option<String> {
+    let code = locale.split(['_', '.', '@']).next()?;
+    let is_code = (2..=3).contains(&code.len()) && code.bytes().all(|b| b.is_ascii_lowercase());
+    is_code.then(|| code.to_string())
+}
+
+#[cfg(test)]
+mod language_from_locale_tests {
+    use super::language_from_locale;
+
+    #[test]
+    fn a_locale_with_a_language_gives_its_code() {
+        assert_eq!(language_from_locale("ja_JP.UTF-8").as_deref(), Some("ja"));
+        assert_eq!(language_from_locale("en_US").as_deref(), Some("en"));
+        assert_eq!(language_from_locale("fil_PH.UTF-8").as_deref(), Some("fil"));
+        assert_eq!(language_from_locale("de").as_deref(), Some("de"));
+        assert_eq!(language_from_locale("sr@latin").as_deref(), Some("sr"));
+    }
+
+    /// The case that put "respond in C" into the prompt on a headless host.
+    #[test]
+    fn a_locale_without_a_language_gives_none() {
+        for locale in ["C", "C.UTF-8", "POSIX", "", ".UTF-8", "EN_us", "english"] {
+            assert_eq!(language_from_locale(locale), None, "{locale:?}");
+        }
+    }
 }
 
 #[cfg(test)]
