@@ -18,6 +18,9 @@ pub struct InstallReceipt {
     pub seal: Option<String>,
     pub version: String,
     pub installed_at: String,
+    /// The archive digest the catalog advertised for this install (lowercase
+    /// hex), or `None` when it advertised none.
+    pub archive_sha256: Option<String>,
 }
 
 /// Record (or replace) the receipt for one installed tree.
@@ -30,19 +33,23 @@ pub async fn upsert_install_receipt(
     trust_level: &str,
     seal: Option<&str>,
     version: &str,
+    archive_sha256: Option<&str>,
 ) -> anyhow::Result<()> {
     let query_future = sqlx::query(
         "INSERT INTO connector_install_receipts \
-         (connector_dir, trust_level, seal, version, installed_at) VALUES (?, ?, ?, ?, ?) \
+         (connector_dir, trust_level, seal, version, installed_at, archive_sha256) \
+         VALUES (?, ?, ?, ?, ?, ?) \
          ON CONFLICT(connector_dir) DO UPDATE SET \
          trust_level = excluded.trust_level, seal = excluded.seal, \
-         version = excluded.version, installed_at = excluded.installed_at",
+         version = excluded.version, installed_at = excluded.installed_at, \
+         archive_sha256 = excluded.archive_sha256",
     )
     .bind(connector_dir)
     .bind(trust_level)
     .bind(seal)
     .bind(version)
     .bind(chrono::Utc::now().to_rfc3339())
+    .bind(archive_sha256)
     .execute(pool);
     db_timeout(query_future).await?;
     Ok(())
@@ -53,7 +60,7 @@ pub async fn upsert_install_receipt(
 /// placed).
 pub async fn list_install_receipts(pool: &SqlitePool) -> anyhow::Result<Vec<InstallReceipt>> {
     let query_future = sqlx::query_as::<_, InstallReceipt>(
-        "SELECT connector_dir, trust_level, seal, version, installed_at \
+        "SELECT connector_dir, trust_level, seal, version, installed_at, archive_sha256 \
          FROM connector_install_receipts",
     )
     .fetch_all(pool);
@@ -65,7 +72,7 @@ pub async fn get_install_receipt(
     connector_dir: &str,
 ) -> anyhow::Result<Option<InstallReceipt>> {
     let query_future = sqlx::query_as::<_, InstallReceipt>(
-        "SELECT connector_dir, trust_level, seal, version, installed_at \
+        "SELECT connector_dir, trust_level, seal, version, installed_at, archive_sha256 \
          FROM connector_install_receipts WHERE connector_dir = ?",
     )
     .bind(connector_dir)
@@ -147,4 +154,47 @@ pub async fn delete_panel_write_consent(pool: &SqlitePool, panel_id: &str) -> an
         .bind(panel_id)
         .execute(pool);
     Ok(db_timeout(query_future).await?.rows_affected() > 0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn pool() -> SqlitePool {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::MIGRATOR.run(&pool).await.unwrap();
+        pool
+    }
+
+    /// The digest goes in with the install and comes back out, and a reinstall
+    /// from a catalog that carries none clears it rather than keeping the digest
+    /// of the tree it replaced.
+    #[tokio::test]
+    async fn a_receipt_keeps_the_archive_digest_of_the_install_it_describes() {
+        let pool = pool().await;
+        let digest = "a".repeat(64);
+
+        upsert_install_receipt(
+            &pool,
+            "panel",
+            "standard",
+            Some("seal"),
+            "1.0.0",
+            Some(&digest),
+        )
+        .await
+        .unwrap();
+        let read = get_install_receipt(&pool, "panel").await.unwrap().unwrap();
+        assert_eq!(read.archive_sha256.as_deref(), Some(digest.as_str()));
+        assert_eq!(read.version, "1.0.0");
+        assert_eq!(read.seal.as_deref(), Some("seal"));
+        let listed = list_install_receipts(&pool).await.unwrap();
+        assert_eq!(listed[0].archive_sha256.as_deref(), Some(digest.as_str()));
+
+        upsert_install_receipt(&pool, "panel", "standard", Some("seal"), "1.0.0", None)
+            .await
+            .unwrap();
+        let read = get_install_receipt(&pool, "panel").await.unwrap().unwrap();
+        assert_eq!(read.archive_sha256, None);
+    }
 }
