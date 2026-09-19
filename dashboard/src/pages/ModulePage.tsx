@@ -2,6 +2,7 @@ import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams } from 'react-router-dom';
+import '../components/Workshop.css';
 import { AlertCard } from '../components/ui/AlertCard';
 import { useApi } from '../hooks/useApi';
 import { useModules } from '../hooks/useModules';
@@ -150,9 +151,10 @@ export function ModulePage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-edge bg-surface-panel">
+      {/* The workshop's head: on the page's own surface, so the window bar above it reads as the same surface, not as a gap. */}
+      <div className="ws-head">
         <div className="min-w-0">
-          <h1 className="text-sm font-mono font-bold text-content-primary truncate">{title}</h1>
+          <h1 className="truncate">{title}</h1>
           {entry?.description && <p className="text-xs text-content-tertiary truncate">{entry.description}</p>}
         </div>
         {canWrite && (
@@ -178,7 +180,7 @@ export function ModulePage() {
       </div>
 
       {canWrite && showWrites && (
-        <div className="px-4 py-3 border-b border-edge bg-surface-panel text-xs text-content-secondary">
+        <div className="px-6 py-3 border-b border-edge bg-surface-panel text-xs text-content-secondary">
           <p>{t('module_write_list_title')}</p>
           <ul className="mt-1 list-disc pl-5">
             {writeLines.map((l) => (
@@ -190,7 +192,7 @@ export function ModulePage() {
 
       {access && !access.eligible && (
         // A sentence, not an identifier, so not the monospace AlertCard.
-        <p className="px-4 pt-4 text-xs text-amber-400">
+        <p className="px-6 pt-2 text-xs text-amber-400">
           {t('module_write_ineligible', { reason: access.reason ?? '' })}
         </p>
       )}
@@ -198,7 +200,7 @@ export function ModulePage() {
       {asksConsent && (
         <section
           aria-label={t('module_write_consent_title')}
-          className="mx-4 mt-4 p-3 rounded-lg border border-edge bg-surface-panel text-xs text-content-secondary"
+          className="mx-6 mt-2 p-3 rounded-lg border border-edge bg-surface-panel text-xs text-content-secondary"
         >
           <h2 className="text-sm font-bold text-content-primary">{t('module_write_consent_title')}</h2>
           {access?.consent && !access.consent.valid && <p className="mt-1">{t('module_write_consent_lapsed')}</p>}
@@ -228,7 +230,7 @@ export function ModulePage() {
         </section>
       )}
 
-      <div className="flex-1 min-h-0 p-4">
+      <div className="flex-1 min-h-0 px-6 pt-2 pb-4">
         {rejected ? (
           <AlertCard variant="error">
             <span className="flex items-start gap-2">
