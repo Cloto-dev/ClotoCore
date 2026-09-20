@@ -12,7 +12,7 @@
  * nothing has quietly written the raw colour back.
  */
 
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { contrastOf, type Hsl, MIN_CONTRAST } from '../validate';
@@ -87,10 +87,10 @@ describe('nothing writes the state colour by hand', () => {
   function stylesheets(): Array<[string, string]> {
     const out: Array<[string, string]> = [];
     const walk = (dir: string) => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = join(dir, entry.name);
-        if (entry.isDirectory()) walk(full);
-        else if (entry.name.endsWith('.css')) out.push([full, readFileSync(full, 'utf8')]);
+      for (const name of readdirSync(dir)) {
+        const full = join(dir, name);
+        if (statSync(full).isDirectory()) walk(full);
+        else if (name.endsWith('.css')) out.push([full, readFileSync(full, 'utf8')]);
       }
     };
     walk('src');
