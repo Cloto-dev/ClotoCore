@@ -24,6 +24,7 @@ const apiFns = vi.hoisted(() => ({
   getAgentAccess: vi.fn(),
   listCronJobs: vi.fn(),
   getNotifications: vi.fn(),
+  getUnreadAgents: vi.fn(),
   markNotificationRead: vi.fn(),
   getAvatarUrl: vi.fn(() => 'avatar.png'),
   createAgent: vi.fn(),
@@ -114,6 +115,7 @@ beforeEach(() => {
   data.servers = [];
   data.conversations = [];
   apiFns.getMemories.mockResolvedValue({ memories: [], capabilities: {} });
+  apiFns.getUnreadAgents.mockResolvedValue([]);
   apiFns.getAgentAccess.mockResolvedValue({ entries: [] });
   apiFns.listCronJobs.mockResolvedValue({ jobs: [] });
   apiFns.getNotifications.mockResolvedValue([]);

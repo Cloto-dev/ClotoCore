@@ -33,6 +33,7 @@ mod chat_search_test;
 mod concurrent_events_test;
 mod consensus_test;
 mod conversation_title_test;
+mod conversation_unread_test;
 mod conversations_test;
 mod corrupt_db_recovery_test;
 mod e2e_workflows_test;

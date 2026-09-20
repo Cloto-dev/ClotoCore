@@ -758,6 +758,44 @@ pub async fn update_conversation(
     ok_data(serde_json::to_value(updated).unwrap_or(serde_json::Value::Null))
 }
 
+/// POST /api/chat/:agent_id/conversations/:conversation_id/read — the person
+/// has looked at this thread.
+///
+/// Separate from reading the messages, because the two are asked by different
+/// things: a panel or an export reads a thread without a person's eyes on it,
+/// and marking those read would clear a mark nobody earned.
+pub async fn mark_conversation_read(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((agent_id, conversation_id)): Path<(String, String)>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let row = owned_conversation(&state, &agent_id, &conversation_id).await?;
+    let at_ms = chrono::Utc::now().timestamp_millis();
+    db::mark_conversation_read(&state.pool, &row.id, at_ms).await?;
+    ok_data(serde_json::json!({ "last_read_at": at_ms }))
+}
+
+#[derive(Deserialize, Default)]
+pub struct UnreadQuery {
+    pub user_id: Option<String>,
+}
+
+/// GET /api/chat/unread — the agents who have said something unread.
+///
+/// Agent ids, not counts: the roster draws one mark per row, and a number would
+/// be a second thing to keep true for no one who reads it.
+pub async fn unread_agents(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Query(params): Query<UnreadQuery>,
+) -> AppResult<Json<serde_json::Value>> {
+    super::check_auth(&state, &headers)?;
+    let user_id = params.user_id.as_deref().unwrap_or(DEFAULT_USER_ID);
+    let agents = db::agents_with_unread(&state.pool, user_id).await?;
+    ok_data(serde_json::json!({ "agents": agents }))
+}
+
 /// DELETE /api/chat/:agent_id/conversations/:conversation_id — immediate and permanent.
 pub async fn delete_conversation(
     State(state): State<Arc<AppState>>,
