@@ -149,7 +149,7 @@ Always review this list before making code changes and adhere to the constraints
 | Feature | GitHub Pages landing page (OS auto-detection) | Done |
 | Infra | GitHub Actions release workflow (5 platforms + installer) | Done |
 
-**Test Count:** 1943 tests (Rust 1292 + Dashboard 651)
+**Test Count:** 1953 tests (Rust 1292 + Dashboard 661)
 **Audit Score:** 90+/100
 
 ### Remaining Items (Next Phase)
