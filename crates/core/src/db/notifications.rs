@@ -139,15 +139,12 @@ impl NotificationItem {
     #[must_use]
     pub fn message(mut self, key: impl Into<String>, params: serde_json::Value) -> Self {
         let message = serde_json::json!({ "key": key.into(), "params": params });
-        match self.metadata {
-            Some(serde_json::Value::Object(ref mut map)) => {
-                map.insert(MESSAGE_KEY.to_string(), message);
-            }
-            _ => {
-                let mut map = serde_json::Map::new();
-                map.insert(MESSAGE_KEY.to_string(), message);
-                self.metadata = Some(serde_json::Value::Object(map));
-            }
+        if let Some(serde_json::Value::Object(ref mut map)) = self.metadata {
+            map.insert(MESSAGE_KEY.to_string(), message);
+        } else {
+            let mut map = serde_json::Map::new();
+            map.insert(MESSAGE_KEY.to_string(), message);
+            self.metadata = Some(serde_json::Value::Object(map));
         }
         self
     }

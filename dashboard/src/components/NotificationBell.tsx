@@ -24,6 +24,7 @@ import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useApi } from '../hooks/useApi';
+import { notificationText } from '../lib/notificationMessage';
 import { type DisplayLevel, displayLevel, interrupts, loadThreshold, saveThreshold } from '../lib/notificationSeverity';
 import type { NotificationItem, NotificationSummary } from '../services/api';
 import { RAISE_APPROVAL_EVENT } from './CommandApprovalDeck';
@@ -50,7 +51,7 @@ const LEVEL_STYLE: Record<DisplayLevel, string> = {
 };
 
 export function NotificationBell() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const api = useApi();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<NotificationSummary>({ waiting: 0, blocking: 0 });
@@ -290,6 +291,10 @@ export function NotificationBell() {
               <ul>
                 {items.map((item) => {
                   const level = displayLevel(item.severity);
+                  // The kernel writes these in English and cannot know who is
+                  // reading; `metadata.message` is how a notice says which
+                  // sentence it is, so the pack can say it in this language.
+                  const said = notificationText(item, t, i18n.language);
                   return (
                     <li
                       key={item.item_id}
@@ -301,10 +306,10 @@ export function NotificationBell() {
                           {t(`notifications.level_${level}`, { defaultValue: level })}
                         </span>
                         <div className="min-w-0 flex-1">
-                          <div className="text-xs text-content-primary break-words">{item.title}</div>
-                          {item.body && (
+                          <div className="text-xs text-content-primary break-words">{said.title}</div>
+                          {said.body && (
                             <div className="mt-0.5 text-xs font-mono text-content-tertiary break-words whitespace-pre-wrap">
-                              {item.body}
+                              {said.body}
                             </div>
                           )}
                           <div className="mt-1 flex items-center gap-2 text-xs font-mono text-content-tertiary">

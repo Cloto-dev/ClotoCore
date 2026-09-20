@@ -89,6 +89,46 @@
     "answer": "Answer",
     "answer_yes": "Yes",
     "answer_no": "No",
-    "open_link": "Open"
+    "open_link": "Open",
+    "messages": {
+      "kernel": {
+        "shutdown": {
+          "title": "Kernel shutting down for maintenance"
+        }
+      },
+      "command": {
+        "awaiting_approval": {
+          "title": "{{n}} command(s) awaiting approval"
+        },
+        "denied_unanswered": {
+          "title": "{{n}} command(s) denied — the request closed before anyone answered"
+        }
+      },
+      "hub_access": {
+        "expires_soon": {
+          "title": "The hub access token expires soon",
+          "body": "It expires on {{date}}. Renew it in Settings → Security to keep receiving updates for {{n}} restricted connector(s). Installed connectors are not affected."
+        },
+        "expired": {
+          "title": "The hub access token has expired",
+          "body": "Restricted connectors can no longer be updated. Installed ones keep working. An expired token cannot be renewed; ask for a new one to be issued on the hub and set it in Settings → Security."
+        },
+        "refused": {
+          "title": "The hub refused this kernel's access token",
+          "body": "Restricted connectors are hidden from the catalog and cannot be updated until a valid token is set in Settings → Security. Installed ones keep working."
+        }
+      },
+      "tool": {
+        "rejected": {
+          "title": "'{{tool}}' was rejected"
+        }
+      },
+      "mcp": {
+        "permission_needed": {
+          "title": "'{{server}}' needs the '{{permission}}' capability",
+          "body": "The server is blocked from starting until this is granted or denied."
+        }
+      }
+    }
   }
 }

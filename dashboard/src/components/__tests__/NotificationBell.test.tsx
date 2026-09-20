@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (k: string, o?: Record<string, unknown>) => (o?.count !== undefined ? `${k}:${String(o.count)}` : k),
+    // The bell reads the reader's language to spell the values a keyed notice
+    // carries. Absent here, every render throws — the double has to carry the
+    // whole of what the component uses, not the part it used to.
+    i18n: { language: 'en' },
   }),
 }));
 
@@ -267,6 +271,45 @@ describe('NotificationBell', () => {
     await screen.findByTestId('notification-item');
 
     expect(screen.queryByTestId('raise-approval')).not.toBeInTheDocument();
+  });
+});
+
+describe('a notice the kernel keyed', () => {
+  /**
+   * The bell asks the pack, rather than printing what the kernel wrote.
+   *
+   * Pinned on the component and not only on `notificationText`: a test that
+   * drives the helper directly stays green with the bell reverted to
+   * `{item.title}`, which is exactly the regression worth catching. The mocked
+   * `t` answers with the key it was given, so the key appearing on screen is
+   * proof the lookup happened.
+   */
+  it('shows what the pack says for the key, not the English the kernel sent', async () => {
+    getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 0 });
+    getNotifications.mockResolvedValue([
+      item({
+        blocking: false,
+        title: 'Kernel shutting down for maintenance',
+        body: null,
+        metadata: { message: { key: 'kernel.shutdown', params: {} } },
+      }),
+    ]);
+    render(<NotificationBell />, { wrapper: MemoryRouter });
+    fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
+
+    expect(await screen.findByText('notifications.messages.kernel.shutdown.title')).toBeTruthy();
+    expect(screen.queryByText('Kernel shutting down for maintenance')).toBeNull();
+  });
+
+  it('shows the kernel’s own words when the notice carries no key', async () => {
+    getNotificationSummary.mockResolvedValue({ waiting: 1, blocking: 0 });
+    getNotifications.mockResolvedValue([
+      item({ blocking: false, title: 'Shall I retire the timer?', body: null, metadata: null }),
+    ]);
+    render(<NotificationBell />, { wrapper: MemoryRouter });
+    fireEvent.click(await screen.findByRole('button', { name: 'notifications.open' }));
+
+    expect(await screen.findByText('Shall I retire the timer?')).toBeTruthy();
   });
 });
 

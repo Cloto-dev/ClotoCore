@@ -215,7 +215,7 @@ pub(crate) fn expiry_notice(status: &AccessStatus, now: DateTime<Utc>) -> Option
                 "hub_access.expires_soon",
                 serde_json::json!({
                     "expires_at": status.expires_at.to_rfc3339(),
-                    "count": status.connector_ids.len(),
+                    "n": status.connector_ids.len(),
                 }),
             ),
             ExpiryStage::Expired => (
@@ -372,7 +372,7 @@ mod tests {
             soon_msg["params"]["expires_at"], "2026-12-19T00:00:00+00:00",
             "the date is handed over in RFC 3339 for the reader to format"
         );
-        assert_eq!(soon_msg["params"]["count"], 1);
+        assert_eq!(soon_msg["params"]["n"], 1);
 
         // The English text stays put as the fallback, and `.metadata()` runs
         // after `.message()` at this site — so this also holds that the later
