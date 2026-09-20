@@ -59,3 +59,4 @@ mod sse_streaming_test;
 mod system_loop_test;
 mod tool_hint_access_test;
 mod tool_rejection_smoke;
+mod vision_gate_test;
