@@ -818,7 +818,12 @@ export function AgentConsole({
     const failed = failedSends[msg.id];
     if (!failed || isTyping || pendingResponse) return;
     dropFailedSend(msg.id);
-    sendMessage(failed.blocks, undefined, failed.engineOverride);
+    // An edit is a branch under the turn it replaces, and only the edit path
+    // carries a parent. Sending it again through the plain path would put it
+    // at the end of the conversation instead, leaving the branch the user was
+    // rewriting showing the version that never went out.
+    if (msg.parent_id) void sendEdit(msg.parent_id, failed.blocks, '', failed.engineOverride);
+    else void sendMessage(failed.blocks, undefined, failed.engineOverride);
   };
 
   // The new chat screen hands its first message over by mounting this console
@@ -906,8 +911,21 @@ export function AgentConsole({
   };
 
   // Edit handler: resend edited user message as a new branch
-  const handleEditMessage = async (blocks: ContentBlock[], rawText: string, engineOverride: string | null) => {
-    if (!editingMessage || isTyping || pendingResponse) return;
+  /**
+   * Send a turn as a branch under `parentId` — the edit of an existing turn.
+   *
+   * The parent is taken as an argument rather than read from `editingMessage`
+   * because this also runs when an edit that failed is sent again, and by then
+   * no edit is open. Reading the state there would branch from whatever was
+   * being edited at that moment, or from nothing.
+   */
+  const sendEdit = async (
+    parentId: string | undefined,
+    blocks: ContentBlock[],
+    rawText: string,
+    engineOverride: string | null,
+  ) => {
+    if (isTyping || pendingResponse) return;
 
     const text = rawText?.trim() || '';
     const contentBlocks = blocks?.length ? blocks : text ? [{ type: 'text' as const, text }] : [];
@@ -915,7 +933,6 @@ export function AgentConsole({
 
     const now = Date.now();
     const editId = `edit-${now}`;
-    const parentId = editingMessage.parent_id ?? undefined;
 
     // Count existing siblings to determine branch_index
     const siblingCount = messages.filter((m) => m.parent_id === parentId && m.source === 'user').length;
@@ -932,7 +949,6 @@ export function AgentConsole({
     };
 
     setMessages((prev) => [...prev, userMsg]);
-    setEditingMessage(null);
     setIsTyping(true);
     setThinkingSteps([]);
     sendTimestampRef.current = now;
@@ -964,10 +980,18 @@ export function AgentConsole({
       };
       await api.postChat(clotoMsg);
     } catch (err) {
-      setMessages((prev) => prev.filter((m) => m.id !== editId));
+      // Same as a first send that did not go out: the edit stays on the branch
+      // it was written on, marked with the reason. Removing it took the
+      // rewritten text away with it and said nothing, so the only trace was a
+      // console line in a development build.
       setIsTyping(false);
       inflightSourceIdRef.current = null;
-      if (import.meta.env.DEV) console.error('Failed to send edited message:', err);
+      const reason = err instanceof Error ? err.message : '';
+      if (import.meta.env.DEV) console.error('Failed to send edited message:', reason);
+      setFailedSends((prev) => ({
+        ...prev,
+        [editId]: { reason, blocks: contentBlocks, engineOverride: engineOverride ?? null },
+      }));
     }
   };
 
@@ -975,17 +999,22 @@ export function AgentConsole({
     (blocks: ContentBlock[], rawText: string, engineOverride: string | null) => {
       if (editingMessage && failedSends[editingMessage.id]) {
         // A message the kernel never received has nothing to branch from: its
-        // edit is sent as a new message in its place.
+        // edit is sent in its place. If it was itself an edit, the turn it
+        // branched from did reach the kernel, so the replacement stays on that
+        // branch rather than arriving as a new message at the end.
+        const parentId = editingMessage.parent_id ?? undefined;
         dropFailedSend(editingMessage.id);
         setEditingMessage(null);
-        sendMessage(blocks, rawText, engineOverride);
+        if (parentId) void sendEdit(parentId, blocks, rawText, engineOverride);
+        else void sendMessage(blocks, rawText, engineOverride);
       } else if (editingMessage) {
-        handleEditMessage(blocks, rawText, engineOverride);
+        setEditingMessage(null);
+        void sendEdit(editingMessage.parent_id ?? undefined, blocks, rawText, engineOverride);
       } else {
-        sendMessage(blocks, rawText, engineOverride);
+        void sendMessage(blocks, rawText, engineOverride);
       }
     },
-    [editingMessage, failedSends, dropFailedSend, handleEditMessage, sendMessage],
+    [editingMessage, failedSends, dropFailedSend, sendEdit, sendMessage],
   );
 
   // Retry handler: remove old response immediately, re-generate in place
