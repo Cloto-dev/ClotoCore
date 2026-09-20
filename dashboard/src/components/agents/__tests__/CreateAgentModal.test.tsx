@@ -85,7 +85,8 @@ describe('making a new agent', () => {
     await waitFor(() => expect(apiFns.createAgent).toHaveBeenCalledTimes(1));
     const payload = apiFns.createAgent.mock.calls[0][0];
     expect(payload.id).toBe('sakura-bot');
-    expect(payload.name).toBe('さくら', 'the name is whatever was written');
+    // The name is whatever was written; only the id was narrowed.
+    expect(payload.name).toBe('さくら');
   });
 
   it('will not create with an id the kernel would refuse, and says why', async () => {
