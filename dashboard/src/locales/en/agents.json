@@ -326,6 +326,8 @@
     "vrm_present": "A model is set.",
     "vrm_absent": "No model.",
     "colour": "Colour",
+    "vision": "Vision",
+    "vision_sub": "Read images that are shown in chat",
     "colour_sub": "The accent this agent wears on screen",
     "colour_hint": "Used on their mark, on send, and on the edge of a question they ask.",
     "accent_invalid": "Write a colour as hsl(H S% L%) — hue 0–360, the rest 0–100.",

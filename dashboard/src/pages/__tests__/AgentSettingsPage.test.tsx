@@ -236,6 +236,29 @@ describe('the settings page, on Save', () => {
     expect(payload.name).toBeUndefined();
   });
 
+  it('turns image reading off by writing the key, and leaves it out while it is on', async () => {
+    // Opt-out, like every other default on this page: the key exists only to say
+    // no. An agent nobody configured must carry no opinion, so that the kernel's
+    // default and the panel's default cannot drift apart.
+    await draw();
+    const toggle = screen.getByLabelText('settings.vision');
+    expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+    fireEvent.click(toggle);
+    expect(apiFns.updateAgent).not.toHaveBeenCalled(); // deferred until Save
+    fireEvent.click(screen.getByText('save'));
+    await waitFor(() => expect(apiFns.updateAgent).toHaveBeenCalledTimes(1));
+    expect(apiFns.updateAgent.mock.calls[0][1].metadata.vision_auto_analyze).toBe('off');
+  });
+
+  it('carries no image-reading key for an agent that was never switched off', async () => {
+    await draw();
+    fireEvent.change(screen.getByLabelText('form.name'), { target: { value: 'Renamed' } });
+    fireEvent.click(screen.getByText('save'));
+    await waitFor(() => expect(apiFns.updateAgent).toHaveBeenCalledTimes(1));
+    expect(apiFns.updateAgent.mock.calls[0][1].metadata).not.toHaveProperty('vision_auto_analyze');
+  });
+
   it('sets the password only when it was typed, and carries the current one when one is set', async () => {
     data.agents = [agent({ metadata: { preferred_memory: 'cpersona', has_power_password: 'true' } })];
     await draw();
