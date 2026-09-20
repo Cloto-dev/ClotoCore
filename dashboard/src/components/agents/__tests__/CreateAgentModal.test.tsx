@@ -59,6 +59,53 @@ describe('making a new agent', () => {
     expect(apiFns.createAgent.mock.calls[0][0].name).toBe('Mira Vale');
   });
 
+  /** Fill the three required fields and press Create. */
+  function fill(name = 'Mira') {
+    fireEvent.change(screen.getByLabelText('form.name'), { target: { value: name } });
+    fireEvent.change(screen.getByLabelText('form.description'), { target: { value: 'Keeps notes.' } });
+    fireEvent.click(screen.getByLabelText('form.llm_engine'));
+    fireEvent.pointerDown(screen.getByText('ollama'));
+  }
+
+  it('sends no id when none was typed, leaving the kernel to take one from the name', async () => {
+    // One implementation of "what id does this name suggest", and it is the
+    // kernel's. A second one here would be free to drift from it.
+    render(<CreateAgentModal onClose={vi.fn()} onCreated={vi.fn()} />);
+    fill();
+    fireEvent.click(screen.getByText('create'));
+    await waitFor(() => expect(apiFns.createAgent).toHaveBeenCalledTimes(1));
+    expect(apiFns.createAgent.mock.calls[0][0].id).toBeUndefined();
+  });
+
+  it('sends the id that was typed', async () => {
+    render(<CreateAgentModal onClose={vi.fn()} onCreated={vi.fn()} />);
+    fill('さくら');
+    fireEvent.change(screen.getByLabelText('form.id'), { target: { value: ' sakura-bot ' } });
+    fireEvent.click(screen.getByText('create'));
+    await waitFor(() => expect(apiFns.createAgent).toHaveBeenCalledTimes(1));
+    const payload = apiFns.createAgent.mock.calls[0][0];
+    expect(payload.id).toBe('sakura-bot');
+    // The name is whatever was written; only the id was narrowed.
+    expect(payload.name).toBe('さくら');
+  });
+
+  it('will not create with an id the kernel would refuse, and says why', async () => {
+    // Being told after typing a whole form is worse than being unable to type
+    // it: the id is the one field whose charset the kernel will not bend on.
+    render(<CreateAgentModal onClose={vi.fn()} onCreated={vi.fn()} />);
+    fill();
+    for (const bad of ['Sakura', 'さくら', '-leading', 'has space']) {
+      fireEvent.change(screen.getByLabelText('form.id'), { target: { value: bad } });
+      expect(screen.getByText('form.id_invalid')).toBeTruthy();
+      fireEvent.click(screen.getByText('create'));
+      expect(apiFns.createAgent).not.toHaveBeenCalled();
+    }
+    fireEvent.change(screen.getByLabelText('form.id'), { target: { value: 'sakura' } });
+    expect(screen.queryByText('form.id_invalid')).toBeNull();
+    fireEvent.click(screen.getByText('create'));
+    await waitFor(() => expect(apiFns.createAgent).toHaveBeenCalledTimes(1));
+  });
+
   it('will not create until it has a name, a description and an engine', () => {
     render(<CreateAgentModal onClose={vi.fn()} onCreated={vi.fn()} />);
     const create = screen.getByText('create');
