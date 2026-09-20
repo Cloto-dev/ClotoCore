@@ -12,6 +12,10 @@
   "form": {
     "type": "Type",
     "name": "Name",
+    "id": "Id",
+    "id_sub": "Ascii only; taken from the name when left blank",
+    "id_placeholder": "sakura-bot",
+    "id_invalid": "Lowercase letters, digits, - and _, starting with a letter or digit.",
     "name_placeholder": "e.g. Mike",
     "description": "Description",
     "desc_placeholder": "Describe the agent's role",

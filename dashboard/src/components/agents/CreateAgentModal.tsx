@@ -27,6 +27,12 @@ interface Props {
  * start, and a first-run form that opens with six empty controls teaches that
  * this is complicated.
  */
+// HARDCODED(crates/core/src/managers/agents.rs::is_agent_slug): the kernel
+// refuses anything else, and typing a whole name before being told so is worse
+// than being unable to type it. Only the charset is copied; the id a name
+// suggests is still worked out in one place, by the kernel.
+const AGENT_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
 export function CreateAgentModal({ initialName = '', onClose, onCreated }: Props) {
   const { t } = useTranslation('agents');
   const { t: tc } = useTranslation('common');
@@ -111,7 +117,9 @@ export function CreateAgentModal({ initialName = '', onClose, onCreated }: Props
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
-  const canCreate = Boolean(form.name && form.desc && form.engine) && !isCreating;
+  const idTyped = form.id.trim();
+  const canCreate =
+    Boolean(form.name && form.desc && form.engine) && (!idTyped || AGENT_ID.test(idTyped)) && !isCreating;
 
   return (
     // The backdrop is the pointer's way out; Escape is the keyboard's, bound above.
@@ -135,6 +143,23 @@ export function CreateAgentModal({ initialName = '', onClose, onCreated }: Props
               value={form.name}
               onChange={(e) => updateField('name', e.target.value)}
             />
+          </div>
+        </div>
+
+        <div className="frow">
+          <div className="k">
+            {t('form.id')}
+            <small>{t('form.id_sub')}</small>
+          </div>
+          <div className="v">
+            <input
+              className="in"
+              aria-label={t('form.id')}
+              placeholder={t('form.id_placeholder')}
+              value={form.id}
+              onChange={(e) => updateField('id', e.target.value)}
+            />
+            {form.id.trim() && !AGENT_ID.test(form.id.trim()) && <div className="hint">{t('form.id_invalid')}</div>}
           </div>
         </div>
 

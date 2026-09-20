@@ -151,6 +151,10 @@
     "form": {
       "type": "タイプ",
       "name": "名前",
+      "id": "ID",
+      "id_sub": "半角英数のみ。空欄なら名前から決まります",
+      "id_placeholder": "sakura-bot",
+      "id_invalid": "小文字の英数字と - _ が使えます。先頭は英数字。",
       "name_placeholder": "例: マイク",
       "description": "説明",
       "desc_placeholder": "エージェントの役割を記述",

@@ -484,6 +484,8 @@ export const api = {
 
   async createAgent(
     payload: {
+      /** Without the `agent.` prefix. Absent, the kernel takes one from the name. */
+      id?: string;
       name: string;
       description: string;
       default_engine: string;

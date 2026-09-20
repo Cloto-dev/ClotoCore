@@ -42,7 +42,7 @@ pub mod token_budget;
 pub mod tree_seal;
 pub mod usage_tracker;
 
-pub use agents::AgentManager;
+pub use agents::{derive_agent_id, is_agent_slug, AgentManager};
 pub use capability_dispatcher::{CapabilityDispatcher, CapabilityType, ToolKind};
 pub use mcp::{Caller, McpClientManager};
 pub use plugin::PluginManager;

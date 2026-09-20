@@ -56,6 +56,9 @@ pub async fn get_agent_instruction_files(
 
 #[derive(Deserialize)]
 pub struct CreateAgentRequest {
+    /// The agent's id, without the `agent.` prefix. Absent, one is taken from
+    /// the name — which only works when the name has ASCII in it.
+    pub id: Option<String>,
     pub name: String,
     pub description: String,
     pub default_engine: String,
@@ -182,6 +185,35 @@ pub async fn create_agent(
         }
     }
 
+    // The id is a directory name as well as a key (an agent's instruction files
+    // and skills live under it), so it is ASCII even when the name is not. Both
+    // ways of getting one are refused here rather than deeper down, so the
+    // person is told what to change instead of reading a 500.
+    use crate::managers::{derive_agent_id, is_agent_slug};
+    let requested_id = payload
+        .id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    match requested_id {
+        Some(given) if !is_agent_slug(given) => {
+            return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
+                format!(
+                    "Agent id '{given}' must be lowercase ASCII: a letter or digit, then letters, digits, '_' or '-' (at most 64); example: \"sakura-bot\""
+                ),
+            )));
+        }
+        None if derive_agent_id(&payload.name).is_none() => {
+            return Err(AppError::Cloto(cloto_shared::ClotoError::ValidationError(
+                format!(
+                    "The name '{}' has no ASCII letters or digits, so no id can be taken from it. Send an id as well; the name the agent is shown under does not change.",
+                    payload.name
+                ),
+            )));
+        }
+        _ => {}
+    }
+
     // Collect server IDs to grant before metadata is moved
     let mut servers_to_grant = vec![payload.default_engine.clone()];
     if let Some(mem) = metadata.get("preferred_memory") {
@@ -192,7 +224,8 @@ pub async fn create_agent(
 
     let agent_id = state
         .agent_manager
-        .create_agent(
+        .create_agent_with_id(
+            requested_id,
             &payload.name,
             &payload.description,
             &payload.default_engine,
