@@ -211,7 +211,7 @@
   color: hsl(var(--text-primary));
 }
 .conv-menu button.danger {
-  color: hsl(0 70% 62%);
+  color: hsl(var(--state-bad));
 }
 .conv-menu svg {
   width: 13px;
@@ -278,7 +278,7 @@
   margin-left: auto;
 }
 .side-foot .bad {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 /* A newer build exists: the version is a button, in the one colour the
    workshop uses for "good news". */
@@ -299,7 +299,7 @@
   color: hsl(var(--text-tertiary));
 }
 .side-foot .power:hover {
-  color: hsl(0 70% 62%);
+  color: hsl(var(--state-bad));
   background: hsl(var(--surface-primary));
 }
 .side-foot .power svg {

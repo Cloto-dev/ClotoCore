@@ -52,7 +52,7 @@
   white-space: pre-wrap;
 }
 .ask .why.bad {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .ask .acts {
   display: flex;

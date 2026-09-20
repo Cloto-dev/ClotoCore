@@ -72,7 +72,7 @@
   font-family: var(--font-mono);
 }
 .ws-head .count .bad {
-  color: hsl(6 70% 68%);
+  color: hsl(var(--state-bad));
 }
 .ws-head .spacer {
   flex: 1;
@@ -135,7 +135,7 @@
   background: hsl(var(--border-default));
 }
 .btn.danger {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .tabs {
   display: flex;
@@ -183,13 +183,13 @@
   background: hsl(150 45% 55%);
 }
 .st.bad::before {
-  background: hsl(6 70% 62%);
+  background: hsl(var(--state-bad));
 }
 .st.warn::before {
   background: hsl(40 70% 60%);
 }
 .st.bad {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .hint {
   font-size: 12.5px;
@@ -213,7 +213,7 @@
   padding: 8px 12px;
   border-radius: var(--radius-tool);
   background: hsl(var(--surface-secondary));
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
   font-size: 13px;
 }
 
@@ -255,7 +255,7 @@
   color: hsl(var(--text-tertiary));
 }
 .band.bad .lbl {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .srv {
   display: grid;
@@ -292,7 +292,7 @@
   min-width: 0;
 }
 .srv .what .dev {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .srv .what .dev.warn {
   color: hsl(40 70% 65%);
@@ -529,7 +529,7 @@ textarea.in {
   color: hsl(150 45% 65%);
 }
 .grant .deny.on {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .savebar {
   position: absolute;
@@ -575,10 +575,10 @@ textarea.in {
   color: hsl(40 70% 65%);
 }
 .log .e {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .danger {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 
 /* ---------- the roster: who exists, and one of them in full ----------
@@ -867,7 +867,7 @@ textarea.in {
 
 /* ---------- rows the mock draws with inline styles ---------- */
 .dev {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .dev.warn {
   color: hsl(40 70% 65%);
