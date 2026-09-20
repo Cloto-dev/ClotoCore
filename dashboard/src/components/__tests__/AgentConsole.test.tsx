@@ -399,6 +399,81 @@ describe('a message that could not be sent', () => {
   });
 });
 
+describe('an edit that could not be sent', () => {
+  /**
+   * Edit a turn that hangs off another one, with the edit failing to go out.
+   *
+   * The history is seeded rather than typed: a turn sent in this session
+   * carries no parent, and a parent is what makes an edit a branch instead of
+   * a new remark. It ends on the agent's reply because a room whose last word
+   * is the user's is a room still waiting for one, and every turn action is
+   * disabled while it waits.
+   */
+  async function failToEdit(first: string, rewrite: string): Promise<HTMLElement> {
+    const now = new Date().setHours(12, 0, 0, 0);
+    api.getChatMessages.mockResolvedValue({
+      messages: [
+        { ...msg('a2', 'agent', 'yes', now), parent_id: 'u2' },
+        { ...msg('u2', 'user', first, now - 1000), parent_id: 'a1' },
+        { ...msg('a1', 'agent', 'i hear you', now - 2000), parent_id: 'u1' },
+        msg('u1', 'user', 'hello', now - 3000),
+      ],
+      has_more: false,
+    });
+    draw();
+    const original = (await screen.findByText(first)).closest('.me') as HTMLElement;
+
+    api.postChat.mockRejectedValueOnce(new Error('kernel unreachable'));
+    fireEvent.click(within(original).getByRole('button', { name: 'console.edit_message' }));
+    fireEvent.change(box(), { target: { value: rewrite } });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+
+    const turn = (await screen.findByText(rewrite)).closest('.me') as HTMLElement;
+    await vi.waitFor(() => expect(turn.classList.contains('failed')).toBe(true));
+    return turn;
+  }
+
+  it('keeps the rewritten text on screen and says why, instead of removing it', async () => {
+    // It used to be dropped from the room with only a console line in a dev
+    // build: the rewrite and the failure both disappeared.
+    const turn = await failToEdit('are you there', 'are you there?');
+    expect(within(turn).getByText(/console\.send_failed kernel unreachable/)).toBeTruthy();
+    expect(screen.getByText('are you there?')).toBeTruthy();
+  });
+
+  it('is sent again onto the branch it was written on, not to the end of the room', async () => {
+    const turn = await failToEdit('are you there', 'are you there?');
+    const parentOfEdit = (api.postChat.mock.calls[0][0] as { metadata: Record<string, string> }).metadata.parent_id;
+    expect(parentOfEdit).toBe('a1');
+
+    fireEvent.click(within(turn).getByRole('button', { name: 'console.send_again' }));
+    await vi.waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(2));
+    const again = api.postChat.mock.calls[1][0] as { content: string; metadata: Record<string, string> };
+    expect(again.content).toBe('are you there?');
+    // The branch is what makes this an edit rather than a new remark. Sending
+    // it again through the plain path would drop the parent and leave the
+    // branch showing the version that never went out.
+    expect(again.metadata.parent_id).toBe(parentOfEdit);
+    expect(screen.getAllByText('are you there?')).toHaveLength(1);
+    expect(document.querySelector('.me.failed')).toBeNull();
+  });
+
+  it('is edited again onto the same branch, because that branch did reach the kernel', async () => {
+    const turn = await failToEdit('are you there', 'are you there?');
+    const parentOfEdit = (api.postChat.mock.calls[0][0] as { metadata: Record<string, string> }).metadata.parent_id;
+
+    fireEvent.click(within(turn).getByRole('button', { name: 'console.edit_message' }));
+    fireEvent.change(box(), { target: { value: 'hello?' } });
+    fireEvent.keyDown(box(), { key: 'Enter' });
+    await vi.waitFor(() => expect(api.postChat).toHaveBeenCalledTimes(2));
+    const again = api.postChat.mock.calls[1][0] as { content: string; metadata: Record<string, string> };
+    expect(again.content).toBe('hello?');
+    expect(again.metadata.parent_id).toBe(parentOfEdit);
+    // The one that never went out is replaced, not kept beside its replacement.
+    expect(screen.queryByText('are you there?')).toBeNull();
+  });
+});
+
 describe('a console mounted on the new chat', () => {
   const first = { blocks: [{ type: 'text' as const, text: 'hello' }], rawText: 'hello', engineOverride: null };
 
