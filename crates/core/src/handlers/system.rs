@@ -15,6 +15,53 @@ const TOOL_USAGE_THRESHOLD: usize = 10;
 /// on first token; hanging past it is a sign the engine is stuck.
 const AGENTIC_THINK_TIMEOUT_SECS: u64 = 30;
 
+/// Agent metadata key that turns automatic image reading off for one agent.
+///
+/// The operator opts *out*, never in: an agent nobody has configured reads
+/// images the way the settings panel shows it, and the grant is what decides
+/// whether it may. This switch is for the case where it may and should not.
+pub const VISION_AUTO_ANALYZE_KEY: &str = "vision_auto_analyze";
+
+/// Whether this agent's settings say not to read attached images.
+///
+/// Anything other than `off` leaves it on, including a value nobody recognises:
+/// a typo in the metadata must not quietly disable a capability the panel still
+/// shows as enabled.
+#[must_use]
+pub fn vision_opted_out<S: std::hash::BuildHasher>(
+    metadata: &std::collections::HashMap<String, String, S>,
+) -> bool {
+    metadata
+        .get(VISION_AUTO_ANALYZE_KEY)
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("off"))
+}
+
+/// Why attached images will not be read, or `None` when they will.
+///
+/// The three cases stay apart because they are different answers to the person:
+/// nothing here can read pictures, this agent may not, and this agent was told
+/// not to. Collapsing them into one message — or into one error string read back
+/// out of a failed call — would leave the operator guessing which knob to turn.
+///
+/// The order is deliberate. Being switched off is reported even when a server is
+/// missing, so that turning the switch back on is not followed by a second,
+/// different refusal the person was never warned about.
+#[must_use]
+pub fn vision_refusal(
+    opted_out: bool,
+    server: Option<&str>,
+    allowed: bool,
+) -> Option<&'static str> {
+    if opted_out {
+        return Some("this agent is set not to read images");
+    }
+    match server {
+        None => Some("no server that can read images is installed"),
+        Some(_) if !allowed => Some("this agent is not allowed to read images"),
+        Some(_) => None,
+    }
+}
+
 use crate::managers::{AgentManager, McpClientManager, PluginRegistry};
 use cloto_shared::{
     AgentMetadata, ClotoEvent, ClotoEventData, ClotoId, ClotoMessage, Plugin, RejectionCode,
@@ -830,7 +877,9 @@ impl SystemHandler {
         self.response_stops.arm(&msg.id);
 
         // 1-B. Media pre-processing: analyze images / transcribe audio before routing to engine
-        let msg = self.maybe_analyze_images(msg).await;
+        let msg = self
+            .maybe_analyze_images(msg, &target_agent_id, vision_opted_out(&agent.metadata))
+            .await;
         let msg = self.maybe_transcribe_audio(msg).await;
 
         // 2. Pull context out of memory (dual dispatch: Rust plugin -> MCP server).
@@ -3421,10 +3470,22 @@ impl SystemHandler {
     /// Analyze image attachments via the capture MCP server (Vision capability).
     /// Prepends analysis text to the message content so the LLM engine
     /// can "see" images even though it only receives text.
+    ///
+    /// The call runs as the agent, not as the kernel. Reading a person's picture
+    /// with an outside model is the agent doing something on their behalf, and
+    /// the same tool on the avatar path has always been gated that way; running
+    /// this one as `System` meant the capability gate returned `Ok(())` before it
+    /// looked at anything, so there was no per-agent control over it at all.
+    ///
+    /// When the images are not read, the reason is put where the person will hear
+    /// it. Before this, the attachment was dropped in silence and the agent
+    /// answered as though nothing had been attached.
     #[allow(clippy::too_many_lines)]
     async fn maybe_analyze_images(
         &self,
         mut msg: cloto_shared::ClotoMessage,
+        agent_id: &str,
+        opted_out: bool,
     ) -> cloto_shared::ClotoMessage {
         // Fetch attachments from chat persistence DB
         let Ok(attachments) =
@@ -3443,6 +3504,36 @@ impl SystemHandler {
         }
 
         let mcp = &self.registry.mcp_manager;
+
+        // Why the images will not be read, in words the agent passes on. The three
+        // cases are kept apart at their source rather than read back out of one
+        // error string: whether a server exists, whether this agent may use it, and
+        // whether the operator turned it off are different answers to the person.
+        let server = mcp
+            .resolve_capability_server(crate::managers::CapabilityType::Vision)
+            .await;
+        let allowed = match server.as_deref() {
+            Some(server_id) => crate::db::mcp::resolve_tool_access(
+                &self.agent_manager.pool,
+                agent_id,
+                server_id,
+                "analyze_image",
+            )
+            .await
+            .is_ok_and(|p| p == crate::db::mcp::PermissionLevel::Allow),
+            None => false,
+        };
+        let refusal = vision_refusal(opted_out, server.as_deref(), allowed);
+        if let Some(reason) = refusal {
+            tracing::info!(msg_id = %msg.id, agent_id, reason, "images were not read");
+            msg.content = format!(
+                "[{} image(s) were attached but not read: {reason}. Say so rather than \
+                 answering as if nothing was attached.]\n\n{}",
+                image_atts.len(),
+                msg.content
+            );
+            return msg;
+        }
 
         // Fallback: extract base64 image data directly from the persisted content blocks
         // when disk files are missing (e.g., attachment dir not created due to CWD mismatch).
@@ -3521,11 +3612,12 @@ impl SystemHandler {
                 )
             });
 
-            // Kernel-side media preprocessing of an inbound message (not an
-            // agent-initiated tool call) → System.
+            // The agent is the caller: the gate above pre-flighted this exact
+            // access, and passing System here would make that pre-flight the only
+            // check rather than one of two.
             match mcp
                 .call_kind(
-                    &crate::managers::Caller::System,
+                    &crate::managers::Caller::Agent(agent_id.to_string()),
                     &crate::managers::ToolKind::AnalyzeImage,
                     args,
                 )
