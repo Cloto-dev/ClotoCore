@@ -47,6 +47,17 @@
     --mgp-accent-light: 196 181 253; /* purple-300 */
     --mgp-surface: 76 29 149;        /* purple-950 */
 
+    /* The state colour: something failed, is broken, or will be destroyed.
+     * Theme-invariant like the MGP purple above — what "bad" means does not
+     * change with a theme — but it does differ per face, which the purple does
+     * not: one value cannot sit on both a near-black and a near-white surface.
+     *
+     * Light is darker, not lighter. Measured with themes/validate.ts's own
+     * formula across the whole hue circle (the surfaces carry the present
+     * agent's hue), against all three light surfaces rather than one: the dark
+     * value reads 1.78–1.85 on light, and this one 5.22 at worst. */
+    --state-bad: 6 65% 36%;
+
     /* Light: the four steps of the dark scale, reversed. Not yet drawn (§4.1). */
     --surface-base: var(--h) 6% 92%;
     --surface-secondary: var(--h) 7% 88%;
@@ -69,6 +80,8 @@
   /* Dark is the default (§4.1). A near-black tinted toward the present agent's
    * hue, in four steps; separation is lightness, not lines. */
   .dark {
+    /* Unchanged from the value that was written out by hand in 21 places. */
+    --state-bad: 6 70% 72%;
     --surface-base: var(--h) 6% 8%;       /* base: the work area */
     --surface-secondary: var(--h) 7% 12%; /* receding: the sidebar, panels */
     --surface-primary: var(--h) 7% 16%;   /* raised: inputs, hover, cards */

@@ -141,7 +141,7 @@
   line-height: 1.6;
 }
 .set-pane .says.bad {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .set-pane .says.warn {
   color: hsl(40 70% 65%);
@@ -256,7 +256,7 @@
   gap: 4px 14px;
 }
 .set-pane .facts .flag {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .set-pane .facts .flag.warn {
   color: hsl(40 70% 65%);
@@ -299,7 +299,7 @@
   font-family: var(--font-sans);
 }
 .purge .m .flag {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .purge .m .flag.warn {
   color: hsl(40 70% 65%);
@@ -338,7 +338,7 @@
 }
 .tiers input {
   margin-top: 3px;
-  accent-color: hsl(6 70% 62%);
+  accent-color: hsl(var(--state-bad));
 }
 .tiers .n {
   font-size: 13px;
@@ -364,7 +364,7 @@
 /* Only the zone's own heading is red; the headings inside the review are the
  * page's ordinary ones, and four red headings in a column read as an alarm. */
 .set-danger > h2 {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 
 /* One provider: a name, what it is set to, and the fields that change it. */
@@ -388,7 +388,7 @@
 }
 .prov .n .gone {
   font-size: 12.5px;
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .prov .fields {
   display: flex;

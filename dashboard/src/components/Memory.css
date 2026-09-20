@@ -242,7 +242,7 @@
   cursor: default;
 }
 .tl .ev .c .acts button.danger:hover {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .tl .ev .c .edit {
   margin-top: 4px;
@@ -295,7 +295,7 @@
 }
 .mem-ep .acts button:hover {
   background: hsl(var(--border-default));
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 
 /* ---------- the density band (30 days) ---------- */
@@ -340,7 +340,7 @@
   padding: 8px 12px;
   border-radius: var(--radius-tool);
   background: hsl(var(--surface-secondary));
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
   font-size: 13px;
 }
 .tabs .spacer {

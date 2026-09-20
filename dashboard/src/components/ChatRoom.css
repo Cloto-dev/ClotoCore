@@ -325,7 +325,7 @@
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.6;
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
   background: hsl(var(--surface-secondary));
   border-radius: var(--radius-tool);
   padding: 8px 12px;
@@ -344,7 +344,7 @@
   color: hsl(var(--text-secondary));
 }
 .me.failed .meta .why {
-  color: hsl(6 70% 72%);
+  color: hsl(var(--state-bad));
 }
 .me.failed .meta .acts {
   opacity: 1;
@@ -426,7 +426,7 @@
   color: hsl(var(--text-secondary));
 }
 .inner li.fail {
-  color: hsl(0 70% 62%);
+  color: hsl(var(--state-bad));
 }
 .inner li .dur {
   margin-left: auto;
@@ -768,7 +768,7 @@
   color: hsl(40 90% 60%);
 }
 .row .meter.alert {
-  color: hsl(0 70% 62%);
+  color: hsl(var(--state-bad));
 }
 .row .menu-anchor {
   position: relative;
