@@ -344,6 +344,22 @@ export const api = {
     );
     return data.items ?? [];
   },
+  /** The agents who have said something this person has not read. */
+  getUnreadAgents: async (apiKey?: string): Promise<string[]> => {
+    const data = await fetchJson<{ agents: string[] }>('/chat/unread', 'fetch unread agents', apiKey);
+    return data.agents ?? [];
+  },
+
+  /** Record that the person has looked at this conversation. */
+  markConversationRead: (agentId: string, conversationId: string, apiKey?: string) =>
+    mutate(
+      `/chat/${encodeURIComponent(agentId)}/conversations/${encodeURIComponent(conversationId)}/read`,
+      'POST',
+      'mark the conversation read',
+      undefined,
+      apiKey ? { 'X-API-Key': apiKey } : undefined,
+    ),
+
   markNotificationRead: (itemId: string, apiKey?: string) =>
     mutate(
       `/notifications/${encodeURIComponent(itemId)}/read`,
@@ -1364,6 +1380,9 @@ export function createAuthenticatedApi(apiKey: string) {
     getNotificationSummary: () => api.getNotificationSummary(k),
     getNotifications: (unresolved?: boolean) => api.getNotifications(k, unresolved),
     markNotificationRead: (itemId: string) => api.markNotificationRead(itemId, k),
+    getUnreadAgents: () => api.getUnreadAgents(k),
+    markConversationRead: (agentId: string, conversationId: string) =>
+      api.markConversationRead(agentId, conversationId, k),
     answerNotification: (itemId: string, decision: string) => api.answerNotification(itemId, decision, k),
     getAgentAccess: (agentId: string) => api.getAgentAccess(agentId, k),
     // Generic

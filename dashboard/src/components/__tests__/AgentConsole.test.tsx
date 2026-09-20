@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgentMetadata, ChatMessage } from '../../types';
 
@@ -18,6 +18,7 @@ const api = vi.hoisted(() => ({
   getAgentLastUsage: vi.fn(),
   getAvatarUrl: vi.fn(() => ''),
   getNotifications: vi.fn(),
+  markConversationRead: vi.fn(),
   approveCommand: vi.fn(),
   trustCommand: vi.fn(),
   denyCommand: vi.fn(),
@@ -144,6 +145,7 @@ beforeEach(() => {
   api.getAgentAccess.mockReset().mockResolvedValue({ entries: [] });
   api.getChatMessages.mockReset().mockResolvedValue({ messages: [], has_more: false });
   api.postChat.mockReset().mockResolvedValue(undefined);
+  api.markConversationRead.mockReset().mockResolvedValue(undefined);
   api.postChatMessage.mockReset().mockResolvedValue({ id: 'x', created_at: 0 });
   api.retryResponse.mockReset().mockResolvedValue({ retry_id: 'r' });
   api.stopResponse.mockReset().mockResolvedValue({ stopped: true });
@@ -278,6 +280,25 @@ describe('the living room', () => {
     // The reply is stored; holding it back would hide it until a reload.
     reply(finished, 'it was already written');
     expect(await screen.findByText('it was already written')).toBeTruthy();
+  });
+
+  it('records that the thread on screen was looked at, and no other', async () => {
+    // A mark the roster carries is cleared by looking, and looking happens here
+    // — not only from the roster, which is one of several doors into a chat.
+    // Only the conversation on screen is read: the agent's other threads were
+    // not looked at.
+    draw();
+    await screen.findByText('console.remark');
+    await waitFor(() => expect(api.markConversationRead).toHaveBeenCalledWith('agent.a', 'c1'));
+    expect(api.markConversationRead).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not report a look that failed as a look', async () => {
+    // The call is allowed to fail; what must not happen is the console breaking
+    // around it, because the thread is readable whether or not the mark cleared.
+    api.markConversationRead.mockRejectedValue(new Error('offline'));
+    draw();
+    expect(await screen.findByText('console.remark')).toBeTruthy();
   });
 
   it('keeps the reply held back when the stop call fails', async () => {

@@ -130,6 +130,20 @@ export function AgentConsole({
   // because the console outlives that moment (it is not remounted).
   const [conversationId, setConversationId] = useState<string | null>(openedConversationId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+
+  // Looking at a thread is what reads it. Held here rather than with the roster
+  // because a chat is reached from the sidebar as often as from the roster, and
+  // a mark only one door clears is a mark that outlasts the looking. It reads
+  // the one conversation on screen, not the agent's others: those were not
+  // looked at, and saying they were is the lie this replaces.
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  useEffect(() => {
+    if (!conversationId) return;
+    void apiRef.current.markConversationRead(agent.id, conversationId).catch(() => {
+      // Left unread; the roster's next read reports it truthfully.
+    });
+  }, [agent.id, conversationId]);
   const [isTyping, setIsTyping] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [hasMore, setHasMore] = useState(false);
