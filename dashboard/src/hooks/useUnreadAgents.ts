@@ -20,6 +20,11 @@ const UNREAD_POLL_MS = 15_000;
 export function useUnreadAgents() {
   const api = useApi();
   const [items, setItems] = useState<NotificationItem[]>([]);
+  // The second source: agents who have *said* something unread. A waiting
+  // question and unread words are different states, and the notification store
+  // only knows the first — an agent that reported and asked nothing left no mark
+  // anywhere before this.
+  const [spoken, setSpoken] = useState<string[]>([]);
 
   // Through a ref: `useApi` memoizes today, but an effect that restarts on a
   // fresh object identity would re-ask the kernel on every render.
@@ -27,13 +32,17 @@ export function useUnreadAgents() {
   apiRef.current = api;
 
   const refresh = useCallback(async () => {
-    try {
-      setItems(await apiRef.current.getNotifications(true));
-    } catch {
-      // Keep the previous answer. Dropping it would clear every mark on one
-      // failed read, which claims "nothing is waiting" — a different and worse
-      // statement than "I could not check".
-    }
+    // Settled separately: one source failing must not discard the other's
+    // answer, and neither may clear a mark it did not check.
+    const [asked, said] = await Promise.allSettled([
+      apiRef.current.getNotifications(true),
+      apiRef.current.getUnreadAgents(),
+    ]);
+    // Keep the previous answer on failure. Dropping it would clear every mark on
+    // one failed read, which claims "nothing is waiting" — a different and worse
+    // statement than "I could not check".
+    if (asked.status === 'fulfilled') setItems(asked.value);
+    if (said.status === 'fulfilled') setSpoken(said.value);
   }, []);
 
   // A question an agent asks (`proposal`) raises no event this hook hears, so
@@ -49,6 +58,8 @@ export function useUnreadAgents() {
       if (
         event.type === 'CommandApprovalRequested' ||
         event.type === 'CommandApprovalResult' ||
+        event.type === 'MessageReceived' ||
+        event.type === 'AgentResponse' ||
         event.type === '__reconnected'
       ) {
         void refresh();
@@ -60,7 +71,11 @@ export function useUnreadAgents() {
 
   // Memoized on the items themselves: a fresh Set every render is a new
   // identity, and a caller that holds it in an effect's deps would loop.
-  const unread = useMemo(() => unreadAgentIds(items), [items]);
+  const unread = useMemo(() => {
+    const ids = unreadAgentIds(items);
+    for (const id of spoken) ids.add(id);
+    return ids;
+  }, [items, spoken]);
 
   return { unread, refreshUnread: refresh };
 }

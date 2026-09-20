@@ -11,6 +11,8 @@ export interface RoutingRuleEntry {
 
 interface CreationForm {
   name: string;
+  /** Left blank, the kernel takes one from the name. */
+  id: string;
   desc: string;
   engine: string;
   memory: string;
@@ -35,6 +37,7 @@ export interface CreatedAgent {
 
 const INITIAL_FORM: CreationForm = {
   name: '',
+  id: '',
   desc: '',
   engine: '',
   memory: '',
@@ -69,6 +72,7 @@ export function useAgentCreation(onCreated: (created: CreatedAgent) => void, ini
         metadata.engine_routing = JSON.stringify(form.routingRules);
       }
       const { id } = await api.createAgent({
+        id: form.id.trim() || undefined,
         name: form.name,
         description: form.desc,
         default_engine: form.engine,

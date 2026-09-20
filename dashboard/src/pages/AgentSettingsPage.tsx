@@ -105,6 +105,7 @@ export function AgentSettingsPage() {
   const [memoryId, setMemoryId] = useState('');
   const [recallPolicy, setRecallPolicy] = useState<RecallPolicyValue>('always');
   const [sessionScope, setSessionScope] = useState<SessionScopeValue>('per_user');
+  const [visionEnabled, setVisionEnabled] = useState(true);
   const [precision, setPrecision] = useState<PrecisionValue>(PRECISION_DEFAULT);
   const [precisionDirty, setPrecisionDirty] = useState(false);
   const [precisionSupported, setPrecisionSupported] = useState(false);
@@ -152,6 +153,7 @@ export function AgentSettingsPage() {
       setMemoryId(from.metadata?.preferred_memory ?? '');
       setRecallPolicy(normalizeRecallPolicy(from.metadata?.recall_policy));
       setSessionScope(normalizeSessionScope(from.metadata?.session_scope));
+      setVisionEnabled(from.metadata?.vision_auto_analyze !== 'off');
       setPrecisionDirty(false);
       setAccent(accentFieldValue(from));
       setGrants(entries);
@@ -265,6 +267,7 @@ export function AgentSettingsPage() {
     memoryId !== (agent.metadata?.preferred_memory ?? '') ||
     recallPolicy !== normalizeRecallPolicy(agent.metadata?.recall_policy) ||
     sessionScope !== normalizeSessionScope(agent.metadata?.session_scope) ||
+    visionEnabled !== (agent.metadata?.vision_auto_analyze !== 'off') ||
     precisionDirty ||
     accent !== accentFieldValue(agent) ||
     passwordTouched ||
@@ -330,6 +333,8 @@ export function AgentSettingsPage() {
       if (accentTriplet) metadata.accent = accentTriplet;
       else delete metadata.accent;
       applyRecallMetadata(metadata, recallPolicy, sessionScope);
+      if (visionEnabled) delete metadata.vision_auto_analyze;
+      else metadata.vision_auto_analyze = 'off';
 
       await api.updateAgent(agent.id, {
         name: name !== agent.name ? name : undefined,
@@ -917,6 +922,21 @@ export function AgentSettingsPage() {
                   {hasVrm ? t('settings.vrm_present') : t('settings.vrm_absent')}
                 </span>
               </div>
+            </div>
+          </div>
+          <div className="frow">
+            <div className="k">
+              {t('settings.vision')}
+              <small>{t('settings.vision_sub')}</small>
+            </div>
+            <div className="v">
+              <button
+                type="button"
+                className={visionEnabled ? 'tgl on' : 'tgl'}
+                aria-pressed={visionEnabled}
+                aria-label={t('settings.vision')}
+                onClick={() => setVisionEnabled((on) => !on)}
+              />
             </div>
           </div>
           <div className="frow">

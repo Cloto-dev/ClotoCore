@@ -1685,6 +1685,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         // so a connector panel can be given this one (PANEL_WRITE_GATE_DESIGN.md §4.2).
         .route("/chat/{agent_id}/send", post(handlers::chat::send_to_agent))
         .route("/chat/search", get(handlers::chat::search_messages))
+        .route("/chat/unread", get(handlers::chat::unread_agents))
         // Conversations (docs/CONVERSATIONS_DESIGN.md §3). The two bulk routes
         // are registered before the `{conversation_id}` route so their literal
         // segments are never read as an id.
@@ -1705,6 +1706,10 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             get(handlers::chat::get_conversation)
                 .patch(handlers::chat::update_conversation)
                 .delete(handlers::chat::delete_conversation),
+        )
+        .route(
+            "/chat/{agent_id}/conversations/{conversation_id}/read",
+            post(handlers::chat::mark_conversation_read),
         )
         .route(
             "/chat/attachments/{attachment_id}",

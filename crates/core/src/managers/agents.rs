@@ -24,6 +24,48 @@ pub struct AgentManager {
     heartbeat_threshold_ms: i64,
 }
 
+/// Whether this is a usable agent id: the connector charset the rest of the
+/// system uses (`[a-z0-9][a-z0-9_-]*`), bounded so that `agent.<slug>` stays a
+/// reasonable directory name.
+#[must_use]
+pub fn is_agent_slug(slug: &str) -> bool {
+    let mut chars = slug.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    slug.len() <= 64
+        && (first.is_ascii_lowercase() || first.is_ascii_digit())
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+}
+
+/// The id a name suggests, or `None` when it suggests none.
+///
+/// Non-ASCII is dropped rather than transliterated: a transliteration has to
+/// guess a reading, and guessing wrong bakes the wrong guess into a directory
+/// name and every grant that references it. ASCII punctuation and spaces become
+/// `_`, which is what names have always done here.
+#[must_use]
+pub fn derive_agent_id(name: &str) -> Option<String> {
+    let mapped: String = name
+        .to_lowercase()
+        .chars()
+        .filter_map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                Some(c)
+            } else if c.is_ascii() || c.is_whitespace() {
+                Some('_')
+            } else {
+                None
+            }
+        })
+        .collect();
+    // An id starts at its first letter or digit: a leading '_' left by dropped
+    // characters is not a name, it is the shape of what was removed.
+    let start = mapped.find(|c: char| c.is_ascii_alphanumeric())?;
+    let slug: String = mapped[start..].chars().take(64).collect();
+    is_agent_slug(&slug).then_some(slug)
+}
+
 impl AgentManager {
     #[must_use]
     pub fn new(pool: SqlitePool, heartbeat_threshold_ms: i64) -> Self {
@@ -122,20 +164,59 @@ impl AgentManager {
         required_capabilities: Vec<cloto_shared::CapabilityType>,
         password: Option<&str>,
     ) -> anyhow::Result<String> {
+        self.create_agent_with_id(
+            None,
+            name,
+            description,
+            default_engine,
+            metadata,
+            required_capabilities,
+            password,
+        )
+        .await
+    }
+
+    /// Create an agent, naming its id rather than letting the name suggest one.
+    ///
+    /// The id is a directory name as well as a key: an agent's operator files —
+    /// its always-loaded instructions and its skills — live under it, and the
+    /// guard that resolves those paths admits ASCII only. An id outside that set
+    /// leaves an agent that chats normally and silently cannot hold a single one
+    /// of those files, which is the state this replaces.
+    ///
+    /// So the id is ASCII and the display name is whatever the person wrote. A
+    /// name with no ASCII in it suggests no id at all, and the caller is asked
+    /// for one instead of being handed a row of underscores.
+    pub async fn create_agent_with_id(
+        &self,
+        id: Option<&str>,
+        name: &str,
+        description: &str,
+        default_engine: &str,
+        metadata: HashMap<String, String>,
+        required_capabilities: Vec<cloto_shared::CapabilityType>,
+        password: Option<&str>,
+    ) -> anyhow::Result<String> {
         // K-01: Return the actual DB id_str instead of a mismatched ClotoId
-        // Sanitize: keep alphanumeric, CJK, underscores, hyphens; replace everything else
-        let sanitized: String = name
-            .to_lowercase()
-            .chars()
-            .map(|c| {
-                if c.is_alphanumeric() || c == '_' || c == '-' || c > '\u{2E7F}' {
-                    c
-                } else {
-                    '_'
+        let slug = match id {
+            Some(given) => {
+                let given = given.trim();
+                if !is_agent_slug(given) {
+                    anyhow::bail!(
+                        "agent id {given:?} must be lowercase ASCII: a letter or digit, \
+                         then letters, digits, '_' or '-'"
+                    );
                 }
-            })
-            .collect();
-        let id_str = format!("agent.{}", sanitized);
+                given.to_string()
+            }
+            None => derive_agent_id(name).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "the name {name:?} suggests no id — it has no ASCII letters or digits. \
+                     Give the agent an id of its own; the name it is shown under does not change."
+                )
+            })?,
+        };
+        let id_str = format!("agent.{slug}");
         let metadata_json = serde_json::to_string(&metadata)?;
         let capabilities_json = serde_json::to_string(&required_capabilities)?;
         let now_ms = chrono::Utc::now().timestamp_millis();
@@ -525,18 +606,115 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn id_sanitisation_replaces_ascii_punctuation_but_keeps_characters_above_u2e7f() {
-        // Quirk: the `c > '\u{2E7F}'` clause is what lets CJK *punctuation*
-        // through unchanged, while ASCII punctuation becomes '_'. Two names that
-        // differ only in ASCII punctuation therefore collide on one id.
+    async fn an_id_is_ascii_even_when_the_name_is_not() {
+        // The id is a directory name: an agent's instruction files and skills
+        // live under it, and the guard that resolves those paths takes ASCII
+        // only. A name outside ASCII used to pass straight into the id, leaving
+        // an agent that chats normally and can hold none of those files.
         let mgr = manager().await;
 
-        let cjk = mgr
+        let mixed = mgr
             .create_agent("さくら。Bot", "d", "e", HashMap::new(), vec![], None)
             .await
             .unwrap();
-        assert_eq!(cjk, "agent.さくら。bot");
+        assert_eq!(mixed, "agent.bot", "the non-ASCII is dropped, not carried");
 
+        let refused = mgr
+            .create_agent("さくら", "d", "e", HashMap::new(), vec![], None)
+            .await;
+        let message = refused
+            .expect_err("a name with no ASCII suggests no id")
+            .to_string();
+        assert!(
+            message.contains("no ASCII"),
+            "the refusal should say what is wrong with the name: {message}"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_id_can_be_given_instead_of_taken_from_the_name() {
+        // The way a Japanese-named agent is created: the name is whatever the
+        // person wrote, the id is theirs to choose.
+        let mgr = manager().await;
+        let id = mgr
+            .create_agent_with_id(
+                Some("sakura"),
+                "さくら",
+                "d",
+                "e",
+                HashMap::new(),
+                vec![],
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(id, "agent.sakura");
+
+        let (meta, _) = mgr.get_agent_config(&id).await.unwrap();
+        assert_eq!(meta.name, "さくら", "the display name is untouched");
+    }
+
+    #[tokio::test]
+    async fn a_given_id_outside_the_charset_is_refused() {
+        let mgr = manager().await;
+        for bad in [
+            "Sakura",
+            "さくら",
+            "-leading",
+            "has space",
+            "",
+            "a".repeat(65).as_str(),
+        ] {
+            let outcome = mgr
+                .create_agent_with_id(Some(bad), "Name", "d", "e", HashMap::new(), vec![], None)
+                .await;
+            assert!(outcome.is_err(), "{bad:?} should not be accepted as an id");
+        }
+    }
+
+    #[test]
+    fn a_name_suggests_an_id_or_says_it_cannot() {
+        assert_eq!(derive_agent_id("Sapphy").as_deref(), Some("sapphy"));
+        assert_eq!(
+            derive_agent_id("Growth Manager").as_deref(),
+            Some("growth_manager")
+        );
+        assert_eq!(derive_agent_id("my-agent").as_deref(), Some("my-agent"));
+        assert_eq!(derive_agent_id("さくら。Bot").as_deref(), Some("bot"));
+        // Non-ASCII *after* the ASCII is the case that tells dropping apart from
+        // replacing: replaced, these would trail a run of underscores that says
+        // how long the name was rather than what it is.
+        assert_eq!(derive_agent_id("Botさくら").as_deref(), Some("bot"));
+        assert_eq!(derive_agent_id("Bot さくら").as_deref(), Some("bot_"));
+        // A leading '_' is the shape of what was removed, not a name.
+        assert_eq!(derive_agent_id("_leading").as_deref(), Some("leading"));
+        assert_eq!(derive_agent_id("さくら"), None);
+        assert_eq!(derive_agent_id("   "), None);
+        assert_eq!(derive_agent_id(""), None);
+    }
+
+    #[test]
+    fn the_charset_is_the_one_the_rest_of_the_system_uses() {
+        assert!(is_agent_slug("sakura"));
+        assert!(is_agent_slug("sakura-2"));
+        assert!(is_agent_slug("a_b-c9"));
+        assert!(is_agent_slug("9lives"));
+        assert!(
+            !is_agent_slug("Sakura"),
+            "uppercase would collide on a case-insensitive filesystem"
+        );
+        assert!(!is_agent_slug("-leading"));
+        assert!(!is_agent_slug("_leading"));
+        assert!(!is_agent_slug("has space"));
+        assert!(!is_agent_slug("さくら"));
+        assert!(!is_agent_slug(""));
+        assert!(!is_agent_slug(&"a".repeat(65)));
+        assert!(is_agent_slug(&"a".repeat(64)));
+    }
+
+    #[tokio::test]
+    async fn two_names_that_sanitise_alike_still_collide() {
+        let mgr = manager().await;
         let first = new_agent(&mgr, "Ops!").await;
         assert_eq!(first, "agent.ops_");
         let collision = mgr

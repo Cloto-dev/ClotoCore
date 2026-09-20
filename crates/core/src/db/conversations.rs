@@ -187,6 +187,53 @@ pub async fn rename_conversation(pool: &SqlitePool, id: &str, title: &str) -> an
     Ok(result.rows_affected() > 0)
 }
 
+/// Record that the person has read this conversation up to `at_ms`.
+///
+/// The time is passed in rather than taken here so that a caller reading a
+/// conversation and answering in it cannot record the two in the wrong order.
+pub async fn mark_conversation_read(
+    pool: &SqlitePool,
+    id: &str,
+    at_ms: i64,
+) -> anyhow::Result<bool> {
+    let result = db_timeout(
+        sqlx::query("UPDATE conversations SET last_read_at = ? WHERE id = ?")
+            .bind(at_ms)
+            .bind(id)
+            .execute(pool),
+    )
+    .await?;
+    Ok(result.rows_affected() > 0)
+}
+
+/// The agents who have said something this person has not read.
+///
+/// Only the agent's own messages count. The person's own last line would
+/// otherwise leave their conversation unread the moment they sent it and walked
+/// away, which says the opposite of what happened.
+///
+/// Archived conversations are left out: archiving is how a thread is put away,
+/// and something put away is not waiting. A conversation never opened
+/// (`last_read_at IS NULL`) counts as unread — that is a thread the agent
+/// started, which is exactly the case this exists for.
+pub async fn agents_with_unread(pool: &SqlitePool, user_id: &str) -> anyhow::Result<Vec<String>> {
+    let rows: Vec<(String,)> = db_timeout(
+        sqlx::query_as(
+            "SELECT DISTINCT c.agent_id \
+             FROM conversations c \
+             JOIN chat_messages m ON m.conversation_id = c.id \
+             WHERE c.user_id = ? \
+               AND c.archived_at IS NULL \
+               AND m.source = 'agent' \
+               AND m.created_at > COALESCE(c.last_read_at, 0)",
+        )
+        .bind(user_id)
+        .fetch_all(pool),
+    )
+    .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
 /// Give a conversation its first title, and only its first: a title already
 /// set — by hand or by the model — is never overwritten here.
 pub async fn set_title_if_empty(pool: &SqlitePool, id: &str, title: &str) -> anyhow::Result<bool> {
