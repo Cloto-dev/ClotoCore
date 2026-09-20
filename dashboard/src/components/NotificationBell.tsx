@@ -312,9 +312,16 @@ export function NotificationBell() {
                               {said.body}
                             </div>
                           )}
-                          <div className="mt-1 flex items-center gap-2 text-xs font-mono text-content-tertiary">
+                          {/*
+                            Five things can stand on this line and the popover is 340px, so the
+                            row wraps. It must wrap between them and never inside one: a label
+                            broken across two lines ("holding / an agent") reads as two labels,
+                            and the ones beside it stop lining up. This is not about one
+                            language — English wraps here too.
+                          */}
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs font-mono text-content-tertiary">
                             {item.blocking && (
-                              <span className="text-red-500">
+                              <span className="whitespace-nowrap text-red-500">
                                 {t('notifications.blocking', { defaultValue: 'holding an agent' })}
                               </span>
                             )}
@@ -325,7 +332,7 @@ export function NotificationBell() {
                                   data-testid="answer-yes"
                                   disabled={answering === item.item_id}
                                   onClick={() => void answer(item.item_id, 'yes')}
-                                  className="text-emerald-400 hover:text-emerald-300 disabled:opacity-50 transition-colors"
+                                  className="whitespace-nowrap text-emerald-400 hover:text-emerald-300 disabled:opacity-50 transition-colors"
                                 >
                                   {t('notifications.answer_yes', { defaultValue: 'Yes' })}
                                 </button>
@@ -334,7 +341,7 @@ export function NotificationBell() {
                                   data-testid="answer-no"
                                   disabled={answering === item.item_id}
                                   onClick={() => void answer(item.item_id, 'no')}
-                                  className="text-content-secondary hover:text-red-400 disabled:opacity-50 transition-colors"
+                                  className="whitespace-nowrap text-content-secondary hover:text-red-400 disabled:opacity-50 transition-colors"
                                 >
                                   {t('notifications.answer_no', { defaultValue: 'No' })}
                                 </button>
@@ -345,7 +352,7 @@ export function NotificationBell() {
                                 type="button"
                                 data-testid="raise-approval"
                                 onClick={() => raise(item.item_id)}
-                                className="text-content-primary hover:text-agent transition-colors"
+                                className="whitespace-nowrap text-content-primary hover:text-agent transition-colors"
                               >
                                 {t('notifications.answer', { defaultValue: 'Answer' })}
                               </button>
@@ -358,13 +365,13 @@ export function NotificationBell() {
                                   navigate(inAppLink(item.metadata) as string);
                                   setOpen(false);
                                 }}
-                                className="text-content-primary hover:text-agent transition-colors"
+                                className="whitespace-nowrap text-content-primary hover:text-agent transition-colors"
                               >
                                 {t('notifications.open_link', { defaultValue: 'Open' })}
                               </button>
                             )}
                             {interrupts(item.severity, threshold) && (
-                              <span data-testid="will-interrupt">
+                              <span className="whitespace-nowrap" data-testid="will-interrupt">
                                 {t('notifications.will_interrupt', { defaultValue: 'will interrupt' })}
                               </span>
                             )}
@@ -372,7 +379,7 @@ export function NotificationBell() {
                               <button
                                 type="button"
                                 onClick={() => void markRead(item.item_id)}
-                                className="hover:text-content-primary transition-colors"
+                                className="whitespace-nowrap hover:text-content-primary transition-colors"
                               >
                                 {t('notifications.mark_read', { defaultValue: 'Mark read' })}
                               </button>
