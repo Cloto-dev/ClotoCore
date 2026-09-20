@@ -2974,6 +2974,11 @@ impl SystemHandler {
                                 )
                                 .agent(agent.id.clone())
                                 .body(rejection.reason.clone())
+                                // Only the title is keyed: the body is the
+                                // rejection's own reason, which is written
+                                // where the rejection is decided and has no
+                                // template to translate.
+                                .message("tool.rejected", serde_json::json!({ "tool": call.name }))
                                 .metadata(serde_json::json!({
                                     "tool_name": call.name,
                                     "call_id": call.id,

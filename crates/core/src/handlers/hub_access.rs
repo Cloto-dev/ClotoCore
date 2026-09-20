@@ -196,27 +196,39 @@ fn day(now: DateTime<Utc>) -> String {
 /// The notice owed at `now`, if any: one per token per day, from the moment
 /// the renewal window opens (design §7).
 pub(crate) fn expiry_notice(status: &AccessStatus, now: DateTime<Utc>) -> Option<NotificationItem> {
-    let (severity, title, body) = match hub_access::expiry_stage(status.expires_at, now) {
-        ExpiryStage::Valid => return None,
-        ExpiryStage::ExpiresSoon => (
-            McpLogLevel::Warning,
-            "The hub access token expires soon",
-            format!(
-                "It expires on {}. Renew it in Settings → Security to keep receiving \
+    // The date goes into `params` in RFC 3339 and nowhere else: the reader
+    // knows the locale, the kernel does not, so `%Y-%m-%d` here would be one
+    // spelling imposed on every language. The English `body` keeps it only as
+    // the fallback for a reader that cannot use the key.
+    let (severity, title, body, key, params) =
+        match hub_access::expiry_stage(status.expires_at, now) {
+            ExpiryStage::Valid => return None,
+            ExpiryStage::ExpiresSoon => (
+                McpLogLevel::Warning,
+                "The hub access token expires soon",
+                format!(
+                    "It expires on {}. Renew it in Settings → Security to keep receiving \
                  updates for {} restricted connector(s). Installed connectors are not affected.",
-                status.expires_at.format("%Y-%m-%d"),
-                status.connector_ids.len()
+                    status.expires_at.format("%Y-%m-%d"),
+                    status.connector_ids.len()
+                ),
+                "hub_access.expires_soon",
+                serde_json::json!({
+                    "expires_at": status.expires_at.to_rfc3339(),
+                    "n": status.connector_ids.len(),
+                }),
             ),
-        ),
-        ExpiryStage::Expired => (
-            McpLogLevel::Error,
-            "The hub access token has expired",
-            "Restricted connectors can no longer be updated. Installed ones keep working. \
+            ExpiryStage::Expired => (
+                McpLogLevel::Error,
+                "The hub access token has expired",
+                "Restricted connectors can no longer be updated. Installed ones keep working. \
              An expired token cannot be renewed; ask for a new one to be issued on the hub \
              and set it in Settings → Security."
-                .to_string(),
-        ),
-    };
+                    .to_string(),
+                "hub_access.expired",
+                serde_json::json!({}),
+            ),
+        };
     Some(
         NotificationItem::new(
             format!("{NOTICE_PREFIX}expiry:{}:{}", status.token_id, day(now)),
@@ -225,6 +237,7 @@ pub(crate) fn expiry_notice(status: &AccessStatus, now: DateTime<Utc>) -> Option
             title,
         )
         .body(body)
+        .message(key, params)
         .metadata(serde_json::json!({
             "token_id": status.token_id,
             "expires_at": status.expires_at,
@@ -268,6 +281,7 @@ pub async fn report_refused(state: &AppState, now: DateTime<Utc>) {
         "Restricted connectors are hidden from the catalog and cannot be updated until a \
          valid token is set in Settings → Security. Installed ones keep working.",
     )
+    .message("hub_access.refused", serde_json::json!({}))
     .metadata(serde_json::json!({ "token_id": token_id, "link": SETTINGS_LINK }));
     raise_daily(state, item, &format!("{NOTICE_PREFIX}refused:")).await;
 }
@@ -331,6 +345,44 @@ mod tests {
         );
         let expired = expiry_notice(&s, at("2026-12-19T00:00:00Z")).unwrap();
         assert_eq!(expired.severity, McpLogLevel::Error);
+    }
+
+    /// Each stage carries its own key, and the date the reader has to spell
+    /// travels in `params` unformatted.
+    ///
+    /// The two stages are checked against each other, not only against a
+    /// literal: a producer that keyed both the same way would still read as
+    /// "keyed" to a grep, and the bell would then show the expiring wording to
+    /// someone whose token already expired.
+    #[test]
+    fn each_expiry_stage_carries_its_own_key_and_an_unformatted_date() {
+        let s = status("2026-12-19T00:00:00Z");
+        let soon = expiry_notice(&s, at("2026-11-19T00:00:00Z")).unwrap();
+        let expired = expiry_notice(&s, at("2026-12-19T00:00:00Z")).unwrap();
+
+        let message = |item: &NotificationItem| item.metadata.as_ref().unwrap()["message"].clone();
+        let soon_msg = message(&soon);
+        let expired_msg = message(&expired);
+
+        assert_eq!(soon_msg["key"], "hub_access.expires_soon");
+        assert_eq!(expired_msg["key"], "hub_access.expired");
+        assert_ne!(soon_msg["key"], expired_msg["key"]);
+
+        assert_eq!(
+            soon_msg["params"]["expires_at"], "2026-12-19T00:00:00+00:00",
+            "the date is handed over in RFC 3339 for the reader to format"
+        );
+        assert_eq!(soon_msg["params"]["n"], 1);
+
+        // The English text stays put as the fallback, and `.metadata()` runs
+        // after `.message()` at this site — so this also holds that the later
+        // call did not drop the key.
+        assert_eq!(soon.title, "The hub access token expires soon");
+        assert_eq!(
+            soon.metadata.as_ref().unwrap()["link"],
+            SETTINGS_LINK,
+            "the other metadata is still there beside the message"
+        );
     }
 
     #[tokio::test]

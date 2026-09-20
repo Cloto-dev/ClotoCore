@@ -105,10 +105,54 @@ impl NotificationItem {
 
     #[must_use]
     pub fn metadata(mut self, metadata: serde_json::Value) -> Self {
+        // `message` belongs to its own builder, and producers set the two in
+        // whichever order reads best. Carrying it across means a later
+        // `.metadata()` cannot drop it — a notice that lost its key here would
+        // still pass every "does this site carry a key" check at the call site
+        // and arrive untranslated, which is the failure this whole field exists
+        // to remove.
+        let carried = self
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(MESSAGE_KEY))
+            .cloned();
         self.metadata = Some(metadata);
+        if let (Some(message), Some(serde_json::Value::Object(map))) =
+            (carried, self.metadata.as_mut())
+        {
+            map.entry(MESSAGE_KEY).or_insert(message);
+        }
+        self
+    }
+
+    /// The machine-readable form of this notice: a language-pack key and the
+    /// values that fill it.
+    ///
+    /// `title` and `body` stay as written and remain the English fallback. A
+    /// reader that does not know the key — an older dashboard, or a pack that
+    /// has not translated it yet — shows them unchanged, so keying a notice
+    /// never blanks it.
+    ///
+    /// Values that a reader has to format for its own locale (a date, a count)
+    /// belong in `params` in a neutral form; the kernel does not know the
+    /// reader's language and must not decide their spelling.
+    #[must_use]
+    pub fn message(mut self, key: impl Into<String>, params: serde_json::Value) -> Self {
+        let message = serde_json::json!({ "key": key.into(), "params": params });
+        if let Some(serde_json::Value::Object(ref mut map)) = self.metadata {
+            map.insert(MESSAGE_KEY.to_string(), message);
+        } else {
+            let mut map = serde_json::Map::new();
+            map.insert(MESSAGE_KEY.to_string(), message);
+            self.metadata = Some(serde_json::Value::Object(map));
+        }
         self
     }
 }
+
+/// The metadata field a keyed notice travels in. Named once because the
+/// dashboard matches on the same string and the two have to agree.
+pub const MESSAGE_KEY: &str = "message";
 
 /// The identifier for a severity, read out of the enum's own serde form.
 ///
@@ -463,4 +507,59 @@ pub async fn resolve_notification(
     .execute(pool);
 
     Ok(db_timeout(query_future).await?.rows_affected() > 0)
+}
+
+#[cfg(test)]
+mod message_builder_tests {
+    use super::*;
+    use cloto_shared::McpLogLevel;
+
+    fn item() -> NotificationItem {
+        NotificationItem::new("i1", NotificationKind::Notice, McpLogLevel::Notice, "Title")
+    }
+
+    #[test]
+    fn a_key_and_its_params_travel_under_message() {
+        let it = item().message("a.key", serde_json::json!({ "count": 2 }));
+        let m = &it.metadata.unwrap()[MESSAGE_KEY];
+        assert_eq!(m["key"], "a.key");
+        assert_eq!(m["params"]["count"], 2);
+    }
+
+    #[test]
+    fn message_keeps_metadata_that_was_already_there() {
+        let it = item()
+            .metadata(serde_json::json!({ "link": "/settings" }))
+            .message("a.key", serde_json::json!({}));
+        let md = it.metadata.unwrap();
+        assert_eq!(md["link"], "/settings");
+        assert_eq!(md[MESSAGE_KEY]["key"], "a.key");
+    }
+
+    /// The ordering seam: `.metadata()` after `.message()` must not drop the
+    /// key.
+    ///
+    /// A notice that lost it here still looks keyed at its call site, so no
+    /// grep over the producers would catch it — it would simply arrive in
+    /// English forever. Remove the carry-over in `metadata()` and this fails.
+    #[test]
+    fn metadata_set_afterwards_does_not_drop_the_key() {
+        let it = item()
+            .message("a.key", serde_json::json!({ "count": 2 }))
+            .metadata(serde_json::json!({ "link": "/settings" }));
+        let md = it.metadata.unwrap();
+        assert_eq!(md["link"], "/settings");
+        assert_eq!(md[MESSAGE_KEY]["key"], "a.key");
+        assert_eq!(md[MESSAGE_KEY]["params"]["count"], 2);
+    }
+
+    /// A producer that spells out its own `message` wins: the carry-over fills
+    /// a gap, it does not overwrite a deliberate value.
+    #[test]
+    fn metadata_may_state_its_own_message() {
+        let it = item()
+            .message("old.key", serde_json::json!({}))
+            .metadata(serde_json::json!({ MESSAGE_KEY: { "key": "new.key", "params": {} } }));
+        assert_eq!(it.metadata.unwrap()[MESSAGE_KEY]["key"], "new.key");
+    }
 }
