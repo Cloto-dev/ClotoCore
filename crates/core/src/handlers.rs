@@ -311,7 +311,8 @@ pub async fn shutdown_handler(
             crate::db::NotificationKind::Notice,
             cloto_shared::McpLogLevel::Notice,
             "Kernel shutting down for maintenance",
-        ),
+        )
+        .message("kernel.shutdown", serde_json::json!({})),
     );
 
     // P9 / bug-305: Drain all MCP servers before shutting down. The drain runs in a

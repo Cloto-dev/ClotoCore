@@ -1514,6 +1514,10 @@ impl McpClientManager {
                             )
                             .body("The server is blocked from starting until this is granted or denied.")
                             .blocking()
+                            .message(
+                                "mcp.permission_needed",
+                                serde_json::json!({ "server": id, "permission": perm }),
+                            )
                             .metadata(serde_json::json!({
                                 "source": "mcp_permission_gate",
                                 "server_id": id,

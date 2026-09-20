@@ -377,6 +377,10 @@ async fn record_unanswered_notice(
         )
         .agent(agent_id)
         .body(commands_summary)
+        .message(
+            "command.denied_unanswered",
+            serde_json::json!({ "count": untrusted_cmds.len() }),
+        )
         .metadata(serde_json::json!({
             "approval_id": approval_id,
             "commands": untrusted_cmds,
@@ -514,6 +518,10 @@ pub(crate) async fn run_approval_gate(
         .agent(agent_id)
         .body(commands_summary)
         .blocking()
+        .message(
+            "command.awaiting_approval",
+            serde_json::json!({ "count": untrusted_cmds.len() }),
+        )
         .metadata(serde_json::json!({ "commands": untrusted_cmds })),
     )
     .await
