@@ -18,6 +18,7 @@ import { markInline, unmarkInline } from '../lib/inlineApprovals';
 import { mostSevere } from '../lib/notificationSeverity';
 import { sendNativeNotification } from '../lib/notifications';
 import { isEngineServer } from '../lib/serverCategory';
+import { isStoppedMark, shouldWaitForReply } from '../lib/stoppedTurn';
 import { openVrmWindow } from '../lib/tauri';
 import { thinkingStorageKey } from '../lib/thinkingSteps';
 import { EVENTS_URL } from '../services/api';
@@ -275,9 +276,9 @@ export function AgentConsole({
         const reversed = loaded.reverse();
         setMessages(reversed);
         setHasMore(has_more);
-        // Restore typing state: if last message is from user, agent may still be processing.
-        // Set a safety timeout to recover if the SSE response was missed.
-        if (reversed.length > 0 && reversed[reversed.length - 1].source === 'user') {
+        // Restore typing state: a reply may be in flight that this room never
+        // saw start. Set a safety timeout to recover if the SSE response was missed.
+        if (shouldWaitForReply(reversed)) {
           setIsTyping(true);
         }
       } catch (err) {
@@ -1270,7 +1271,10 @@ export function AgentConsole({
                     </div>
                   );
                 } else if (msg.source === 'system') {
-                  turn = <div className="day">{firstText}</div>;
+                  // A stopped turn is stored as a mark and no text, so that the
+                  // line is written in the reader's language rather than the
+                  // one the kernel happened to be built with.
+                  turn = <div className="day">{isStoppedMark(msg) ? t('console.stopped') : firstText}</div>;
                 } else if (isUser) {
                   const failed = failedSends[msg.id];
                   turn = (

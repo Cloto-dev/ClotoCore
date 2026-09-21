@@ -259,3 +259,121 @@ async fn a_stopped_turn_keeps_the_users_message_stores_no_reply_and_says_it_stop
             if agent_id == AGENT && *source_message_id == msg.id
     )));
 }
+
+// ─────────── the stop as something the conversation keeps ───────────
+//
+// A stopped turn ends with a message from the reader and nothing after it,
+// which is the same shape as a reply still on its way. While the stop lived
+// only in the page, reloading read that shape and brought the waiting state
+// back for a reply that had been called off, and the line saying it was
+// stopped was gone. The mark is what tells the two apart, so it has to outlive
+// the page that asked for the stop.
+
+const CONVERSATION: &str = "conv-1";
+
+/// The message a stop is aimed at: one turn's question, on a branch, in a
+/// conversation. `chat_messages.agent_id` points at `agents`, so the agent has
+/// to exist before its message can.
+async fn put_user_message(pool: &SqlitePool, id: &str, agent: &str) {
+    sqlx::query("INSERT OR IGNORE INTO agents (id, name, description, status, default_engine_id, required_capabilities, metadata, enabled) VALUES (?, 'A', 'd', 'online', 'engine.none', '[]', '{}', 1)")
+        .bind(agent)
+        .execute(pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO chat_messages (id, agent_id, user_id, source, content, metadata, created_at, parent_id, branch_index, conversation_id) \
+         VALUES (?, ?, 'user-1', 'user', ?, NULL, 1000, NULL, 3, ?)",
+    )
+    .bind(id)
+    .bind(agent)
+    .bind(r#"[{"type":"text","text":"hello"}]"#)
+    .bind(CONVERSATION)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn marks(pool: &SqlitePool) -> Vec<cloto_core::db::ChatMessageRow> {
+    cloto_core::db::get_chat_messages_in_conversation(pool, CONVERSATION, 50)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.source == "system")
+        .collect()
+}
+
+#[tokio::test]
+async fn a_stop_that_stopped_something_is_kept_by_the_conversation() {
+    let state = create_test_app_state(Some(API_KEY.into())).await;
+    put_user_message(&state.pool, "m1", AGENT).await;
+    let _registration = state.response_stops.register("m1", AGENT);
+
+    let (_, body) = call_stop(&state, headers(), AGENT, "m1").await;
+    assert_eq!(body["data"]["stopped"], true);
+
+    let found = marks(&state.pool).await;
+    assert_eq!(found.len(), 1, "the stop left nothing in the conversation");
+    let mark = &found[0];
+    let meta: serde_json::Value = serde_json::from_str(mark.metadata.as_deref().unwrap_or("null"))
+        .expect("the mark carries no readable metadata");
+    assert_eq!(
+        meta["kind"], "stopped",
+        "a system message with no mark is indistinguishable from any other notice"
+    );
+    assert_eq!(meta["source_message_id"], "m1");
+    // No text: the wording is the reader's, in the reader's language.
+    assert_eq!(mark.content, "[]");
+    // It belongs where the stopped turn was, and after the message it answered.
+    assert_eq!(mark.conversation_id.as_deref(), Some(CONVERSATION));
+    assert_eq!(mark.parent_id.as_deref(), Some("m1"));
+    assert_eq!(mark.branch_index, 3, "the mark left the branch it was on");
+    assert_eq!(mark.user_id, "user-1");
+}
+
+#[tokio::test]
+async fn a_stop_that_found_nothing_to_stop_says_nothing() {
+    let state = create_test_app_state(Some(API_KEY.into())).await;
+    put_user_message(&state.pool, "m1", AGENT).await;
+
+    // The reply had already finished, so it is stored and it stands. Writing
+    // that it was stopped would be false.
+    let (_, body) = call_stop(&state, headers(), AGENT, "m1").await;
+    assert_eq!(body["data"]["stopped"], false);
+    assert!(
+        marks(&state.pool).await.is_empty(),
+        "a stop that stopped nothing still marked the conversation"
+    );
+}
+
+#[tokio::test]
+async fn a_stop_does_not_mark_another_agents_conversation() {
+    let state = create_test_app_state(Some(API_KEY.into())).await;
+    put_user_message(&state.pool, "m1", "agent.other").await;
+    // The acting agent has to exist, or `chat_messages.agent_id` refuses the
+    // write on its own and the check being tested is never the reason nothing
+    // was written. Measured: without this row, removing the ownership check
+    // left every assertion below green.
+    agent_row(&state).await;
+    // The registry is keyed by agent and message, and nothing stops one agent
+    // from registering an id another agent's message already holds.
+    let _registration = state.response_stops.register("m1", AGENT);
+
+    let (_, body) = call_stop(&state, headers(), AGENT, "m1").await;
+    assert_eq!(body["data"]["stopped"], true, "the stop itself is allowed");
+    assert!(
+        marks(&state.pool).await.is_empty(),
+        "one agent's stop wrote into another agent's conversation"
+    );
+}
+
+#[tokio::test]
+async fn a_stop_for_a_message_that_is_gone_still_answers() {
+    let state = create_test_app_state(Some(API_KEY.into())).await;
+    let _registration = state.response_stops.register("ghost", AGENT);
+
+    // The turn is already dropped by the time the mark is written, so failing
+    // to write it must not read as a stop that did not happen.
+    let (status, body) = call_stop(&state, headers(), AGENT, "ghost").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["data"]["stopped"], true);
+}
