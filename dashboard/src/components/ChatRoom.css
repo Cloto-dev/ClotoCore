@@ -810,7 +810,14 @@
   background: hsl(var(--text-primary));
   color: hsl(var(--surface-base));
 }
-.hint {
+/* The note under the composer. Scoped to `.room`, because `hint` is also the
+ * workshop's note (`.hint` in Workshop.css) and both rules were written bare:
+ * at equal specificity neither is overridden, so every hint in the app took
+ * the union — this rule's `padding` reached the workshop's notes, and the
+ * workshop's `margin-top`, `line-height` and 12.5px reached this one. Every
+ * element carrying the chat meaning of `hint` is the composer's note, and
+ * both of its call sites sit under a `.room` root. */
+.room .hint {
   font-size: 12px;
   color: hsl(var(--text-tertiary));
   padding: 8px 4px 0;
