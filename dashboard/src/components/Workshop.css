@@ -460,7 +460,14 @@ textarea.in {
   padding: 4px;
   text-align: center;
 }
-.tool {
+/* A row in a workshop list: name, description, action. Scoped to `.ws`,
+ * because `tool` is also the chat header's icon button (`.face .tool` in
+ * ChatRoom.css) and a bare `.tool` reaches it: the header button only
+ * overrides the properties it names, so this rule's `grid-template-columns`
+ * and `padding` applied unopposed and drew the icon ~100px right of its own
+ * 32px box, overflowing the header by 62px and squeezing the actions panel
+ * beside it into a sliver. Every workshop row lives under `.ws`. */
+.ws .tool {
   display: grid;
   grid-template-columns: 200px 1fr auto;
   gap: 14px;
@@ -469,21 +476,21 @@ textarea.in {
   font-size: 13px;
   align-items: center;
 }
-.tool:hover {
+.ws .tool:hover {
   background: hsl(var(--surface-secondary));
 }
-.tool .nm {
+.ws .tool .nm {
   font-family: var(--font-mono);
   font-size: 12.5px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.tool .d {
+.ws .tool .d {
   color: hsl(var(--text-secondary));
   min-width: 0;
 }
-.tool .who {
+.ws .tool .who {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -492,7 +499,7 @@ textarea.in {
   text-align: left;
   min-width: 0;
 }
-.tool .who .dot {
+.ws .tool .who .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
@@ -500,10 +507,10 @@ textarea.in {
   background: hsl(var(--text-tertiary));
 }
 /* The server name opens its tools, so it is a button — drawn as the text it was. */
-.tool button.nm {
+.ws .tool button.nm {
   text-align: left;
 }
-.tool.sub {
+.ws .tool.sub {
   padding-left: 36px;
 }
 .grant {
@@ -906,11 +913,11 @@ textarea.in {
 .in.narrow {
   width: 180px;
 }
-.tool.rule {
+.ws .tool.rule {
   grid-template-columns: 1fr auto auto;
   padding-left: 0;
 }
-.tool.rule .btn {
+.ws .tool.rule .btn {
   padding: 2px 8px;
   color: hsl(var(--text-tertiary));
 }
