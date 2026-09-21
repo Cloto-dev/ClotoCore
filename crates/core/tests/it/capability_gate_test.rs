@@ -139,6 +139,119 @@ async fn resolve_explicit_permission_ignores_default_policy() {
     );
 }
 
+// ──────────────── reaching a server through one of several tools ────────────────
+//
+// `resolve_any_tool_access` is what the memory path asks before it resolves a
+// target it will later call `recall` and `store` on. The names below are the
+// ones `ToolKind::Recall` / `ToolKind::Store` put on the wire; a caller that
+// asked about some other pair would get a different answer, so the pair is part
+// of what these assert.
+
+const MEMORY_TOOLS: [&str; 2] = ["recall", "store"];
+
+async fn memory_reach(pool: &SqlitePool, agent_id: &str, server_id: &str) -> PermissionLevel {
+    cloto_core::db::resolve_any_tool_access(pool, agent_id, server_id, &MEMORY_TOOLS).await
+}
+
+#[tokio::test]
+async fn a_grant_written_tool_by_tool_reaches_the_server() {
+    let pool = fresh_pool().await;
+    add_server(&pool, "mem", "opt-in").await;
+
+    // Nothing granted: opt-in refuses, and this is the state every other case
+    // in this test is measured against.
+    assert_eq!(memory_reach(&pool, "a", "mem").await, PermissionLevel::Deny);
+
+    // One tool named by hand, and no server-wide row anywhere. This is the
+    // shape a Manager configured tool by tool has, and the coarse question
+    // ("is there a server grant") answers Deny to it.
+    add_grant(&pool, "tool_grant", "a", "mem", Some("recall"), "allow").await;
+    assert_eq!(
+        memory_reach(&pool, "a", "mem").await,
+        PermissionLevel::Allow
+    );
+}
+
+#[tokio::test]
+async fn either_tool_is_enough_on_its_own() {
+    let pool = fresh_pool().await;
+    add_server(&pool, "mem", "opt-in").await;
+
+    // The second name has to be asked about too: an agent that may only write
+    // still has a memory server to write to.
+    add_grant(&pool, "tool_grant", "b", "mem", Some("store"), "allow").await;
+    assert_eq!(
+        memory_reach(&pool, "b", "mem").await,
+        PermissionLevel::Allow
+    );
+}
+
+#[tokio::test]
+async fn a_grant_on_some_other_tool_does_not_reach() {
+    let pool = fresh_pool().await;
+    add_server(&pool, "mem", "opt-in").await;
+
+    // `list_memories` is on the same server and is not one of the two the
+    // memory path calls. Reaching the server on the strength of it would admit
+    // an agent to a pair of tools nobody granted it.
+    add_grant(
+        &pool,
+        "tool_grant",
+        "c",
+        "mem",
+        Some("list_memories"),
+        "allow",
+    )
+    .await;
+    assert_eq!(memory_reach(&pool, "c", "mem").await, PermissionLevel::Deny);
+}
+
+#[tokio::test]
+async fn a_tool_deny_outranks_the_server_grant_it_sits_under() {
+    let pool = fresh_pool().await;
+    add_server(&pool, "mem", "opt-in").await;
+
+    // Server-wide allow, both tools denied by name. `tool_grant > server_grant`
+    // is the precedence the gate applies at the call, so the pre-check has to
+    // reach the same verdict — otherwise it sends the agent to a server that
+    // will refuse both of the calls it went there to make.
+    add_grant(&pool, "server_grant", "d", "mem", None, "allow").await;
+    add_grant(&pool, "tool_grant", "d", "mem", Some("recall"), "deny").await;
+    add_grant(&pool, "tool_grant", "d", "mem", Some("store"), "deny").await;
+    assert_eq!(memory_reach(&pool, "d", "mem").await, PermissionLevel::Deny);
+}
+
+#[tokio::test]
+async fn a_server_grant_alone_still_reaches() {
+    let pool = fresh_pool().await;
+    add_server(&pool, "mem", "opt-in").await;
+
+    // The older shape, which every agent configured before tool grants existed
+    // has. Admitting the finer form must not cost the coarse one.
+    add_grant(&pool, "server_grant", "e", "mem", None, "allow").await;
+    assert_eq!(
+        memory_reach(&pool, "e", "mem").await,
+        PermissionLevel::Allow
+    );
+}
+
+#[tokio::test]
+async fn a_lookup_that_cannot_answer_refuses() {
+    let pool = fresh_pool().await;
+    add_server(&pool, "mem", "opt-in").await;
+    add_grant(&pool, "tool_grant", "f", "mem", Some("recall"), "allow").await;
+    assert_eq!(
+        memory_reach(&pool, "f", "mem").await,
+        PermissionLevel::Allow
+    );
+
+    // Same agent, same rows, but the question can no longer be put to the
+    // database. A pre-check that read "could not ask" as "nothing said no"
+    // would hand out the server on the one occasion it knows least.
+    pool.close().await;
+    assert_eq!(memory_reach(&pool, "f", "mem").await, PermissionLevel::Deny);
+}
+
 // ─────────────────────────── PATH 1 gate ───────────────────────────
 
 fn err_text<T: std::fmt::Debug>(r: &anyhow::Result<T>) -> String {
