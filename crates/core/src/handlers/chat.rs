@@ -345,6 +345,12 @@ pub struct StopResponseRequest {
     pub source_message_id: String,
 }
 
+/// The mark on the message that stands in a conversation where a reply was
+/// stopped. The reader renders its own wording from this; the kernel stores no
+/// text, so the line is in the reader's language rather than whichever one the
+/// kernel was built with.
+pub const STOPPED_MESSAGE_KIND: &str = "stopped";
+
 /// Stop the reply an agent is producing to one message.
 ///
 /// **Route:** `POST /api/chat/:agent_id/stop`
@@ -354,6 +360,14 @@ pub struct StopResponseRequest {
 /// nothing of it is stored, and a `ResponseStopped` event is sent instead of a
 /// `ThoughtResponse`. `{"stopped": false}` means there was no such reply to
 /// stop — it had already finished, so what it produced stands.
+///
+/// Stopping is something the reader did, and what they did is part of the
+/// conversation: a turn that was stopped reads afterwards as a question that
+/// was never answered unless the stop is written down beside it. So a stop
+/// that actually stopped something leaves a marked message in the same
+/// conversation. A stop that found nothing to stop leaves none — the reply it
+/// went looking for had already finished and is stored, and saying it was
+/// stopped would be false.
 pub async fn stop_response(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -364,7 +378,58 @@ pub async fn stop_response(
     let stopped = state
         .response_stops
         .stop(&agent_id, &payload.source_message_id);
+    if stopped {
+        // The turn is already dropped at this point. Failing to write the mark
+        // must not turn a stop that worked into an error the reader has to act
+        // on, so it is reported and the answer stands.
+        if let Err(e) = record_stopped_turn(&state, &agent_id, &payload.source_message_id).await {
+            tracing::warn!(
+                agent_id = %agent_id,
+                source_message_id = %payload.source_message_id,
+                error = %e,
+                "The reply was stopped but the conversation could not be told"
+            );
+        }
+    }
     ok_data(serde_json::json!({ "stopped": stopped }))
+}
+
+/// Write the mark that says this turn was stopped, into the conversation the
+/// stopped turn belongs to.
+///
+/// The message it was a reply to is what says where that is — the conversation,
+/// the reader, and the branch — so a stop for a message this agent does not own
+/// writes nothing rather than guessing (the same ownership check `retry` makes,
+/// bug-474: the id alone would let a caller mark another agent's conversation).
+async fn record_stopped_turn(
+    state: &Arc<AppState>,
+    agent_id: &str,
+    source_message_id: &str,
+) -> anyhow::Result<()> {
+    let Some(source) = db::get_chat_message_by_id(&state.pool, source_message_id).await? else {
+        return Ok(());
+    };
+    if source.agent_id != agent_id {
+        return Ok(());
+    }
+    let mark = db::ChatMessageRow {
+        id: uuid::Uuid::new_v4().to_string(),
+        agent_id: agent_id.to_string(),
+        user_id: source.user_id,
+        source: "system".to_string(),
+        // No text: the wording belongs to whoever renders it. The mark is the
+        // whole content of this message.
+        content: "[]".to_string(),
+        metadata: Some(
+            serde_json::json!({ "kind": STOPPED_MESSAGE_KIND, "source_message_id": source_message_id })
+                .to_string(),
+        ),
+        created_at: chrono::Utc::now().timestamp_millis(),
+        parent_id: Some(source_message_id.to_string()),
+        branch_index: source.branch_index,
+        conversation_id: source.conversation_id,
+    };
+    db::save_chat_message_reliable(&state.pool, &mark).await
 }
 
 /// Retry an agent response: re-sends the original user message for re-generation.
