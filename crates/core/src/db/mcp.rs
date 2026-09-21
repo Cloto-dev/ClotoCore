@@ -918,6 +918,35 @@ pub async fn resolve_tool_access(
     Ok(DefaultPolicy::from_str_lossy(policy.as_deref().unwrap_or("opt-in")).default_permission())
 }
 
+/// Whether `agent_id` may reach `server_id` through **any** of `tool_names`.
+///
+/// A caller that resolves a server before it knows which of several tools it
+/// will call still has to decide whether to go there at all. The honest form of
+/// that question is the one [`resolve_tool_access`] answers at each call — the
+/// `tool_grant > server_grant > default_policy` precedence — asked once per
+/// candidate tool, because a grant written tool by tool is a narrower and more
+/// deliberate permission than a server-wide row, and reading only the latter
+/// refuses an agent the gate itself would admit.
+///
+/// `Allow` on the first tool that resolves to it, `Deny` otherwise. A lookup
+/// error is Deny, not a skipped tool: the gate downstream fails closed on the
+/// same error and a pre-check that disagreed would only move the refusal.
+pub async fn resolve_any_tool_access(
+    pool: &SqlitePool,
+    agent_id: &str,
+    server_id: &str,
+    tool_names: &[&str],
+) -> PermissionLevel {
+    for tool_name in tool_names {
+        if let Ok(PermissionLevel::Allow) =
+            resolve_tool_access(pool, agent_id, server_id, tool_name).await
+        {
+            return PermissionLevel::Allow;
+        }
+    }
+    PermissionLevel::Deny
+}
+
 /// Get access summary for a server's tools (Summary Bar data).
 /// Returns (tool_name, allowed_count, denied_count, inherited_count).
 pub async fn get_access_summary(
