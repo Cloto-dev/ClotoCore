@@ -23,6 +23,7 @@ vi.mock('../ShutdownOverlay', () => ({ requestShutdown: vi.fn() }));
 const conversations = vi.hoisted(() => ({
   open: vi.fn(),
   startDraft: vi.fn(),
+  setDraftAgent: vi.fn(),
   leaveDraft: vi.fn(),
   draft: null as { key: string; agentId: string | null } | null,
   rename: vi.fn(),
@@ -48,6 +49,7 @@ vi.mock('../../contexts/ConversationContext', () => ({
     openFor: conversations.openFor,
     open: conversations.open,
     startDraft: conversations.startDraft,
+    setDraftAgent: conversations.setDraftAgent,
     leaveDraft: conversations.leaveDraft,
     get draft() {
       return conversations.draft;
@@ -80,6 +82,7 @@ beforeEach(() => {
   navigate.mockReset();
   conversations.open.mockReset();
   conversations.startDraft.mockReset();
+  conversations.setDraftAgent.mockReset();
   conversations.leaveDraft.mockReset();
   conversations.draft = null;
   conversations.archive.mockReset();
@@ -146,6 +149,32 @@ describe("the sidebar's conversations", () => {
     expect(conversations.startDraft).toHaveBeenCalledTimes(2);
     // Opening a conversation is what clicking a row does, not this.
     expect(conversations.open).not.toHaveBeenCalled();
+    // A single click stays on the present agent; turning away is the next test.
+    expect(conversations.setDraftAgent).not.toHaveBeenCalled();
+  });
+
+  it('new chat — clicked again — turns to "create an agent" by replacing, not by pushing another agent', () => {
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    const button = screen.getByRole('button', { name: 'new_chat' });
+    fireEvent.click(button, { detail: 1 });
+    fireEvent.click(button, { detail: 2 });
+    // The face at the left end is the one with no agent turned to.
+    expect(conversations.setDraftAgent).toHaveBeenCalledTimes(1);
+    expect(conversations.setDraftAgent).toHaveBeenCalledWith(null);
+    // The second click must not run the first click's path again: that would
+    // push the present agent's entry a second time before turning away from it.
+    expect(conversations.startDraft).toHaveBeenCalledTimes(1);
+    expect(conversations.startDraft).toHaveBeenLastCalledWith('agent.a');
+  });
+
+  it('new chat — ⌘N held down does not turn to "create an agent"', () => {
+    render(<AppSidebar onSettingsClick={vi.fn()} />);
+    fireEvent.keyDown(window, { key: 'n', metaKey: true });
+    fireEvent.keyDown(window, { key: 'n', metaKey: true });
+    // The shortcut carries no click count, so repeating it opens the new chat
+    // on the present agent each time rather than falling through to the left end.
+    expect(conversations.startDraft).toHaveBeenCalledTimes(2);
+    expect(conversations.setDraftAgent).not.toHaveBeenCalled();
   });
 
   it('marks no thread as open while the new chat is, and has no Chat link to go back by', () => {

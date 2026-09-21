@@ -128,7 +128,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
   const api = useApi();
   const { agents, selectedAgentId, setSelectedAgentId, systemActive, setSystemActive, processingAgentIds } =
     useAgentContext();
-  const { conversations, openFor, open, draft, startDraft, leaveDraft, rename, archive, remove } = useConversations();
+  const { conversations, openFor, open, draft, startDraft, setDraftAgent, leaveDraft, rename, archive, remove } =
+    useConversations();
   const { modules } = useModules();
   const [shutdownConfirm, setShutdownConfirm] = useState(false);
   const [showOlder, setShowOlder] = useState(false);
@@ -156,7 +157,21 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
   const isChatOpen = isAgentPage && !systemActive && (selectedAgentId !== null || draft !== null);
   const isNavActive = (path: string) => location.pathname === path;
 
-  const handleNewChat = () => {
+  const handleNewChat = (event?: { detail: number }) => {
+    // Clicked again without leaving: turn to "create an agent", the face at the
+    // left end of the new chat. Making someone is then one gesture from here,
+    // instead of a turn through however many agents lie between.
+    //
+    // `detail` is the click count, so the second click of a double-click is
+    // handled where the first one was. Going through `onDoubleClick` would let
+    // the second click run this handler again first, pushing the present
+    // agent's entry twice before turning away from it; `setDraftAgent`
+    // replaces instead of pushing, so back still leaves the new chat in one
+    // press however many times it was clicked.
+    if (event && event.detail >= 2) {
+      setDraftAgent(null);
+      return;
+    }
     // The new chat opens on whoever is present, else whoever was spoken with
     // last, else anyone who is on — and on "create an agent" when nobody
     // exists. Nothing is created here: the conversation exists, and appears in
