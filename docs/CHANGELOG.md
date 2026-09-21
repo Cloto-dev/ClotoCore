@@ -9,6 +9,24 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ## [Unreleased]
 
+---
+
+## [0.7.0a1] — 2026-09-21
+<!-- release-title: the dashboard becomes a living room and a workshop, and a connector panel can act for you behind a gate -->
+
+The first pre-release of the 0.7.0 line. The number moves to 0.7 because the
+dashboard was rebuilt rather than adjusted: the conversation, the connectors,
+the agents and the settings are each a page of their own now, inside the
+operating system's own window frame, with one search that reaches all of them.
+Under the scheme this project versions by, `X` in `0.X.Y` is the major
+position, and a release that changes what the application looks like from its
+first screen belongs there rather than in a patch.
+
+A 0.6.9 line was prepared and written up, and then never published — no tag,
+no release, and no installed user ever received it. That work ships here. Its
+notes are kept below under their own heading instead of being folded in, so
+that what was one batch still reads as one.
+
 ### Added
 
 - **Two chat routes a connector panel can be given.** `POST /api/chat/{agent}/send`
@@ -229,8 +247,6 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   that is said on the screen you return to, beside the new agent — not as a
   failed creation, which would invite making a second agent of the same name.
 
-### Changed
-
 - **The memory screen is one time axis instead of a grid of cards.** What an
   agent remembers is listed newest first under a band for each calendar day, and
   a run of days with nothing on them is drawn as a single compressed segment
@@ -448,24 +464,22 @@ absent loading state while the grants and the always-loaded files are read).
   or still titled by its first line, is named by the engine as before, and a
   rename made while the engine is thinking still wins.
 
-## [0.6.9a1] — 2026-09-08
-<!-- release-title: an agent gets files it always reads, and skills it loads when it needs them -->
+### Prepared as 0.6.9a1, never published
 
-The first pre-release of the 0.6.9 line, and the first to use the shortened
-spelling: `0.6.9a1` where the 0.6.8 line wrote `0.6.8-alpha.1`. Inside the
-build it is `0.6.9-a.1`, because Cargo, Tauri and the updater all parse semver
-and semver has no spelling without the punctuation. The stage and
-the number are the same thing they were — only the spelling is shorter, to sit
-closer to the form the project's Python packages use. Nothing about how a
-version is ordered or which channel it reaches has changed, and the older
-spelling remains valid forever, because the update feed indexes every past
-release.
+This batch was written up as its own pre-release and then never published. It
+introduced the shortened spelling the project uses from here on: `0.7.0a1`
+where the 0.6.8 line wrote `0.6.8-alpha.1`. Inside the build the version keeps
+its punctuation (`0.7.0-a.1`), because Cargo, Tauri and the updater all parse
+semver and semver has no spelling without it. The stage and the number are the
+same things they were — only the spelling is shorter, to sit closer to the
+form the project's Python packages use. Nothing about how a version is ordered
+or which channel it reaches has changed, and the older spelling remains valid
+forever, because the update feed indexes every past release.
 
-What this pre-release adds is a place to put standing instructions for an
-agent, and a place to put the procedures it should not have to carry in every
-prompt.
+What it added is a place to put standing instructions for an agent, and a
+place to put the procedures it should not have to carry in every prompt.
 
-### Added
+#### Added
 
 - **An agent can be given files it always operates under.** `CLAUDE.md`,
   `AGENTS.md` and `MEMORY.md`, placed in an agent's instruction directory, are
@@ -482,7 +496,7 @@ prompt.
   revokes the tool for an agent removes its index entry too, rather than
   leaving it looking at a list it cannot act on.
 
-### Changed
+#### Changed
 
 - **A pre-release is now flagged as one because it is one.** The release
   workflow decided by looking for the words `alpha`, `beta` or `rc` in the
@@ -495,7 +509,7 @@ prompt.
   printed to say so — the one failure no consumer can detect. Such tags are now
   named in the run's output.
 
-### Fixed
+#### Fixed
 
 - **Corrupt-database quarantine no longer loses a race on Windows.** The
   recovery path could find the file still held open and give up; it now waits
@@ -503,7 +517,7 @@ prompt.
   introduced it stayed green: the Windows leg of the test matrix is advisory,
   so a Windows-only failure does not fail a pull request.)
 
-### Internal
+#### Internal
 
 - The operation catalog drives the six conversation routes (create, list,
   rename, archive and restore, delete, and the two bulk actions), asserting on

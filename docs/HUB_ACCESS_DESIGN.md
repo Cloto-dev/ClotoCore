@@ -1,6 +1,6 @@
 # Hub Access Tokens — Kernel Side
 
-Status: implemented (0.6.9 line).
+Status: implemented (0.7.0 line).
 Scope: how the kernel holds and presents an access token for **restricted**
 connectors on the hub, and what it refuses to do with one.
 
