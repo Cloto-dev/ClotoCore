@@ -591,7 +591,11 @@ textarea.in {
 .log .e {
   color: hsl(var(--state-bad));
 }
-.danger {
+/* Scoped to `.ws` for the same reason as `.more` in AppSidebar.css: the
+ * sidebar's row menu also styles a `danger` button, so a bare rule here
+ * reached it. Both sides declare the same colour, so this changes no pixel —
+ * it only stops the two faces from reaching into each other. */
+.ws .danger {
   color: hsl(var(--state-bad));
 }
 

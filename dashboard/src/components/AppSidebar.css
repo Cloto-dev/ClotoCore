@@ -148,12 +148,18 @@
   background: hsl(var(--surface-primary));
   color: hsl(var(--text-primary));
 }
-.more {
+/* The button that reveals the older conversations. Scoped to `.side`, because
+ * `more` also names the icon that opens a server's menu in the workshop list
+ * and the count at the end of a group in the command palette, and a bare rule
+ * reaches both: neither of them names padding, so this rule's `6px 10px` was
+ * applied unopposed — on the workshop's 28x24 box that left an 8x12 content
+ * box for a 14px icon. */
+.side .more {
   color: hsl(var(--text-tertiary));
   font-size: 13px;
   padding: 6px 10px;
 }
-.more:hover {
+.side .more:hover {
   color: hsl(var(--text-primary));
 }
 
