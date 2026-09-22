@@ -98,9 +98,12 @@ present; each degrades to `None` rather than failing where unavailable.
   * the nightly (`opverify-nightly.yml`) passes `--ledger`, so each of its
     three OS jobs appends a row and turns a regression (a coverage drop, or an
     operation that passed last night and fails now) into a **red nightly**;
-  * a single `commit-ledger` job collects those rows and commits
-    `qa/opverify/history.jsonl` back to master, so the trend is durable rather
-    than living in a 14-day artifact;
+  * a single `commit-ledger` job collects those rows and commits them to
+    `qa/opverify/history.jsonl` on the `opverify-ledger` branch, so the trend is
+    durable rather than living in a 14-day artifact. The nightly keeps its
+    ledger there because master only accepts changes through a pull request;
+    each job loads the file from that branch before it runs, so its baseline is
+    last night's row, not master's copy;
   * the apex records to the same file — `python -m
     scripts.opverify.visual.run_vm <journey> --ledger`. Apex rows carry their
     own `target_kind` (`apex`), so they are only ever compared against prior

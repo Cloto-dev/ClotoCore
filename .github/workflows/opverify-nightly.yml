@@ -14,10 +14,14 @@ name: opverify nightly
 #
 # LEDGER. Every matrix job passes `--ledger`, so each run appends one row to
 # `qa/opverify/history.jsonl` and is compared against the prior same-target
-# baseline (the checked-out file carries last night's rows, so the comparison is
-# correct inside the job). The rows are then collected by the `commit-ledger`
-# job below and committed back to master — a single writer, because three OS
-# jobs pushing to one file would race.
+# baseline. The nightly's ledger lives on the `opverify-ledger` branch, not on
+# master: master only accepts changes through a pull request, and a ledger row
+# is not a change anyone reviews. Each job therefore loads the file from that
+# branch before it runs, so the comparison sees last night's rows. The rows are
+# then collected by the `commit-ledger` job below and pushed to that branch — a
+# single writer, because three OS jobs pushing to one file would race. Apex and
+# local runs still record to master's copy; a row is only ever compared with
+# earlier rows of the same target, so neither file is the other's baseline.
 #
 # `--ledger` makes a regression a RED nightly: a route-coverage drop, or an
 # operation that passed last night and fails now, exits non-zero even when the
@@ -69,6 +73,23 @@ jobs:
       # GTK/WebKit system deps required.
       - name: Build clotocore kernel
         run: cargo build --bin clotocore
+
+      # Replace master's copy of the ledger with the nightly's own (see LEDGER
+      # above) before anything reads it, so both the baseline length below and
+      # the regression check compare against last night's rows rather than
+      # against wherever master's copy happened to stop. If the branch is
+      # missing the run still goes ahead against master's copy, and the
+      # `commit-ledger` job fails on its checkout, so the gap cannot pass
+      # unnoticed.
+      - name: Load the nightly ledger
+        shell: bash
+        run: |
+          if git fetch --no-tags --depth=1 origin opverify-ledger; then
+            git show FETCH_HEAD:qa/opverify/history.jsonl > qa/opverify/history.jsonl
+            echo "ledger: loaded from opverify-ledger ($(wc -l < qa/opverify/history.jsonl | tr -d '[:space:]') rows)"
+          else
+            echo "::warning::opverify-ledger branch not found; comparing against master's copy of the ledger"
+          fi
 
       # Remember how long the committed ledger was BEFORE this run, so the row
       # this job appends can be isolated afterwards. Reading `tail -1` instead
@@ -131,8 +152,8 @@ jobs:
     name: Commit ledger rows
     needs: opverify
     # `always()`: a red nightly is exactly the run whose row is worth keeping.
-    # Restricted to master because this job pushes there — a branch dispatch
-    # must not write master's ledger.
+    # Restricted to master: the ledger records the nightly of the default
+    # branch, so a dispatch from any other branch must not add rows to it.
     if: ${{ always() && github.ref == 'refs/heads/master' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -150,7 +171,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: master
+          ref: opverify-ledger
 
       - name: Download ledger rows
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
@@ -214,11 +235,11 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add qa/opverify/history.jsonl
           git commit -m "chore(opverify): record nightly ledger rows"
-          # Re-attempt against a moving master (append-only file, so a rebase
+          # Re-attempt against a moving branch (append-only file, so a rebase
           # normally replays cleanly; a genuine conflict fails loudly rather
           # than resolving itself with a guess).
           for attempt in 1 2 3; do
-            if git pull --rebase --autostash origin master && git push origin HEAD:master; then
+            if git pull --rebase --autostash origin opverify-ledger && git push origin HEAD:opverify-ledger; then
               echo "ledger pushed (attempt $attempt)"
               exit 0
             fi

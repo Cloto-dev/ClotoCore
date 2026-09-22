@@ -274,8 +274,10 @@ installer-diff VM verify above. See `scripts/opverify/README.md`.
   the catalog, never widen the ignore-list to hide a gap.
 - **MUST: every run is recorded.** Pass `--ledger`, so the run appends a row to
   `qa/opverify/history.jsonl` and is compared against the prior same-target
-  baseline. That file is the only durable answer to "how much is this machinery
-  actually used?" — a question that on 2026-07-27 could only be answered by
+  baseline. The nightly's rows are kept in that file on the `opverify-ledger`
+  branch (master only accepts changes through a pull request); apex and local
+  runs record to master's copy. Together the two are the only durable answer to
+  "how much is this machinery actually used?" — a question that on 2026-07-27 could only be answered by
   cross-referencing CI run lists against hypervisor snapshot dates, because the
   ledger existed in code and had never been wired to anything. A verification
   tier nobody can count is a tier nobody can defend keeping.
