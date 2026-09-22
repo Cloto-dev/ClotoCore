@@ -188,6 +188,9 @@ ClotoCore/
 | POST | `/api/chat/:agent_id/stop` | Stop the reply to `source_message_id`: nothing of it is stored, `ResponseStopped` replaces `ThoughtResponse`; `stopped: false` when it had already finished |
 | GET | `/api/chat/search` | Search every conversation's messages, archived ones included (`?q=` terms all present, newest first; `total` and `truncated` say when the list is cut) |
 | GET | `/api/chat/attachments/:attachment_id` | Retrieve chat attachment |
+| GET | `/api/notifications`, `/api/notifications/summary` | What is waiting for the reader (the bell's listing, and the two counts it polls) |
+| POST | `/api/notifications` | Raise a `notice` or `proposal` from a producer that is not an agent — a supervisor beside the kernel. Idempotent on the caller's `item_id`, stored under `external:`; `approval` and `metadata.message` are refused |
+| POST | `/api/notifications/:item_id/read`, `…/answer` | Mark seen / settle it (answering is what takes it off the badge) |
 | POST/GET | `/api/mcp/servers` | MCP server management |
 | DELETE | `/api/mcp/servers/:name` | Delete MCP server |
 | GET/PUT | `/api/mcp/servers/:name/settings` | Server settings |

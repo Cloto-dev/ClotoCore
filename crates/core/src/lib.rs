@@ -1782,7 +1782,8 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
         // whether an item interrupts, never whether it can be found.
         .route(
             "/notifications",
-            get(handlers::notifications::list_notifications),
+            get(handlers::notifications::list_notifications)
+                .post(handlers::notifications::raise_notification),
         )
         .route(
             "/notifications/summary",

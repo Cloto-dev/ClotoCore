@@ -14,7 +14,8 @@ use axum::response::IntoResponse;
 use axum::Json;
 use cloto_core::db::{record_notification, NotificationItem, NotificationKind};
 use cloto_core::handlers::notifications::{
-    list_notifications, mark_notification_read, notification_summary, ListQuery,
+    answer_notification, list_notifications, mark_notification_read, notification_summary,
+    raise_notification, AnswerBody, ListQuery, RaiseBody, EXTERNAL_ITEM_PREFIX,
 };
 use cloto_core::test_utils::create_test_app_state;
 use cloto_core::AppState;
@@ -252,4 +253,281 @@ fn the_routes_are_registered() {
         wiring.contains("handlers::notifications::mark_notification_read"),
         "the registered mark-read route does not reach the handler"
     );
+    assert!(
+        wiring.contains(".post(handlers::notifications::raise_notification)"),
+        "nothing routes a POST to the raise handler — a producer outside the kernel has no way in"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Raising an item from outside the kernel.
+//
+// The request is built by deserializing JSON, the way the route receives it,
+// so the refusals that live in the body's shape (unknown fields) are exercised
+// along with the ones that live in the handler.
+
+async fn raise(
+    state: &Arc<AppState>,
+    request: serde_json::Value,
+) -> (StatusCode, serde_json::Value) {
+    let body: RaiseBody = serde_json::from_value(request).expect("a well-formed request");
+    read_response(raise_notification(State(state.clone()), headers(), Json(body)).await).await
+}
+
+async fn stored(state: &Arc<AppState>) -> Vec<serde_json::Value> {
+    list(state, false).await
+}
+
+#[tokio::test]
+async fn a_raised_notice_arrives_as_nobodys_notice_and_leaves_the_badge_alone() {
+    let state = state().await;
+    let (status, body) = raise(
+        &state,
+        serde_json::json!({
+            "item_id": "watch:2026-09-23:daily-review",
+            "title": "The daily review left no record yesterday",
+            "body": "Expected at 09:00; nothing ran and nothing declared a rest.",
+            "severity": "warning",
+            "metadata": { "job": "daily-review" },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["data"]["created"], true);
+    assert_eq!(
+        body["data"]["item_id"], "external:watch:2026-09-23:daily-review",
+        "the answer has to name the row the caller will find"
+    );
+
+    let items = stored(&state).await;
+    assert_eq!(items.len(), 1);
+    let item = &items[0];
+    assert_eq!(item["kind"], "notice", "notice is the default");
+    assert_eq!(item["severity"], "warning");
+    assert_eq!(
+        item["agent_id"],
+        serde_json::Value::Null,
+        "no agent raised this, and filing it under one would make it that agent's words"
+    );
+    assert_eq!(item["blocking"], false);
+    assert_eq!(item["metadata"]["job"], "daily-review");
+
+    assert_eq!(
+        summary(&state).await["waiting"],
+        0,
+        "a notice from outside is news like any other notice"
+    );
+}
+
+#[tokio::test]
+async fn a_raised_proposal_counts_until_the_reader_answers_it() {
+    let state = state().await;
+    let (status, body) = raise(
+        &state,
+        serde_json::json!({ "item_id": "silence-1", "kind": "proposal", "title": "A job went quiet" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        summary(&state).await["waiting"],
+        1,
+        "this is the one kind an outside producer can use to interrupt, and it has to"
+    );
+
+    let id = body["data"]["item_id"]
+        .as_str()
+        .expect("item id")
+        .to_string();
+    let (status, _) = read_response(
+        answer_notification(
+            State(state.clone()),
+            headers(),
+            Path(id),
+            Json(AnswerBody {
+                decision: "looked into it".into(),
+            }),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        summary(&state).await["waiting"],
+        0,
+        "answering settles an outside proposal the same way it settles an agent's"
+    );
+}
+
+#[tokio::test]
+async fn raising_the_same_id_twice_is_one_item_and_the_first_write_stands() {
+    let state = state().await;
+    let request = |title: &str| serde_json::json!({ "item_id": "retry-me", "title": title });
+
+    let (_, first) = raise(&state, request("first")).await;
+    let (status, second) = raise(&state, request("second")).await;
+    assert_eq!(status, StatusCode::OK, "a retry is not an error: {second}");
+    assert_eq!(first["data"]["created"], true);
+    assert_eq!(
+        second["data"]["created"], false,
+        "a retry after a lost response must be able to tell that it already landed"
+    );
+
+    let items = stored(&state).await;
+    assert_eq!(
+        items.len(),
+        1,
+        "a retry must not raise the same thing twice"
+    );
+    assert_eq!(items[0]["title"], "first");
+}
+
+#[tokio::test]
+async fn an_outside_id_cannot_take_a_row_the_kernel_is_about_to_write() {
+    let state = state().await;
+    let (status, _) = raise(
+        &state,
+        serde_json::json!({ "item_id": "cmd-42", "title": "t" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The kernel's own producers write with a plain INSERT. If the outside
+    // caller had been given the bare id, this would fail on the unique key and
+    // the kernel's item — possibly an approval an agent is waiting behind —
+    // would never reach the reader.
+    record_notification(
+        &state.pool,
+        NotificationItem::new(
+            "cmd-42",
+            NotificationKind::Approval,
+            McpLogLevel::Warning,
+            "gate",
+        )
+        .blocking(),
+    )
+    .await
+    .expect("the kernel's own write must still land");
+
+    let ids: Vec<_> = stored(&state)
+        .await
+        .into_iter()
+        .map(|i| i["item_id"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(ids.contains(&"cmd-42".to_string()), "{ids:?}");
+    assert!(
+        ids.contains(&format!("{EXTERNAL_ITEM_PREFIX}cmd-42")),
+        "{ids:?}"
+    );
+}
+
+#[tokio::test]
+async fn what_an_outside_caller_cannot_raise_is_refused_and_leaves_nothing_behind() {
+    let state = state().await;
+    let long_title = "x".repeat(201);
+    let long_body = "y".repeat(4_001);
+    let big_metadata = serde_json::json!({ "blob": "z".repeat(16 * 1024) });
+    for (why, request) in [
+        (
+            "an approval claims an agent is being held, and there is no agent",
+            serde_json::json!({ "item_id": "a", "kind": "approval", "title": "t" }),
+        ),
+        (
+            "a kind the store does not know",
+            serde_json::json!({ "item_id": "a", "kind": "alarm", "title": "t" }),
+        ),
+        (
+            "a keyed message would speak with the kernel's voice",
+            serde_json::json!({
+                "item_id": "a", "title": "t",
+                "metadata": { "message": { "key": "kernel.shutdown", "params": {} } },
+            }),
+        ),
+        (
+            "metadata that is not an object",
+            serde_json::json!({ "item_id": "a", "title": "t", "metadata": ["x"] }),
+        ),
+        (
+            "metadata too large to be metadata",
+            serde_json::json!({ "item_id": "a", "title": "t", "metadata": big_metadata }),
+        ),
+        (
+            "a severity outside RFC 5424",
+            serde_json::json!({ "item_id": "a", "title": "t", "severity": "urgent" }),
+        ),
+        (
+            "an empty title",
+            serde_json::json!({ "item_id": "a", "title": "   " }),
+        ),
+        (
+            "a title past the limit",
+            serde_json::json!({ "item_id": "a", "title": long_title }),
+        ),
+        (
+            "a body past the limit",
+            serde_json::json!({ "item_id": "a", "title": "t", "body": long_body }),
+        ),
+        (
+            "an empty id",
+            serde_json::json!({ "item_id": " ", "title": "t" }),
+        ),
+        (
+            "an id with a character outside the set",
+            serde_json::json!({ "item_id": "a/b", "title": "t" }),
+        ),
+        (
+            "an id past the limit",
+            serde_json::json!({ "item_id": "i".repeat(129), "title": "t" }),
+        ),
+    ] {
+        let (status, body) = raise(&state, request).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{why}: {body}");
+    }
+    assert!(
+        stored(&state).await.is_empty(),
+        "a refused request must not have written anything first"
+    );
+}
+
+#[tokio::test]
+async fn the_limits_are_inclusive() {
+    // The other side of the boundary the refusals above stand on: a value at
+    // the limit is accepted, so a limit that drifted by one would show here.
+    let state = state().await;
+    let (status, body) = raise(
+        &state,
+        serde_json::json!({
+            "item_id": "i".repeat(128),
+            "title": "x".repeat(200),
+            "body": "y".repeat(4_000),
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[test]
+fn a_field_the_route_does_not_honour_is_refused_rather_than_dropped() {
+    // A caller sending `blocking` or `agent_id` must learn it was not honoured.
+    // Silently dropping it would let an outside item look, to its producer,
+    // like it holds an agent or speaks for one.
+    for field in ["blocking", "agent_id"] {
+        let mut request = serde_json::json!({ "item_id": "a", "title": "t" });
+        request[field] = serde_json::json!(true);
+        assert!(
+            serde_json::from_value::<RaiseBody>(request).is_err(),
+            "{field} was accepted"
+        );
+    }
+}
+
+#[tokio::test]
+async fn raising_needs_the_key() {
+    let state = state().await;
+    let body: RaiseBody =
+        serde_json::from_value(serde_json::json!({ "item_id": "a", "title": "t" })).unwrap();
+    let (status, _) =
+        read_response(raise_notification(State(state.clone()), HeaderMap::new(), Json(body)).await)
+            .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(stored(&state).await.is_empty());
 }
