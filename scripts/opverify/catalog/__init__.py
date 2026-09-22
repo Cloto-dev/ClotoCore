@@ -38,6 +38,7 @@ _MODULES = [
     "setup",
     "modules",
     "hub_access",
+    "notifications",
 ]
 
 REGISTRY: List["Operation"] = []
