@@ -382,10 +382,6 @@
 .inner summary::-webkit-details-marker {
   display: none;
 }
-.inner summary .lbl {
-  color: hsl(var(--text-tertiary));
-  font-size: 12px;
-}
 .inner summary:hover {
   color: hsl(var(--text-primary));
 }
