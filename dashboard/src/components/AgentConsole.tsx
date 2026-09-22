@@ -1385,9 +1385,14 @@ export function AgentConsole({
                   <div className="b">
                     {thinkingSteps.length > 0 ? (
                       <details className="inner" open>
+                        {/* The summary says what happened and nothing else. It used to carry a
+                            label ("Inside") in front of the sentence, which named no fact the
+                            sentence did not already carry — and what opens below is a mix of MCP
+                            calls, shell commands and searches, so a label naming one of them
+                            would be wrong for the others. The count is gone with it: the list is
+                            one click away and states it exactly. */}
                         <summary>
-                          <span className="lbl">{t('console.inner')}</span>
-                          {t('console.tools_used', { count: toolsUsed.length })}
+                          {t('console.tools_used')}
                           <span className="chev" />
                         </summary>
                         <ol>
