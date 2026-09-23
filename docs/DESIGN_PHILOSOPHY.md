@@ -100,6 +100,14 @@ are not applied until saved. One part, used everywhere it fits.
    Saturation 70 % is fixed; lightness starts at 58 % and rises only where that
    would not hold 4.5:1 on the raised surface (which keeps the scale's own
    tint) — cyan reads at 58 %, blue needs 72 %. A fixed lightness across hues reads at some and not at others.
+
+   The face is that colour carried a little further: a gradient from the agent's
+   colour to the same colour turned 68° round the wheel and 8 points lighter,
+   with the first letter of the name on it in the agent's ink (a picture, when
+   the agent has one, replaces both). The end is worked out from the colour
+   where the face is drawn, so it is always the agent's own, and it is the only
+   gradient in the product — it belongs to the face and to nothing else. A theme
+   that gives every agent one accent keeps the face flat.
 3. **Type.** IBM Plex Sans JP for everything read (body 15–16, UI 13.5, notes
    12.5; headings 600, letter-spacing 0). IBM Plex Mono only for identifiers,
    code and tabular numbers. The product bundles the fonts.

@@ -16,6 +16,19 @@
    *
    * Colour tokens are HSL component triplets ("H S% L%") so Tailwind can add an
    * alpha: `hsl(var(--surface-base) / <alpha-value>)`. */
+  /* A theme that gives every agent one accent keeps the face flat: it changes
+   * colour only, and the flat circle is the colour it has always drawn. */
+  /* The letter on a face without a picture (lib/agentIdentity.tsx). Its size is
+   * the one the call site passes, unless the face it sits in sets its own. */
+  .face-letter {
+    font-size: var(--face-letter, 16px);
+    font-weight: 600;
+    line-height: 1;
+  }
+  :root[data-accent='fixed'] {
+    --face-turn: 0;
+    --face-lift: 0;
+  }
   :root {
     /* The tint of the neutral scale: one fixed hue for every screen and every
      * agent. It does not follow the selection — the surfaces stay put and only
@@ -28,6 +41,12 @@
     --agent: var(--h) 70% 58%;
     /* Text set on the agent's colour. */
     --agent-ink: var(--h) 50% 10%;
+    /* The face (§4.2): a gradient from the agent's colour to the same colour
+     * turned this far round the wheel and lifted this much. The end is worked
+     * out from --agent where the face is drawn, so any element that sets its own
+     * --agent gets its own face without setting anything else. */
+    --face-turn: 68;
+    --face-lift: 8;
 
     /* Type (§4.3). Notes are the smallest readable size; UI text sits one step up. */
     --font-sans: 'IBM Plex Sans JP', 'Hiragino Sans', 'Noto Sans JP', sans-serif;

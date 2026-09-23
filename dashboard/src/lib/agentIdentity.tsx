@@ -1,4 +1,3 @@
-import { User } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useApi } from '../hooks/useApi';
 import defaultPack from '../themes/packs/default.json';
@@ -169,7 +168,16 @@ export function applyPresentAgent(agent: AccentSource | null, root: HTMLElement 
   else root.style.removeProperty('--agent-ink');
 }
 
-/** Render the appropriate icon for an agent (avatar image or fallback icon) */
+/** The letter on a face without a picture: the first character of the name, as a person reads it
+ * (a whole character, not half of a surrogate pair). Upper-cased where the script has case. */
+export function faceLetter(name: string): string {
+  const first = Array.from(name.trim())[0];
+  return first ? first.toLocaleUpperCase() : '?';
+}
+
+/** The inside of an agent's face: its picture when it has one, else the first letter of its name.
+ * The circle and its colour are the wrapper's (§4.2: a gradient from the agent's colour). `size`
+ * is the picture's size, and the letter's where no stylesheet sets one. */
 export function AgentIcon({ agent, size = 20 }: { agent: AgentMetadata; size?: number }) {
   const api = useApi();
   const [imgError, setImgError] = useState(false);
@@ -190,7 +198,11 @@ export function AgentIcon({ agent, size = 20 }: { agent: AgentMetadata; size?: n
       />
     );
   }
-  return <User size={size} />;
+  return (
+    <span className="face-letter" aria-hidden="true" style={{ '--face-letter': `${size}px` } as React.CSSProperties}>
+      {faceLetter(agent.name)}
+    </span>
+  );
 }
 
 /** Status dot color classes (3-state) */

@@ -643,7 +643,14 @@ textarea.in {
   overflow: hidden;
 }
 .roster .r.on .f {
+  /* The face (§4.2). The flat colour first: a webview without relative colours
+   * drops the gradient below and keeps it. */
   background: hsl(var(--agent));
+  background: linear-gradient(
+    135deg,
+    hsl(var(--agent)),
+    hsl(from hsl(var(--agent)) calc(h + var(--face-turn)) s min(calc(l + var(--face-lift)), 90))
+  );
   color: hsl(var(--agent-ink));
 }
 .roster .r .nm {
@@ -765,7 +772,14 @@ textarea.in {
   width: 64px;
   height: 64px;
   border-radius: 50%;
+  /* The face (§4.2). The flat colour first: a webview without relative colours
+   * drops the gradient below and keeps it. */
   background: hsl(var(--agent));
+  background: linear-gradient(
+    135deg,
+    hsl(var(--agent)),
+    hsl(from hsl(var(--agent)) calc(h + var(--face-turn)) s min(calc(l + var(--face-lift)), 90))
+  );
   color: hsl(var(--agent-ink));
   display: grid;
   place-items: center;

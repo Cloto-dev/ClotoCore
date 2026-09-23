@@ -56,7 +56,14 @@
   width: 44px;
   height: 44px;
   border-radius: 50%;
+  /* The face (§4.2). The flat colour first: a webview without relative colours
+   * drops the gradient below and keeps it. */
   background: hsl(var(--agent));
+  background: linear-gradient(
+    135deg,
+    hsl(var(--agent)),
+    hsl(from hsl(var(--agent)) calc(h + var(--face-turn)) s min(calc(l + var(--face-lift)), 90))
+  );
   color: hsl(var(--agent-ink));
   display: grid;
   place-items: center;
@@ -65,6 +72,9 @@
 .face .pic svg {
   width: 26px;
   height: 26px;
+}
+.face .pic .face-letter {
+  font-size: 22px;
 }
 .face .pic img {
   width: 100%;
@@ -112,6 +122,9 @@
 .face.talk .pic {
   width: 40px;
   height: 40px;
+}
+.face.talk .pic .face-letter {
+  font-size: 19px;
 }
 .face.talk .pic svg {
   width: 22px;
@@ -475,7 +488,14 @@
   width: 84px;
   height: 84px;
   border-radius: 50%;
+  /* The face (§4.2). The flat colour first: a webview without relative colours
+   * drops the gradient below and keeps it. */
   background: hsl(var(--agent));
+  background: linear-gradient(
+    135deg,
+    hsl(var(--agent)),
+    hsl(from hsl(var(--agent)) calc(h + var(--face-turn)) s min(calc(l + var(--face-lift)), 90))
+  );
   color: hsl(var(--agent-ink));
   display: grid;
   place-items: center;
@@ -485,6 +505,9 @@
 .presence .pic svg {
   width: 44px;
   height: 44px;
+}
+.presence .pic .face-letter {
+  font-size: 38px;
 }
 .presence .pic img {
   width: 100%;
@@ -588,6 +611,9 @@
 .presence .turn .peek svg {
   width: 20px;
   height: 20px;
+}
+.presence .turn .peek .face-letter {
+  font-size: 17px;
 }
 .presence .turn .peek img {
   width: 100%;
