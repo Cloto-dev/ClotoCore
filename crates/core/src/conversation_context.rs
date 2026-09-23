@@ -10,6 +10,20 @@ use std::collections::HashSet;
 
 use crate::db::ChatMessageRow;
 
+/// The metadata key every context item carries to say where it came from, and
+/// the two values it takes (docs/CONVERSATIONS_DESIGN.md §2c). An engine shows a
+/// `memory` item as something recalled, never as a turn of the conversation it
+/// is answering in; a model that is told a week-old instruction was said a
+/// moment ago will treat its figures as today's.
+// HARDCODED(docs/CONVERSATIONS_DESIGN.md §2c): the wire values engines split context on
+pub const CONTEXT_TYPE_KEY: &str = "context_type";
+/// A turn of the conversation being answered: a stored row, or the in-flight transcript.
+// HARDCODED(docs/CONVERSATIONS_DESIGN.md §2c): the wire values engines split context on
+pub const CONTEXT_CONVERSATION: &str = "conversation";
+/// Long-term recall: text from anywhere in the agent's memory, of any age.
+// HARDCODED(docs/CONVERSATIONS_DESIGN.md §2c): the wire values engines split context on
+pub const CONTEXT_MEMORY: &str = "memory";
+
 /// A stored row as the engine sees it. The content column holds content
 /// blocks; the engine reads text, so the text blocks are joined and the rest
 /// (images, audio) are named rather than dropped silently.
@@ -66,13 +80,22 @@ pub fn rows_to_messages(rows: &[ChatMessageRow]) -> Vec<ClotoMessage> {
     rows.iter().map(row_to_message).collect()
 }
 
-/// One timeline for the engine: the conversation's own turns, long-term
-/// recall, and the in-memory transcript, de-duplicated by message id and
-/// sorted by time. The message being answered (`current_id`) is never in it —
-/// the engine receives that one through its own argument.
+/// One timeline for the engine: the conversation's own turns, the in-memory
+/// transcript, and long-term recall, de-duplicated by message id and sorted by
+/// time. The message being answered (`current_id`) is never in it — the engine
+/// receives that one through its own argument.
 ///
-/// Precedence on a duplicate id is the conversation's row: it is the stored
-/// truth, where recall may carry a trimmed copy.
+/// Every item leaves tagged with where it came from ([`CONTEXT_TYPE_KEY`]): the
+/// conversation's rows and the transcript as [`CONTEXT_CONVERSATION`], recall as
+/// [`CONTEXT_MEMORY`]. This is the only place that knows which is which, so the
+/// tag is set here and not trusted from elsewhere — a memory server that labels
+/// its own results `conversation` is overruled, because what it recalled is not
+/// a turn of this conversation unless this conversation holds the same id.
+///
+/// Precedence on a duplicate id: the conversation's row, then the transcript,
+/// then recall. The stored row is the truth where recall may carry a trimmed
+/// copy, and a turn that is both in this conversation and in memory is a turn of
+/// this conversation.
 #[must_use]
 pub fn merge_context(
     recall: Vec<ClotoMessage>,
@@ -80,9 +103,19 @@ pub fn merge_context(
     transcript: Vec<ClotoMessage>,
     current_id: &str,
 ) -> Vec<ClotoMessage> {
+    let tag = |mut m: ClotoMessage, origin: &str| {
+        m.metadata
+            .insert(CONTEXT_TYPE_KEY.to_string(), origin.to_string());
+        m
+    };
+    let ordered = conversation
+        .into_iter()
+        .chain(transcript)
+        .map(|m| tag(m, CONTEXT_CONVERSATION))
+        .chain(recall.into_iter().map(|m| tag(m, CONTEXT_MEMORY)));
     let mut seen: HashSet<String> = HashSet::new();
     let mut merged: Vec<ClotoMessage> = Vec::new();
-    for m in conversation.into_iter().chain(recall).chain(transcript) {
+    for m in ordered {
         if !m.id.is_empty() && m.id == current_id {
             continue;
         }
@@ -151,6 +184,48 @@ mod tests {
         let merged = merge_context(recall, conversation, transcript, "now");
         let ids: Vec<&str> = merged.iter().map(|m| m.id.as_str()).collect();
         assert_eq!(ids, vec!["r1", "c1", "c2", "t1"]);
+    }
+
+    fn origin(m: &ClotoMessage) -> Option<&str> {
+        m.metadata.get(CONTEXT_TYPE_KEY).map(String::as_str)
+    }
+
+    #[test]
+    fn a_conversation_row_and_a_transcript_turn_are_tagged_conversation() {
+        let merged = merge_context(vec![], vec![msg("c1", 10)], vec![msg("t1", 20)], "now");
+        assert_eq!(origin(&merged[0]), Some(CONTEXT_CONVERSATION));
+        assert_eq!(origin(&merged[1]), Some(CONTEXT_CONVERSATION));
+    }
+
+    #[test]
+    fn a_recalled_message_is_tagged_memory() {
+        let merged = merge_context(vec![msg("r1", 5)], vec![msg("c1", 10)], vec![], "now");
+        let r1 = merged.iter().find(|m| m.id == "r1").unwrap();
+        assert_eq!(origin(r1), Some(CONTEXT_MEMORY));
+    }
+
+    #[test]
+    fn a_memory_server_cannot_label_its_results_conversation() {
+        // What a recall returns is not a turn of this conversation unless this
+        // conversation holds the same id; the server's own label does not decide.
+        let mut claimed = msg("r1", 5);
+        claimed
+            .metadata
+            .insert(CONTEXT_TYPE_KEY.into(), CONTEXT_CONVERSATION.into());
+        let merged = merge_context(vec![claimed], vec![], vec![], "now");
+        assert_eq!(origin(&merged[0]), Some(CONTEXT_MEMORY));
+    }
+
+    #[test]
+    fn a_turn_in_the_transcript_and_in_recall_stays_conversation() {
+        let mut in_flight = msg("x", 10);
+        in_flight.content = "the whole text".into();
+        let mut recalled = msg("x", 10);
+        recalled.content = "the whole".into();
+        let merged = merge_context(vec![recalled], vec![], vec![in_flight], "other");
+        assert_eq!(merged.len(), 1);
+        assert_eq!(origin(&merged[0]), Some(CONTEXT_CONVERSATION));
+        assert_eq!(merged[0].content, "the whole text");
     }
 
     #[test]

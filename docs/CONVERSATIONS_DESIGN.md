@@ -146,6 +146,34 @@ Why the database and not a bigger transcript: the transcript is in-memory
 by design (Principle 1.4) and evicts after 24 hours; a conversation that can
 be reopened months later cannot depend on it.
 
+**Every context item says where it came from.** The merge
+(`conversation_context::merge_context`) tags each item it hands the engine with
+`context_type`:
+
+| `context_type` | Items | What an engine must do with it |
+| --- | --- | --- |
+| `conversation` | This conversation's stored turns, and the in-flight transcript | Show it as an earlier turn of this conversation |
+| `memory` | Long-term recall | Show it as something recalled — of any age, from any conversation — never as a turn of this one |
+
+The kernel is the only party that knows which is which, so the tag is set there
+and a memory server's own label on its results is overruled. On a duplicate id
+the conversation's row wins, then the transcript, then recall: a turn that is
+both in this conversation and in memory is a turn of this conversation.
+
+Why this is required rather than cosmetic: an engine that renders everything it
+is handed as "earlier turns of this conversation" presents recalled text — an
+instruction from a week ago, with a week-old input — as if it had just been
+said. An agent that starts every task in a fresh conversation then reads another
+task's input as part of its own.
+
+**Agent metadata `memory_store`.** By default the kernel stores every message
+and reply in the agent's long-term memory (`auto`). `off` stops that, for an
+agent that keeps its memory itself through the memory server's tools, with the
+project and channel it chooses: a second, automatic writer would file each
+instruction under a channel that agent never reads, from where the automatic
+recall returns it later. `memory_store` governs writing only; whether the kernel
+recalls automatically is `recall_policy`'s to decide (`manual_only` never does).
+
 ### (d) Nothing ends
 
 There is no "end session" action, no timer and no gap that splits a

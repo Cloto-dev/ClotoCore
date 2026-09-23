@@ -222,6 +222,45 @@ impl RecallPolicy {
     }
 }
 
+/// Per-agent long-term memory writes: whether the kernel stores an agent's
+/// messages and replies into its memory on its own (agent metadata
+/// `memory_store`).
+///
+/// `off` is for an agent that keeps its memory itself — it calls the memory
+/// server's tools with the project and channel it chose, and a second, automatic
+/// writer would file every instruction it is given under a channel it never
+/// reads, where the automatic recall finds it again later as if it had been said
+/// in the current conversation. The default ([`MemoryStore::Auto`], used for
+/// absent or unrecognized metadata) is the historical behavior, so adding the
+/// knob changes no agent until one opts out. Recall is not affected: that is
+/// `recall_policy`'s to decide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MemoryStore {
+    /// Store every message and reply (historical behavior).
+    Auto,
+    /// Never store automatically.
+    Off,
+}
+
+impl MemoryStore {
+    /// The agent-metadata key this knob is read from.
+    // HARDCODED(docs/CONVERSATIONS_DESIGN.md §2c): the agent metadata key named there
+    pub(crate) const METADATA_KEY: &'static str = "memory_store";
+
+    /// Parse the `memory_store` agent-metadata value. Only the exact value
+    /// `off` turns storing off; anything else keeps the historical default.
+    pub(crate) fn from_metadata(value: Option<&String>) -> Self {
+        match value.map(String::as_str) {
+            Some("off") => Self::Off,
+            _ => Self::Auto,
+        }
+    }
+
+    pub(crate) fn stores(self) -> bool {
+        self == Self::Auto
+    }
+}
+
 /// Per-agent session scope (knob 2). Selects how an agent's
 /// long-term recall is partitioned when several users share a channel: by user,
 /// by the whole channel, or by thread. It drives the two long-term axes the
@@ -1384,6 +1423,7 @@ impl SystemHandler {
                     // Persist the agent reply too, paired with the user message.
                     self.spawn_store_agent_response(
                         &agent.id,
+                        MemoryStore::from_metadata(agent.metadata.get(MemoryStore::METADATA_KEY)),
                         &msg,
                         &content,
                         memory_plugin.as_ref(),
@@ -1679,7 +1719,11 @@ impl SystemHandler {
         }
 
         // Persist to memory (below agentic loop / consensus dispatch).
-        if let Some(plugin) = memory_plugin {
+        let memory_store =
+            MemoryStore::from_metadata(agent.metadata.get(MemoryStore::METADATA_KEY));
+        if !memory_store.stores() {
+            tracing::debug!(agent_id = %agent.id, "memory_store=off: the message is not stored in long-term memory");
+        } else if let Some(plugin) = memory_plugin {
             if let Some(_mem) = plugin.as_memory() {
                 // 🔐 Check MemoryWrite permission before store
                 let manifest = plugin.manifest();
@@ -2390,11 +2434,15 @@ impl SystemHandler {
     fn spawn_store_agent_response(
         &self,
         agent_id: &str,
+        memory_store: MemoryStore,
         msg: &ClotoMessage,
         content: &str,
         memory_plugin: Option<&Arc<dyn cloto_shared::Plugin>>,
         mcp_memory: Option<&(Arc<McpClientManager>, String)>,
     ) {
+        if !memory_store.stores() {
+            return;
+        }
         if let Some(plugin) = memory_plugin {
             let plugin_clone = plugin.clone();
             let agent_resp_msg = ClotoMessage {
@@ -2533,6 +2581,7 @@ impl SystemHandler {
         };
         self.spawn_store_agent_response(
             &agent.id,
+            MemoryStore::from_metadata(agent.metadata.get(MemoryStore::METADATA_KEY)),
             msg,
             &content,
             memory_plugin.as_ref(),
@@ -3921,8 +3970,11 @@ impl SystemHandler {
                     "content": m.content,
                     "timestamp": m.timestamp.to_rfc3339(),
                 });
-                if let Some(ct) = m.metadata.get("context_type") {
-                    obj["context_type"] = serde_json::json!(ct);
+                if let Some(ct) = m
+                    .metadata
+                    .get(crate::conversation_context::CONTEXT_TYPE_KEY)
+                {
+                    obj[crate::conversation_context::CONTEXT_TYPE_KEY] = serde_json::json!(ct);
                 }
                 obj
             })
@@ -4838,6 +4890,33 @@ mod phase_c_rejection_helpers_tests {
         ]);
         // Dedup + sorted by BTreeSet.
         assert!(text.contains("mgp.access.grant, mgp.access.query"));
+    }
+}
+
+#[cfg(test)]
+mod memory_store_tests {
+    use super::MemoryStore;
+
+    #[test]
+    fn only_off_stops_storing() {
+        assert_eq!(
+            MemoryStore::from_metadata(Some(&"off".to_string())),
+            MemoryStore::Off
+        );
+        assert!(!MemoryStore::Off.stores());
+    }
+
+    #[test]
+    fn absent_or_unknown_keeps_the_historical_default() {
+        for v in [None, Some("auto"), Some(""), Some("OFF"), Some("false")] {
+            let owned = v.map(str::to_string);
+            assert_eq!(
+                MemoryStore::from_metadata(owned.as_ref()),
+                MemoryStore::Auto,
+                "{v:?}"
+            );
+        }
+        assert!(MemoryStore::Auto.stores());
     }
 }
 

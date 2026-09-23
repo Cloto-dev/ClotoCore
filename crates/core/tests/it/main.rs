@@ -44,6 +44,7 @@ mod kernel_integration_test;
 mod kernel_stop_signal_test;
 mod kernel_stop_with_open_stream_test;
 mod mcp_server_listing_test;
+mod memory_store_policy_test;
 mod migration_test;
 mod notification_api_test;
 mod notification_store_test;
