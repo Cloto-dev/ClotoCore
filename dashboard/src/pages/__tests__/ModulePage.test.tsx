@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Echo i18n keys so assertions do not depend on copy.
@@ -6,8 +6,10 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (k: string) => k }),
 }));
 
+const { params, navigate } = vi.hoisted(() => ({ params: { current: { id: 'demo-panel' } }, navigate: vi.fn() }));
 vi.mock('react-router-dom', () => ({
-  useParams: () => ({ id: 'demo-panel' }),
+  useParams: () => params.current,
+  useNavigate: () => navigate,
 }));
 
 const { fetchModuleDocument, callForModule, writeForModule, getModuleWriteAccess, putModuleWriteConsent, apiObject } =
@@ -44,6 +46,7 @@ const VALID = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  params.current = { id: 'demo-panel' };
   modules.current = [VALID];
   fetchModuleDocument.mockResolvedValue('<h1>hello</h1>');
 });
@@ -186,5 +189,84 @@ describe('ModulePage — writes', () => {
 
     expect(getModuleWriteAccess).not.toHaveBeenCalled();
     expect(screen.queryByText('module_write_consent_title')).toBeNull();
+  });
+});
+
+// Listed sorted by id, declared in the other order: the head has to follow the
+// declaration.
+const page = (panel: string, position: number, extra: Record<string, unknown> = {}) => ({
+  id: `cil-${panel}`,
+  name: panel === 'zeta' ? 'Decisions' : 'Chart',
+  description: `about ${panel}`,
+  entry: 'index.html',
+  connector: { id: 'cil', name: 'CIL Console', position },
+  ...extra,
+});
+
+describe('ModulePage — pages', () => {
+  beforeEach(() => {
+    modules.current = [page('alpha', 1), page('zeta', 0)];
+  });
+
+  it('titles a page with its connector and says which page of how many it is', async () => {
+    params.current = { id: 'cil-zeta' };
+    render(<ModulePage />);
+
+    expect(await screen.findByRole('heading', { name: 'CIL Console' })).toBeTruthy();
+    expect(screen.getByText('about zeta')).toBeTruthy();
+    const current = screen.getByText('1/2').parentElement;
+    expect(current?.textContent).toBe('Decisions 1/2');
+    // The frame keeps the page's own name: it is what a screen reader announces for it.
+    expect(await screen.findByTitle('Decisions')).toBeTruthy();
+  });
+
+  it('goes to the next page, and has no previous page on the first', async () => {
+    params.current = { id: 'cil-zeta' };
+    render(<ModulePage />);
+
+    const prev = await screen.findByLabelText<HTMLButtonElement>('module_page_prev');
+    expect(prev.disabled).toBe(true);
+    fireEvent.click(prev);
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText('module_page_next'));
+    expect(navigate).toHaveBeenCalledWith('/modules/cil-alpha');
+  });
+
+  it('goes back from the last page, and does not wrap past it', async () => {
+    params.current = { id: 'cil-alpha' };
+    render(<ModulePage />);
+
+    expect(await screen.findByText('2/2')).toBeTruthy();
+    const next = screen.getByLabelText<HTMLButtonElement>('module_page_next');
+    expect(next.disabled).toBe(true);
+    fireEvent.click(next);
+    expect(navigate).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText('module_page_prev'));
+    expect(navigate).toHaveBeenCalledWith('/modules/cil-zeta');
+  });
+
+  it('shows no page controls for a connector with one panel', async () => {
+    modules.current = [page('zeta', 0)];
+    params.current = { id: 'cil-zeta' };
+    render(<ModulePage />);
+
+    expect(await screen.findByRole('heading', { name: 'Decisions' })).toBeTruthy();
+    expect(screen.queryByLabelText('module_page_next')).toBeNull();
+  });
+
+  // Each page is its own panel with its own consent. An answer given on one —
+  // here "not now" — must not silence the question on the next.
+  it('asks again on the next page after the question was put off on this one', async () => {
+    modules.current = [page('alpha', 1, { writes: [SEND] }), page('zeta', 0, { writes: [SEND] })];
+    getModuleWriteAccess.mockResolvedValue({ panel_id: 'x', writes: [SEND], eligible: true });
+    params.current = { id: 'cil-zeta' };
+    const { rerender } = render(<ModulePage />);
+
+    fireEvent.click(await screen.findByText('module_write_not_now'));
+    expect(screen.queryByText('module_write_allow')).toBeNull();
+
+    params.current = { id: 'cil-alpha' };
+    rerender(<ModulePage />);
+    expect(await screen.findByText('module_write_allow')).toBeTruthy();
   });
 });

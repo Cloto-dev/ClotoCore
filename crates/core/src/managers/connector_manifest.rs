@@ -92,6 +92,10 @@ pub const MAX_SPEC_VERSION: u32 = 1;
 struct Manifest {
     #[serde(default = "default_spec_version")]
     spec_version: u32,
+    /// The connector's display name. Read only to title the connector's panels
+    /// when a host shows several of them as the pages of one view.
+    #[serde(default)]
+    name: String,
     #[serde(default)]
     connector_type: Option<String>,
     #[serde(default)]
@@ -143,6 +147,10 @@ fn default_panel_entry() -> String {
 #[derive(Debug, Clone)]
 pub struct ConnectorPanels {
     pub root: PathBuf,
+    /// The connector's display name as its manifest gives it; empty when the
+    /// manifest names none.
+    pub name: String,
+    /// In declaration order, which is the order a host shows them as pages in.
     pub panels: Vec<PanelDeclaration>,
 }
 
@@ -287,12 +295,13 @@ pub fn read_panels(servers_root: &Path, server_id: &str) -> Option<ConnectorPane
     let (path, text) = first_readable_manifest(servers_root, server_id)?;
     let manifest = serde_json::from_str::<Manifest>(&text).ok()?;
     check_supported(&declaration_of(&manifest)).ok()?;
+    let name = manifest.name;
     let panels = manifest.ui?.panels;
     if panels.is_empty() {
         return None;
     }
     let root = path.parent()?.to_path_buf();
-    Some(ConnectorPanels { root, panels })
+    Some(ConnectorPanels { root, name, panels })
 }
 
 /// `Ok` when this kernel can run what the connector says it is.

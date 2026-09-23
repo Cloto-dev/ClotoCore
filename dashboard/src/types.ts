@@ -553,8 +553,22 @@ export interface ModuleInfo {
    * Only a connector's panel may carry any; each goes through the kernel's
    * write relay (docs/PANEL_WRITE_GATE_DESIGN.md). */
   writes?: string[];
+  /** Present only for a usable panel an installed connector ships: which
+   * connector, and where the panel stands in its declaration. A connector's
+   * panels are the pages of one view (lib/panelPages). */
+  connector?: PanelGroup;
   /** Present only when the kernel could not read the module. */
   error?: string;
+}
+
+/** `ModuleInfo.connector` — mirrors `handlers::modules::PanelGroup` in the kernel. */
+export interface PanelGroup {
+  /** The connector's directory under the servers root. */
+  id: string;
+  /** The connector's display name. */
+  name: string;
+  /** Index of the panel in the connector's `ui.panels`. */
+  position: number;
 }
 
 /** `GET /api/modules/:id/write-access` — whether a panel may write, and why not. */

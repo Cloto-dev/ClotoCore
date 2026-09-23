@@ -67,5 +67,8 @@
   "module_write_allow": "Allow",
   "module_write_not_now": "Not now",
   "module_write_ineligible": "This panel cannot act for you: {{reason}}",
-  "module_write_consent_failed": "Could not record your answer"
+  "module_write_consent_failed": "Could not record your answer",
+  "module_pages": "Pages",
+  "module_page_prev": "Previous page",
+  "module_page_next": "Next page"
 }

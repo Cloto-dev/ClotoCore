@@ -13,7 +13,8 @@ vi.mock('react-router-dom', () => ({
   useNavigate: () => navigate,
 }));
 vi.mock('../../hooks/useApi', () => ({ useApi: () => ({ post: vi.fn() }) }));
-vi.mock('../../hooks/useModules', () => ({ useModules: () => ({ modules: [] }) }));
+const moduleList = vi.hoisted(() => ({ current: [] as unknown[] }));
+vi.mock('../../hooks/useModules', () => ({ useModules: () => ({ modules: moduleList.current }) }));
 vi.mock('../../lib/tauri', () => ({ isExperimentalBuild: false }));
 vi.mock('../NotificationBell', () => ({ NotificationBell: () => null }));
 const connection = vi.hoisted(() => ({ connected: true, checking: false }));
@@ -278,6 +279,30 @@ describe('where the sidebar says you are', () => {
       render(<AppSidebar onSettingsClick={vi.fn()} />);
       expect(screen.getByRole('button', { name: /settings/ }).className).not.toContain('on');
     } finally {
+      route.pathname = '/';
+    }
+  });
+});
+
+describe('the sidebar’s modules', () => {
+  const cil = (panel: string, position: number) => ({
+    id: `cil-${panel}`,
+    name: panel,
+    connector: { id: 'cil', name: 'CIL Console', position },
+  });
+
+  it('lists a connector of several panels once, opens its first page, and stays marked on any page', () => {
+    moduleList.current = [cil('alpha', 1), cil('zeta', 0)];
+    route.pathname = '/modules/cil-alpha';
+    try {
+      render(<AppSidebar onSettingsClick={vi.fn()} />);
+      const entry = screen.getByRole('button', { name: /CIL Console/ });
+      expect(screen.queryByRole('button', { name: /alpha|zeta/ })).toBeNull();
+      expect(entry.className).toContain(' on');
+      fireEvent.click(entry);
+      expect(navigate).toHaveBeenCalledWith('/modules/cil-zeta');
+    } finally {
+      moduleList.current = [];
       route.pathname = '/';
     }
   });

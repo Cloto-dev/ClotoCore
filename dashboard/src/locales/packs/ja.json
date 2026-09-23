@@ -1017,6 +1017,9 @@
       "no_match": "一致するものはありません"
     },
     "module_can_write": "書き込み可",
+    "module_pages": "ページ",
+    "module_page_prev": "前のページ",
+    "module_page_next": "次のページ",
     "module_write_list_title": "このパネルにできること:",
     "module_write_send_messages": "{{agent}} にメッセージを送る",
     "module_write_start_conversations": "{{agent}} との会話を始める",

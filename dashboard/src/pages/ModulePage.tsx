@@ -1,13 +1,14 @@
-import { AlertTriangle, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import '../components/Workshop.css';
 import { AlertCard } from '../components/ui/AlertCard';
 import { useApi } from '../hooks/useApi';
 import { useModules } from '../hooks/useModules';
 import { extractError } from '../lib/errors';
 import { decideModuleCall, MODULE_RESULT } from '../lib/moduleBridge';
+import { pagesOf } from '../lib/panelPages';
 import { describeWrite } from '../lib/panelWrites';
 import type { ModuleWriteAccess } from '../types';
 
@@ -31,10 +32,22 @@ import type { ModuleWriteAccess } from '../types';
  * a relative `<script src>` has no origin to resolve against. That is the trade
  * that was chosen: a module can be added without rebuilding the kernel, and it
  * cannot quietly borrow the operator's authority.
+ *
+ * A connector that ships several panels has them shown as the pages of one
+ * view (lib/panelPages): the head carries the connector's name and a way to
+ * the neighbouring pages. Each page is still its own panel, with its own
+ * declared requests, writes and consent — which is why a page is a route of
+ * its own and the view below is rebuilt for each one, so no answer given on
+ * one page (a dismissed consent, an open write list) carries over to the next.
  */
 export function ModulePage() {
   const { id = '' } = useParams();
+  return <ModuleView key={id} id={id} />;
+}
+
+function ModuleView({ id }: { id: string }) {
   const api = useApi();
+  const navigate = useNavigate();
   const { t } = useTranslation('nav');
   const { modules, isLoading: listLoading } = useModules();
   const frameRef = useRef<HTMLIFrameElement>(null);
@@ -137,6 +150,11 @@ export function ModulePage() {
   }, [api]);
 
   const title = entry?.name || id;
+  const paged = pagesOf(modules, id);
+  const toPage = (index: number) => {
+    const page = paged?.pages[index];
+    if (page) navigate(`/modules/${page.id}`);
+  };
   const rejected = entry?.error;
   const canWrite = access?.eligible === true && access.consent?.valid === true;
   const asksConsent = access?.eligible === true && access.consent?.valid !== true && !consentDismissed;
@@ -154,7 +172,7 @@ export function ModulePage() {
       {/* The workshop's head: on the page's own surface, so the window bar above it reads as the same surface, not as a gap. */}
       <div className="ws-head">
         <div className="min-w-0">
-          <h1 className="truncate">{title}</h1>
+          <h1 className="truncate">{paged ? paged.group.name : title}</h1>
           {entry?.description && <p className="text-xs text-content-tertiary truncate">{entry.description}</p>}
         </div>
         {canWrite && (
@@ -167,13 +185,43 @@ export function ModulePage() {
             {t('module_can_write')}
           </button>
         )}
+        {paged && (
+          <nav aria-label={t('module_pages')} className={`${canWrite ? '' : 'ml-auto '}flex items-center gap-2`}>
+            <button
+              type="button"
+              onClick={() => toPage(paged.index - 1)}
+              disabled={paged.index <= 0}
+              aria-label={t('module_page_prev')}
+              title={t('module_page_prev')}
+              className="p-2 rounded-lg border border-edge bg-surface-panel text-content-secondary hover:text-agent hover:border-agent disabled:opacity-30"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span className="text-xs text-content-secondary whitespace-nowrap" aria-current="page">
+              {title}{' '}
+              <span className="font-mono tabular-nums">
+                {paged.index + 1}/{paged.pages.length}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() => toPage(paged.index + 1)}
+              disabled={paged.index >= paged.pages.length - 1}
+              aria-label={t('module_page_next')}
+              title={t('module_page_next')}
+              className="p-2 rounded-lg border border-edge bg-surface-panel text-content-secondary hover:text-agent hover:border-agent disabled:opacity-30"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </nav>
+        )}
         <button
           type="button"
           onClick={() => void load()}
           disabled={isLoading}
           aria-label={t('module_reload')}
           title={t('module_reload')}
-          className={`${canWrite ? '' : 'ml-auto '}p-2 rounded-lg border border-edge bg-surface-panel text-content-secondary hover:text-agent hover:border-agent disabled:opacity-30`}
+          className={`${canWrite || paged ? '' : 'ml-auto '}p-2 rounded-lg border border-edge bg-surface-panel text-content-secondary hover:text-agent hover:border-agent disabled:opacity-30`}
         >
           <RefreshCw size={14} className={isLoading ? 'animate-spin' : ''} />
         </button>

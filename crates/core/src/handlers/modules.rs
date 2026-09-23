@@ -96,6 +96,24 @@ pub struct ModuleManifest {
     pub writes: Vec<String>,
 }
 
+/// Which connector a panel belongs to, and where in that connector's
+/// declaration it stands.
+///
+/// A connector that declares several panels has them shown as the pages of one
+/// view, in the order it declared them (MGP_CONNECTOR.md §4.1). The listing is
+/// sorted by id and the id is never taken apart, so both the grouping and the
+/// order travel here instead. Each page is still its own panel: its `requires`,
+/// its `writes` and the operator's consent to them stay per panel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct PanelGroup {
+    /// The connector's directory under the servers root.
+    pub id: String,
+    /// The connector's display name; its id when the manifest names none.
+    pub name: String,
+    /// Index of this panel in the connector's `ui.panels`.
+    pub position: usize,
+}
+
 /// One row of the listing: either a module the kernel could read, or a
 /// directory it found and rejected.
 #[derive(Debug, Clone, Serialize)]
@@ -103,6 +121,9 @@ pub struct ModuleEntry {
     pub id: String,
     #[serde(flatten)]
     pub manifest: Option<ModuleManifest>,
+    /// Present only for a usable panel an installed connector ships.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connector: Option<PanelGroup>,
     /// Why this directory is not usable. `None` for a valid module.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -202,6 +223,9 @@ struct Discovered {
     /// panel; `None` for a module placed by hand. The write gate reads the
     /// install receipt by this name.
     connector: Option<String>,
+    /// The page this panel is of its connector's view; `None` wherever
+    /// `connector` is.
+    group: Option<PanelGroup>,
     root: Option<PathBuf>,
     manifest: Option<ModuleManifest>,
     error: Option<String>,
@@ -212,6 +236,7 @@ impl Discovered {
         Self {
             id,
             connector: None,
+            group: None,
             root: None,
             manifest: None,
             error: Some(error),
@@ -222,6 +247,7 @@ impl Discovered {
         ModuleEntry {
             id: self.id,
             manifest: self.manifest,
+            connector: self.group,
             error: self.error,
         }
     }
@@ -262,6 +288,7 @@ fn discover_placed_modules(root: &StdPath) -> Vec<Discovered> {
             Ok(manifest) => found.push(Discovered {
                 id,
                 connector: None,
+                group: None,
                 root: Some(item.path()),
                 manifest: Some(manifest),
                 error: None,
@@ -300,7 +327,12 @@ fn discover_connector_panels(servers_root: &StdPath) -> Vec<Discovered> {
         else {
             continue;
         };
-        for panel in declared.panels {
+        let connector_name = if declared.name.trim().is_empty() {
+            connector_id.clone()
+        } else {
+            declared.name.clone()
+        };
+        for (position, panel) in declared.panels.into_iter().enumerate() {
             // The id the dashboard sees names both halves, because a panel id
             // is only unique inside its connector. It is built here and never
             // taken apart again: resolution matches whole ids against this
@@ -344,6 +376,11 @@ fn discover_connector_panels(servers_root: &StdPath) -> Vec<Discovered> {
             found.push(Discovered {
                 id,
                 connector: Some(connector_id.clone()),
+                group: Some(PanelGroup {
+                    id: connector_id.clone(),
+                    name: connector_name.clone(),
+                    position,
+                }),
                 root: Some(declared.root.clone()),
                 manifest: Some(ModuleManifest {
                     id: None,
@@ -568,6 +605,7 @@ mod tests {
         let entry = ModuleEntry {
             id: "published-viewer-console".into(),
             manifest: Some(manifest(None)),
+            connector: None,
             error: None,
         };
         let v = serde_json::to_value(&entry).unwrap();
@@ -585,6 +623,7 @@ mod tests {
         let entry = ModuleEntry {
             id: "cil-console".into(),
             manifest: Some(manifest(Some("something-else"))),
+            connector: None,
             error: None,
         };
         let v = serde_json::to_value(&entry).unwrap();
@@ -738,6 +777,94 @@ mod connector_panel_tests {
             manifest.requires,
             vec!["GET /api/published/cil".to_string()]
         );
+    }
+
+    /// Several panels of one connector are the pages of one view, in the order
+    /// the connector declared them. The listing is sorted by id, so the order
+    /// has to travel with each row: here the declared order is the reverse of
+    /// the id order, which is the case a host reading the ids would get wrong.
+    #[test]
+    fn a_connectors_panels_carry_their_connector_and_declared_order() {
+        let modules = tempfile::tempdir().unwrap();
+        let servers = tempfile::tempdir().unwrap();
+        install_connector(
+            servers.path(),
+            "cil",
+            false,
+            r#"{"spec_version": 1, "name": "CIL Console",
+                "ui": { "panels": [ { "id": "zeta", "name": "Z", "entry": "z.html" },
+                                    { "id": "alpha", "name": "A", "entry": "a.html" } ] } }"#,
+        );
+
+        let found = discover_modules_in(modules.path(), Some(servers.path()));
+
+        assert_eq!(
+            ids(&found),
+            vec!["cil-alpha", "cil-zeta"],
+            "the listing stays sorted by id"
+        );
+        let group = |i: usize| found[i].group.clone().expect("a connector's panel");
+        assert_eq!(
+            group(1),
+            PanelGroup {
+                id: "cil".into(),
+                name: "CIL Console".into(),
+                position: 0
+            }
+        );
+        assert_eq!(
+            group(0),
+            PanelGroup {
+                id: "cil".into(),
+                name: "CIL Console".into(),
+                position: 1
+            }
+        );
+        let v = serde_json::to_value(found.into_iter().next().unwrap().into_entry()).unwrap();
+        assert_eq!(
+            v["connector"],
+            serde_json::json!({ "id": "cil", "name": "CIL Console", "position": 1 })
+        );
+    }
+
+    #[test]
+    fn a_connector_without_a_name_titles_its_pages_with_its_id() {
+        let modules = tempfile::tempdir().unwrap();
+        let servers = tempfile::tempdir().unwrap();
+        install_connector(servers.path(), "cil", false, ONE_PANEL);
+
+        let found = discover_modules_in(modules.path(), Some(servers.path()));
+
+        assert_eq!(
+            found[0].group.as_ref().map(|g| g.name.as_str()),
+            Some("cil")
+        );
+    }
+
+    /// A module placed by hand belongs to no connector, and a rejected panel is
+    /// not a page: neither carries the key, so the dashboard has nothing to
+    /// group them under.
+    #[test]
+    fn a_placed_module_and_a_rejected_panel_carry_no_connector() {
+        let modules = tempfile::tempdir().unwrap();
+        let servers = tempfile::tempdir().unwrap();
+        let placed = modules.path().join("notes");
+        std::fs::create_dir_all(&placed).unwrap();
+        std::fs::write(placed.join(MANIFEST_NAME), r#"{"name": "Notes"}"#).unwrap();
+        install_connector(
+            servers.path(),
+            "cil",
+            false,
+            r#"{"ui": { "panels": [ { "id": "p", "name": "P", "entry": "../x.html" } ] } }"#,
+        );
+
+        let found = discover_modules_in(modules.path(), Some(servers.path()));
+
+        assert_eq!(ids(&found), vec!["cil-p", "notes"]);
+        for item in found {
+            let v = serde_json::to_value(item.into_entry()).unwrap();
+            assert!(v.get("connector").is_none(), "{v}");
+        }
     }
 
     #[test]

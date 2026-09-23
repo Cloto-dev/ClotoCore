@@ -9,6 +9,7 @@ import { useApi } from '../hooks/useApi';
 import { useModules } from '../hooks/useModules';
 import { useShortcut } from '../hooks/useShortcut';
 import { displayTitle, groupConversations } from '../lib/conversations';
+import { sidebarModules } from '../lib/panelPages';
 import type { Conversation } from '../types';
 import { NotificationBell } from './NotificationBell';
 import { requestShutdown } from './ShutdownOverlay';
@@ -199,7 +200,8 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
     navigate(path);
   };
 
-  const usableModules = modules.filter((m) => !m.error);
+  // A connector's several panels are one entry: the view they are the pages of.
+  const moduleEntries = sidebarModules(modules);
 
   return (
     <aside className="side" aria-label={t('sidebar')}>
@@ -348,17 +350,17 @@ export const AppSidebar: React.FC<AppSidebarProps> = ({ onSettingsClick, onHelpC
           {ICONS.cron}
           {t('cron')}
         </button>
-        {usableModules.map((module) => {
-          const path = `/modules/${module.id}`;
+        {moduleEntries.map((entry) => {
+          const active = entry.ids.some((id) => isNavActive(`/modules/${id}`));
           return (
             <button
               type="button"
-              key={module.id}
-              className={`navlink${isNavActive(path) ? ' on' : ''}`}
-              onClick={() => goTo(path)}
+              key={entry.key}
+              className={`navlink${active ? ' on' : ''}`}
+              onClick={() => goTo(`/modules/${entry.id}`)}
             >
               {ICONS.module}
-              {module.name || module.id}
+              {entry.label}
             </button>
           );
         })}
