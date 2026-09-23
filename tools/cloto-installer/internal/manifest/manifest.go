@@ -118,14 +118,18 @@ func (d Declaration) BuildsAServer(launchable []string) bool {
 // (`server.py`), and the convention is right because those connectors are why
 // it exists. For anything else the convention is a guess, and a guess that
 // happens to be wrong is how a panel came to be installed as a Python
-// project — so this refuses instead, and says what it could not decide.
+// project — so a connector that declares no panel is refused, and says what
+// it could not decide.
+//
+// A connector that declares panels is checked against the first one. The order
+// of `ui.panels` has meaning (MGP_CONNECTOR §4.1.1: the host shows them as the
+// pages of one view in that order), and the first panel's entry is the file a
+// publisher hands the hub as the entry point to hash. If a publisher named a
+// different one, the hashes disagree and the install is refused — the rule can
+// be wrong only in the direction of refusing, never of accepting.
 func (d Declaration) EntryPoint() (string, error) {
-	switch len(d.PanelEntries) {
-	case 1:
-		return d.PanelEntries[0], nil
-	case 0:
-		return "", ErrNoEntry
-	default:
+	if len(d.PanelEntries) == 0 {
 		return "", ErrNoEntry
 	}
+	return d.PanelEntries[0], nil
 }

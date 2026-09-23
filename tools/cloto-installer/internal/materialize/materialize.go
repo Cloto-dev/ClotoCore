@@ -260,7 +260,7 @@ func (r *run) run(sealKey []byte) error {
 		entryFile, err := declaration.EntryPoint()
 		if err != nil {
 			em.StepError("install_deps", fmt.Sprintf(
-				"connector '%s' declares type '%s', which ships no server, but names no single file to check its integrity against (%d panel entries declared). "+
+				"connector '%s' declares type '%s', which ships no server, but declares no panel whose file its integrity could be checked against (%d panel entries declared). "+
 					"The catalog carries a hash without saying which file it was taken over, and the naming convention that fills that gap is only right for a server — "+
 					"so this refuses rather than hashing a guess.",
 				entry.ID, declaration.ConnectorType, len(declaration.PanelEntries)), false)

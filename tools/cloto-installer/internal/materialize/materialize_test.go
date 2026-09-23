@@ -581,6 +581,65 @@ func TestConnectorWithNoServerAndNoNamedFileIsRefused(t *testing.T) {
 	}
 }
 
+// A connector with several panels is checked against the first one: that is
+// the file its publisher hands the hub to hash (the order of ui.panels has
+// meaning), and every panel's file arrives.
+var secondHTML = []byte("<!doctype html><title>second page</title>\n")
+
+func pagesArchive() []byte {
+	manifest := []byte(`{"spec_version":1,"connector_type":"ui_module","id":"demo","name":"Demo",` +
+		`"ui":{"panels":[{"id":"console","name":"Console","entry":"index.html"},` +
+		`{"id":"org","name":"Org","entry":"org.html"}]}}`)
+	return testhub.Tarball(
+		testhub.File{Name: "demo-1.0.0/" + manifestFileName, Data: manifest},
+		testhub.File{Name: "demo-1.0.0/index.html", Data: panelHTML},
+		testhub.File{Name: "demo-1.0.0/org.html", Data: secondHTML},
+	)
+}
+
+func TestConnectorWithSeveralPanelsIsCheckedAgainstTheFirst(t *testing.T) {
+	h := newHarness(t, false)
+	archive := pagesArchive()
+	e := h.entry(testhub.EntryOptions{Archive: archive, ServerPy: panelHTML, Runtime: "static"})
+	in := h.input(e, h.stage("demo", archive))
+	in.LaunchableConnectorTypes = []string{"mgp_server"}
+	res := h.run(in)
+
+	if !res.OK || !res.Installed {
+		t.Fatalf("result: %+v\n%s", res, strings.Join(h.steps(), "\n"))
+	}
+	if res.Seal == nil || res.Seal.Verdict != "verified" {
+		t.Fatalf("seal: %+v", res.Seal)
+	}
+	installDir := filepath.Join(h.serversDir(), "demo")
+	for name, want := range map[string][]byte{"index.html": panelHTML, "org.html": secondHTML} {
+		if got, _ := os.ReadFile(filepath.Join(installDir, name)); !bytes.Equal(got, want) {
+			t.Errorf("%s not in place", name)
+		}
+	}
+}
+
+// The rule can only be wrong towards refusing: a hub that hashed another
+// panel's file disagrees with the first panel's hash, and nothing is installed.
+func TestConnectorWithSeveralPanelsHashedOverAnotherFileIsRefused(t *testing.T) {
+	h := newHarness(t, false)
+	archive := pagesArchive()
+	e := h.entry(testhub.EntryOptions{Archive: archive, ServerPy: secondHTML, Runtime: "static"})
+	in := h.input(e, h.stage("demo", archive))
+	in.LaunchableConnectorTypes = []string{"mgp_server"}
+	res := h.run(in)
+
+	if res.Installed {
+		t.Fatalf("installed against a hash taken over another file: %+v", res)
+	}
+	if res.Seal == nil || res.Seal.Verdict == "verified" {
+		t.Fatalf("seal: %+v", res.Seal)
+	}
+	if exists(filepath.Join(h.serversDir(), "demo")) {
+		t.Error("a refused connector reached the servers root")
+	}
+}
+
 // The manifest names a file the archive does not carry. Hashing would fail
 // with a read error reported as an integrity fault, which reads as tamper;
 // what actually happened is that the connector is inconsistent with itself.
