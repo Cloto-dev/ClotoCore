@@ -45,6 +45,28 @@ Checked facts and their sources of truth:
                   a finding — that is how a removed setting keeps being
                   documented.
 
+  version surfaces  `version` in `dashboard/package.json`, the two in
+                  `dashboard/package-lock.json` and the one in
+                  `dashboard/src-tauri/tauri.conf.json`, compared exactly
+                  against the workspace `Cargo.toml`. The release workflow also
+                  compares `tauri.conf.json` against the tag, but it does not
+                  run on pull requests, so a missed surface stayed green until
+                  the day of the release. Measured on 2026-09-21 by turning
+                  each surface back to the old version: the package.json and
+                  tauri.conf.json mutants passed every gate a pull request runs.
+
+  Tauri pairs     each `@tauri-apps/*` package in `dashboard/package-lock.json`
+                  and its Rust crate in `Cargo.lock` (`api` <-> `tauri`,
+                  `plugin-X` <-> `tauri-plugin-X`) must agree on major.minor.
+                  `tauri build` refuses to build when they do not, and the two
+                  halves drift apart without an edit: the Rust side is an
+                  unbounded `"2"` that moves whenever `Cargo.lock` is
+                  regenerated, while npm is pinned by its lockfile. On
+                  2026-09-21 a dependency bump passed CI and all four installer
+                  builds of the next release failed on exactly this. The patch
+                  level is not compared — Tauri accepts a patch difference, and
+                  a gate that is red on it would be red all the time.
+
 Deliberately NOT checked, and why:
 
   * The tool count of the memory server, named in the README's plugin table.
@@ -555,8 +577,103 @@ def expected_claim(tag_value: str) -> str:
     return to_display(tag_value.lstrip("v"))
 
 
+def check_version_surfaces(version: str | None) -> None:
+    """Every file that states the app's version must state the workspace's."""
+    if version is None:
+        return
+    surfaces: list[tuple[str, str | None]] = []
+    for path, keys in (
+        ("dashboard/package.json", [("version",)]),
+        ("dashboard/package-lock.json", [("version",), ("packages", "", "version")]),
+        ("dashboard/src-tauri/tauri.conf.json", [("version",)]),
+    ):
+        try:
+            doc = json.loads((ROOT / path).read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            fail(f"{path}: cannot read the version from it: {e}")
+            continue
+        for key in keys:
+            value = doc
+            for part in key:
+                value = value.get(part) if isinstance(value, dict) else None
+            surfaces.append((f"{path} {'.'.join(repr(p) if p == '' else p for p in key)}", value))
+    for where, value in surfaces:
+        if value != version:
+            fail(f"{where} is {value!r}, the workspace Cargo.toml is {version!r}")
+
+
+def tauri_pair_crate(npm_name: str) -> str | None:
+    """The Rust crate a `@tauri-apps/*` package is the other half of, if any.
+
+    Derived from the name rather than listed, so a plugin added later is
+    compared without anyone remembering to extend a table. The CLI and its
+    per-platform binaries have no crate counterpart and are not compared.
+    """
+    name = npm_name.removeprefix("@tauri-apps/")
+    if name == npm_name:
+        return None
+    if name == "api":
+        return "tauri"
+    if name.startswith("plugin-"):
+        return "tauri-" + name
+    return None
+
+
+def major_minor(version: str) -> str:
+    return ".".join(version.split(".")[:2])
+
+
+def check_tauri_pairs() -> None:
+    """Each JS half of a Tauri package must match its Rust half on major.minor."""
+    try:
+        lock = json.loads((ROOT / "dashboard/package-lock.json").read_text(encoding="utf-8"))
+        cargo_lock = (ROOT / "Cargo.lock").read_text(encoding="utf-8")
+    except (OSError, ValueError) as e:
+        fail(f"Tauri pairs: cannot read the lockfiles: {e}")
+        return
+    crates: dict[str, list[str]] = {}
+    for m in re.finditer(r'^name = "([^"]+)"\nversion = "([^"]+)"', cargo_lock, re.M):
+        crates.setdefault(m.group(1), []).append(m.group(2))
+    pairs = 0
+    for path, entry in lock.get("packages", {}).items():
+        # Top-level installs only: a copy nested under another package is not
+        # the one the app imports.
+        if not path.startswith("node_modules/@tauri-apps/") or path.count("node_modules/") != 1:
+            continue
+        npm_name = path.removeprefix("node_modules/")
+        crate = tauri_pair_crate(npm_name)
+        if crate is None:
+            continue
+        npm_version = entry.get("version", "")
+        if crate not in crates:
+            fail(f"{npm_name} {npm_version} has no {crate} in Cargo.lock — one half of a Tauri pair is missing")
+            continue
+        pairs += 1
+        for rust_version in crates[crate]:
+            if major_minor(rust_version) != major_minor(npm_version):
+                fail(
+                    f"{npm_name} {npm_version} (dashboard/package-lock.json) and {crate} "
+                    f"{rust_version} (Cargo.lock) differ in major.minor — `tauri build` refuses this pair"
+                )
+    # No pair at all means the lockfiles changed shape, not that everything
+    # matches; a check that compared nothing must not pass.
+    if pairs == 0:
+        fail("Tauri pairs: no @tauri-apps package matched a crate — update this script")
+
+
 def selftest() -> None:
     """Check the rules this file enforces that its own inputs cannot show yet."""
+    # The pair a JS package belongs to comes from its name, and only the api
+    # and plugin packages have one.
+    assert tauri_pair_crate("@tauri-apps/api") == "tauri"
+    assert tauri_pair_crate("@tauri-apps/plugin-notification") == "tauri-plugin-notification"
+    assert tauri_pair_crate("@tauri-apps/cli") is None
+    assert tauri_pair_crate("@tauri-apps/cli-linux-x64-gnu") is None
+    assert tauri_pair_crate("tauri-plugin-foo") is None
+    # A patch difference is accepted (Tauri accepts it); a minor one is not.
+    assert major_minor("2.11.1") == major_minor("2.11.5")
+    assert major_minor("2.3.3") != major_minor("2.4.0")
+    assert major_minor("2.10.0") != major_minor("2.1.0")
     assert expected_claim("v0.6.9-a.1") == "0.6.9a1", "claims must use the display spelling"
     assert expected_claim("0.6.9-b.7") == "0.6.9b7"
     # Unchanged for a final and for the older long spelling, so nothing already
@@ -632,6 +749,8 @@ def main() -> int:
     cross_check_against_ratchet(counts)
     versions = measured_versions()
     check_release_title(versions.get("current"))
+    check_version_surfaces(versions.get("current"))
+    check_tauri_pairs()
     env_defaults, env_seen = measured_env()
     routes_graded = check_route_claims()
 
