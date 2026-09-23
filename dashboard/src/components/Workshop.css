@@ -64,6 +64,13 @@
   font-weight: 600;
   margin: 0;
 }
+/* The page of a connector with several panels, beside the connector's name: the same size, so the
+   two read as one line, and lighter, so the connector stays the title. */
+.ws-head .page-name {
+  font-size: 17px;
+  font-weight: 400;
+  color: hsl(var(--text-secondary));
+}
 .ws-head .count {
   color: hsl(var(--text-tertiary));
   font-size: 13px;

@@ -214,8 +214,15 @@ describe('ModulePage — pages', () => {
 
     expect(await screen.findByRole('heading', { name: 'CIL Console' })).toBeTruthy();
     expect(screen.getByText('about zeta')).toBeTruthy();
-    const current = screen.getByText('1/2').parentElement;
-    expect(current?.textContent).toBe('Decisions 1/2');
+    // The page's name is beside the heading, not in the page controls: a name there has its own
+    // width and moved the arrows from page to page.
+    const name = screen.getByText('Decisions', { selector: '[aria-current="page"]' });
+    expect(name.parentElement?.querySelector('h1')?.textContent).toBe('CIL Console');
+    const nav = screen.getByRole('navigation', { name: 'module_pages' });
+    expect(nav.textContent).toBe('1/2');
+    // Counter first, then the arrows side by side.
+    const order = Array.from(nav.children).map((el) => el.getAttribute('aria-label') ?? el.textContent);
+    expect(order).toEqual(['1/2', 'module_page_prev', 'module_page_next']);
     // The frame keeps the page's own name: it is what a screen reader announces for it.
     expect(await screen.findByTitle('Decisions')).toBeTruthy();
   });

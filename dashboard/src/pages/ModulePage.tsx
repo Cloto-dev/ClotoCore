@@ -172,7 +172,16 @@ function ModuleView({ id }: { id: string }) {
       {/* The workshop's head: on the page's own surface, so the window bar above it reads as the same surface, not as a gap. */}
       <div className="ws-head">
         <div className="min-w-0">
-          <h1 className="truncate">{paged ? paged.group.name : title}</h1>
+          {/* The page's name sits beside the connector's, not between the arrows: a name of its
+              own width there moved the arrows every time the page changed. */}
+          <div className="flex items-baseline gap-2 min-w-0">
+            <h1 className="truncate">{paged ? paged.group.name : title}</h1>
+            {paged && (
+              <span className="page-name truncate" aria-current="page">
+                {title}
+              </span>
+            )}
+          </div>
           {entry?.description && <p className="text-xs text-content-tertiary truncate">{entry.description}</p>}
         </div>
         {canWrite && (
@@ -187,6 +196,10 @@ function ModuleView({ id }: { id: string }) {
         )}
         {paged && (
           <nav aria-label={t('module_pages')} className={`${canWrite ? '' : 'ml-auto '}flex items-center gap-2`}>
+            {/* Where you are, then the two ways out, in fixed widths: the arrows stay put from page to page. */}
+            <span className="text-xs text-content-secondary font-mono tabular-nums whitespace-nowrap">
+              {paged.index + 1}/{paged.pages.length}
+            </span>
             <button
               type="button"
               onClick={() => toPage(paged.index - 1)}
@@ -197,12 +210,6 @@ function ModuleView({ id }: { id: string }) {
             >
               <ChevronLeft size={14} />
             </button>
-            <span className="text-xs text-content-secondary whitespace-nowrap" aria-current="page">
-              {title}{' '}
-              <span className="font-mono tabular-nums">
-                {paged.index + 1}/{paged.pages.length}
-              </span>
-            </span>
             <button
               type="button"
               onClick={() => toPage(paged.index + 1)}
