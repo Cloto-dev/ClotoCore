@@ -1,5 +1,6 @@
-/* The bar across the top of the window. Two surfaces carried to the top edge
- * — the sidebar's while it is shown, the page's otherwise — and three
+/* The bar at the top of the window: over the sidebar's column while the
+ * sidebar is shown (the page beside it runs to the top edge), across the
+ * window otherwise. It carries the surface under it to the top edge and three
  * controls. No line under it. */
 
 .winbar {
