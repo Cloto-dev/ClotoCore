@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { type MutableRefObject, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate, useNavigationType } from 'react-router-dom';
 import { hasOverlayTitleBar } from '../lib/tauri';
 import './WindowBar.css';
 
 /**
- * The bar across the top of the window: show or hide the sidebar, back, and
- * forward. It draws nothing else — no product name, no line under it — and
+ * The bar at the top of the window — across it, or over the sidebar's column
+ * while the sidebar is shown: show or hide the sidebar, back, and forward. It draws nothing else — no product name, no line under it — and
  * everything in it that is not a button is what the window is dragged by.
  *
  * Where the OS lays its window buttons over the page (macOS) the controls
@@ -44,9 +44,15 @@ interface WindowBarProps {
   onToggleSidebar: () => void;
   /** The immersive view takes the whole window: the bar keeps holding the window, without controls. */
   immersive: boolean;
+  /**
+   * Where the furthest history index is kept. The layout moves the bar between the sidebar's column
+   * and the top of the window, which mounts it anew, so the layout holds this and the way forward
+   * survives the move. Without it the bar keeps its own.
+   */
+  furthest?: MutableRefObject<number>;
 }
 
-export function WindowBar({ sidebarShown, onToggleSidebar, immersive }: WindowBarProps) {
+export function WindowBar({ sidebarShown, onToggleSidebar, immersive, furthest: held }: WindowBarProps) {
   const { t } = useTranslation('nav');
   const navigate = useNavigate();
   const location = useLocation();
@@ -55,7 +61,8 @@ export function WindowBar({ sidebarShown, onToggleSidebar, immersive }: WindowBa
   // The browser does not say whether there is anywhere forward to go, so the
   // furthest index reached is remembered. Going somewhere new from an earlier
   // entry discards what was ahead of it, and the furthest falls back with it.
-  const furthest = useRef(0);
+  const own = useRef(0);
+  const furthest = held ?? own;
   const [canGoBack, setCanGoBack] = useState(false);
   const [canGoForward, setCanGoForward] = useState(false);
 
@@ -104,7 +111,8 @@ export function WindowBar({ sidebarShown, onToggleSidebar, immersive }: WindowBa
           {ICONS.forward}
         </button>
       </div>
-      <div className="winbar-rest" data-tauri-drag-region="" />
+      {/* Over the sidebar the bar is only as wide as the sidebar's column: there is no rest. */}
+      {!sidebarShown && <div className="winbar-rest" data-tauri-drag-region="" />}
     </div>
   );
 }

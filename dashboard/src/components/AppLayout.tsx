@@ -1,5 +1,5 @@
 import { HelpCircle } from 'lucide-react';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { ActionsProvider } from '../contexts/ActionsContext';
@@ -81,24 +81,37 @@ export function AppLayout() {
     if (defaultAgent) setSelectedAgentId(defaultAgent.id);
   };
 
+  const sidebarColumn = !immersive && !sidebarHidden;
+  // Held here because the bar is mounted anew each time it moves (see WindowBar).
+  const furthest = useRef(0);
+
   return (
     <ConversationProvider>
       <ActionsProvider>
         <div className="h-screen bg-surface-base flex flex-col overflow-hidden relative font-sans text-content-primary select-none">
           {/* The window's frame is the OS's; this bar is the page's own: the
               sidebar toggle, back and forward, and otherwise something to hold
-              the window by. */}
-          <WindowBar sidebarShown={!sidebarHidden} onToggleSidebar={toggleSidebar} immersive={immersive} />
+              the window by. While the sidebar is shown the bar is the top of
+              the sidebar's column, so the page beside it starts at the top
+              edge instead of under an empty strip. Without the sidebar it
+              runs across the window, since its controls and the OS window
+              buttons still need a place. */}
+          {!sidebarColumn && (
+            <WindowBar sidebarShown={false} onToggleSidebar={toggleSidebar} immersive={immersive} furthest={furthest} />
+          )}
 
           {/* Body — sidebar + content */}
           <div className="flex flex-1 overflow-hidden relative">
-            {!immersive && !sidebarHidden && (
-              <div className="relative z-10">
-                <AppSidebar
-                  onSettingsClick={() => navigate('/settings')}
-                  onHelpClick={() => setHelpOpen(true)}
-                  onSearchClick={() => setPaletteOpen(true)}
-                />
+            {sidebarColumn && (
+              <div className="relative z-10 flex flex-col">
+                <WindowBar sidebarShown onToggleSidebar={toggleSidebar} immersive={false} furthest={furthest} />
+                <div className="flex-1 min-h-0">
+                  <AppSidebar
+                    onSettingsClick={() => navigate('/settings')}
+                    onHelpClick={() => setHelpOpen(true)}
+                    onSearchClick={() => setPaletteOpen(true)}
+                  />
+                </div>
               </div>
             )}
             <main className="flex-1 h-full overflow-hidden relative z-10">

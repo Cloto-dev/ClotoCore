@@ -12,11 +12,12 @@ vi.mock('../../lib/tauri', () => ({
 }));
 vi.mock('react-i18next', () => ({ useTranslation: () => ({ t: (k: string) => k }) }));
 const navigate = vi.hoisted(() => vi.fn());
+const router = vi.hoisted(() => ({ location: { pathname: '/', key: 'a' }, type: 'POP' }));
 vi.mock('react-router-dom', () => ({
   Outlet: () => null,
-  useLocation: () => ({ pathname: '/' }),
+  useLocation: () => router.location,
   useNavigate: () => navigate,
-  useNavigationType: () => 'POP',
+  useNavigationType: () => router.type,
 }));
 const agentCtx = vi.hoisted(() => ({ agents: [], setSelectedAgentId: () => {} }));
 vi.mock('../../contexts/AgentContext', () => ({ useAgentContext: () => agentCtx }));
@@ -70,6 +71,9 @@ import { AppLayout } from '../AppLayout';
 
 beforeEach(() => {
   chrome.hasOverlayTitleBar = false;
+  router.location = { pathname: '/', key: 'a' };
+  router.type = 'POP';
+  window.history.replaceState(null, '');
   window.localStorage.clear();
   navigate.mockClear();
 });
@@ -117,12 +121,51 @@ describe('the window frame', () => {
   it('is what the window is held by, everywhere a button is not', () => {
     chrome.hasOverlayTitleBar = true;
     render(<AppLayout />);
+    const holdsBy = () => {
+      const bar = screen.getByTestId('window-bar');
+      expect(bar.className).toContain('overlay');
+      // A button that dragged the window would never be clicked.
+      for (const b of bar.querySelectorAll('button')) expect(b.hasAttribute('data-tauri-drag-region')).toBe(false);
+      return bar.querySelectorAll('[data-tauri-drag-region]').length;
+    };
+    // Over the sidebar's column: the part around the controls.
+    expect(holdsBy()).toBe(1);
+    // Across the window: that part and the rest of the width.
+    fireEvent.click(screen.getByLabelText('hide_sidebar'));
+    expect(holdsBy()).toBe(2);
+  });
+
+  it("sits over the sidebar's column while the sidebar is shown, so the page starts at the top edge", () => {
+    const { container } = render(<AppLayout />);
     const bar = screen.getByTestId('window-bar');
-    expect(bar.className).toContain('overlay');
-    const holds = bar.querySelectorAll('[data-tauri-drag-region]');
-    expect(holds).toHaveLength(2);
-    // A button that dragged the window would never be clicked.
-    for (const b of bar.querySelectorAll('button')) expect(b.hasAttribute('data-tauri-drag-region')).toBe(false);
+    const main = container.querySelector('main') as HTMLElement;
+    // The bar and the sidebar share a column; nothing of the bar stands above the page.
+    expect(bar.parentElement?.contains(screen.getByTestId('sidebar'))).toBe(true);
+    expect(bar.parentElement?.contains(main)).toBe(false);
+    expect(bar.querySelector('.winbar-rest')).toBeNull();
+
+    // Without the sidebar the controls still need a place: the bar runs across the window, above the page.
+    fireEvent.click(screen.getByLabelText('hide_sidebar'));
+    const across = screen.getByTestId('window-bar');
+    expect(across.querySelector('.winbar-rest')).not.toBeNull();
+    expect(across.compareDocumentPosition(main) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(across.contains(main)).toBe(false);
+    expect(across.parentElement?.contains(main)).toBe(true);
+  });
+
+  it('keeps the way forward when the sidebar is hidden or shown, although the bar moves', () => {
+    window.history.replaceState({ idx: 3 }, '');
+    const view = render(<AppLayout />);
+    // Back one step: forward is open.
+    window.history.replaceState({ idx: 2 }, '');
+    router.location = { pathname: '/', key: 'b' };
+    view.rerender(<AppLayout />);
+    expect((screen.getByLabelText('go_forward') as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(screen.getByLabelText('hide_sidebar'));
+    expect((screen.getByLabelText('go_forward') as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByLabelText('show_sidebar'));
+    expect((screen.getByLabelText('go_forward') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('hides and shows the sidebar, and remembers which', () => {
