@@ -678,6 +678,20 @@ optional `auth_token`; it rejects stdio-only `code`, `command`, and `args` field
 is persisted for reconnect but is never returned by settings APIs, which expose only
 `auth_token_configured`.
 
+The stored token can be replaced without re-registering the server:
+`PUT /api/mcp/servers/:name/settings` with `{"auth_token": "<new bearer>"}` updates the row
+and the running config, then reconnects; `{"auth_token": ""}` clears it, and the connection
+falls back to `BRIDGE_AUTH_TOKEN` in the server's env. The reply carries only whether the
+reconnect succeeded. The field is refused for stdio servers.
+
+`auth_token` may be a `${NAME}` reference instead of the token itself, on every path (REST,
+database restore, `mcp.toml`). A reference is resolved from the kernel's environment each
+time the server connects, so the database holds only the name and rotating the token means
+changing the kernel's environment, not a row that every database backup has already copied.
+A reference to an unset or empty variable fails the connection instead of sending no bearer.
+Settings responses add `auth_token_reference` (the variable name, never its value) when the
+stored token is a reference.
+
 Example legacy configuration:
 
 ```

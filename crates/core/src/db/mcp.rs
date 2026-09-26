@@ -1041,6 +1041,22 @@ pub async fn update_mcp_server_env(
     .rows_affected())
 }
 
+/// Replaces a server's stored bearer. `None` clears the column.
+pub async fn update_mcp_server_auth_token(
+    pool: &SqlitePool,
+    name: &str,
+    auth_token: Option<&str>,
+) -> anyhow::Result<u64> {
+    Ok(db_timeout(
+        sqlx::query("UPDATE mcp_servers SET auth_token = ? WHERE name = ?")
+            .bind(auth_token)
+            .bind(name)
+            .execute(pool),
+    )
+    .await?
+    .rows_affected())
+}
+
 // ============================================================
 // Marketplace Server Persistence
 // ============================================================

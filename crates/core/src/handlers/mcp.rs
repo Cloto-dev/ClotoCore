@@ -706,6 +706,12 @@ pub async fn get_mcp_server_settings(
             "transport": record.transport,
             "url": record.url,
             "auth_token_configured": record.auth_token.is_some(),
+            // The variable name only, when the bearer is a `${NAME}` reference:
+            // enough to confirm a rotation without the value leaving the kernel.
+            "auth_token_reference": record
+                .auth_token
+                .as_deref()
+                .and_then(crate::managers::mcp::auth_token_reference),
             "command": record.command,
             "args": serde_json::from_str::<Vec<String>>(&record.args).unwrap_or_default(),
             "description": record.description,
@@ -744,6 +750,49 @@ pub async fn update_mcp_server_settings(
                 name
             )));
         }
+    }
+
+    // Replace (or clear) a remote server's bearer. The value never appears in
+    // the response, the audit entry or the log — only whether the reconnect
+    // with it succeeded.
+    let mut auth_result = serde_json::Value::Null;
+    if let Some(value) = body.get("auth_token") {
+        let auth_token = parse_auth_token_update(value)?;
+        let record = crate::db::get_mcp_server_settings(&state.pool, &name)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?
+            .ok_or_else(|| AppError::Validation(format!("MCP server '{}' not found", name)))?;
+        if record.transport != "streamable-http" {
+            return Err(AppError::Validation(
+                "auth_token applies to streamable-http servers only".into(),
+            ));
+        }
+        let cleared = auth_token.is_none();
+        let reconnect_error = state
+            .mcp_manager
+            .update_server_auth_token(&name, auth_token)
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("{}", e)))?;
+        if let Some(reason) = &reconnect_error {
+            tracing::warn!(server = %name, error = %reason, "reconnect after bearer update failed");
+        }
+        spawn_admin_audit(
+            state.pool.clone(),
+            "MCP_SERVER_AUTH_TOKEN_UPDATED",
+            name.clone(),
+            if cleared {
+                "MCP server bearer cleared".to_string()
+            } else {
+                "MCP server bearer replaced".to_string()
+            },
+            None,
+            None,
+            None,
+        );
+        auth_result = serde_json::json!({
+            "reconnected": reconnect_error.is_none(),
+            "error": reconnect_error,
+        });
     }
 
     // Handle env updates
@@ -802,7 +851,37 @@ pub async fn update_mcp_server_settings(
         None,
     );
 
-    ok_data(serde_json::json!({}))
+    if auth_result.is_null() {
+        ok_data(serde_json::json!({}))
+    } else {
+        ok_data(serde_json::json!({ "auth_token": auth_result }))
+    }
+}
+
+/// Reads the `auth_token` field of a settings update: a string, where `""`
+/// clears the stored bearer. A value that starts like a `${NAME}` reference but
+/// is not a well-formed one is refused — stored as a literal, it would be sent
+/// to the server as the token itself.
+fn parse_auth_token_update(value: &serde_json::Value) -> AppResult<Option<String>> {
+    let Some(raw) = value.as_str() else {
+        return Err(AppError::Validation(
+            "auth_token must be a string (\"\" clears it)".into(),
+        ));
+    };
+    if raw.is_empty() {
+        return Ok(None);
+    }
+    if raw.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        return Err(AppError::Validation(
+            "auth_token must not contain whitespace".into(),
+        ));
+    }
+    if raw.starts_with("${") && crate::managers::mcp::auth_token_reference(raw).is_none() {
+        return Err(AppError::Validation(
+            "auth_token looks like a ${NAME} reference but is not one".into(),
+        ));
+    }
+    Ok(Some(raw.to_string()))
 }
 
 /// GET /api/mcp/servers/:name/access
@@ -1619,6 +1698,156 @@ mod tests {
         assert!(
             matches!(missing, Err(AppError::Validation(_))),
             "an unknown server is a validation error, not an empty list"
+        );
+    }
+
+    async fn state_with_servers() -> Arc<AppState> {
+        let state = crate::test_utils::create_test_app_state(Some("k".into())).await;
+        let remote = crate::db::McpServerRecord {
+            name: "remote-memory".to_string(),
+            transport: "streamable-http".to_string(),
+            url: Some("http://127.0.0.1:9/mcp".to_string()),
+            auth_token: Some("old-literal-bearer".to_string()),
+            args: "[]".to_string(),
+            env: "{}".to_string(),
+            default_policy: "opt-in".to_string(),
+            is_active: true,
+            ..Default::default()
+        };
+        crate::db::save_mcp_server(&state.pool, &remote)
+            .await
+            .unwrap();
+        let local = crate::db::McpServerRecord {
+            name: "local-tool".to_string(),
+            command: "python3".to_string(),
+            transport: "stdio".to_string(),
+            args: "[]".to_string(),
+            env: "{}".to_string(),
+            default_policy: "opt-in".to_string(),
+            is_active: true,
+            ..Default::default()
+        };
+        crate::db::save_mcp_server(&state.pool, &local)
+            .await
+            .unwrap();
+        state
+    }
+
+    async fn put_settings(
+        state: &Arc<AppState>,
+        name: &str,
+        body: serde_json::Value,
+    ) -> AppResult<Json<serde_json::Value>> {
+        update_mcp_server_settings(
+            State(state.clone()),
+            Path(name.to_string()),
+            keyed("k"),
+            Json(body),
+        )
+        .await
+    }
+
+    async fn stored_bearer(state: &Arc<AppState>, name: &str) -> Option<String> {
+        crate::db::get_mcp_server_settings(&state.pool, name)
+            .await
+            .unwrap()
+            .unwrap()
+            .auth_token
+    }
+
+    /// Rotating a remote server's bearer: the row changes, the value never
+    /// comes back in the reply, and the settings view shows a reference by name.
+    #[tokio::test]
+    async fn a_remote_servers_bearer_is_replaced_and_never_echoed() {
+        let state = state_with_servers().await;
+
+        let Ok(Json(reply)) = put_settings(
+            &state,
+            "remote-memory",
+            serde_json::json!({"auth_token": "new-literal-bearer"}),
+        )
+        .await
+        else {
+            panic!("a remote server accepts a bearer");
+        };
+        assert_eq!(
+            stored_bearer(&state, "remote-memory").await.as_deref(),
+            Some("new-literal-bearer")
+        );
+        let text = reply.to_string();
+        assert!(
+            !text.contains("new-literal-bearer"),
+            "reply echoed the bearer: {text}"
+        );
+        assert_eq!(
+            reply["data"]["auth_token"]["reconnected"], false,
+            "nothing listens on :9"
+        );
+
+        let _ = put_settings(
+            &state,
+            "remote-memory",
+            serde_json::json!({"auth_token": "${CIL_GROWTH_CPERSONA_TOKEN}"}),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("a reference is accepted"));
+        let Ok(Json(view)) = get_mcp_server_settings(
+            State(state.clone()),
+            Path("remote-memory".to_string()),
+            keyed("k"),
+        )
+        .await
+        else {
+            panic!("settings read back");
+        };
+        assert_eq!(
+            view["data"]["auth_token_reference"],
+            "CIL_GROWTH_CPERSONA_TOKEN"
+        );
+        assert_eq!(view["data"]["auth_token_configured"], true);
+
+        let _ = put_settings(
+            &state,
+            "remote-memory",
+            serde_json::json!({"auth_token": ""}),
+        )
+        .await
+        .unwrap_or_else(|_| panic!("\"\" is accepted"));
+        assert_eq!(
+            stored_bearer(&state, "remote-memory").await,
+            None,
+            "\"\" clears it"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_bearer_update_is_refused_where_it_cannot_mean_anything() {
+        let state = state_with_servers().await;
+        for (name, body) in [
+            ("local-tool", serde_json::json!({"auth_token": "x"})),
+            ("nobody", serde_json::json!({"auth_token": "x"})),
+            (
+                "remote-memory",
+                serde_json::json!({"auth_token": "${BROKEN"}),
+            ),
+            (
+                "remote-memory",
+                serde_json::json!({"auth_token": "two words"}),
+            ),
+            ("remote-memory", serde_json::json!({"auth_token": null})),
+        ] {
+            assert!(
+                matches!(
+                    put_settings(&state, name, body.clone()).await,
+                    Err(AppError::Validation(_))
+                ),
+                "{name} {body} must be refused"
+            );
+        }
+        assert_eq!(
+            stored_bearer(&state, "remote-memory").await.as_deref(),
+            Some("old-literal-bearer"),
+            "a refused update leaves the bearer as it was"
         );
     }
 

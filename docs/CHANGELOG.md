@@ -9,6 +9,23 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 
 ## [Unreleased]
 
+### Added
+
+- **A remote MCP server's bearer can be rotated in place.** `PUT
+  /api/mcp/servers/:name/settings` accepts `auth_token` for streamable-http
+  servers: a new value replaces the stored one and the server reconnects with
+  it, and `""` clears it. Until now the token could only be set when the server
+  was registered, so rotating it meant deleting the server and its per-agent
+  grants and adding both back. The reply reports whether the reconnect
+  succeeded and never contains the token.
+- **`auth_token` can be a `${NAME}` reference on every path.** It is resolved
+  from the kernel's environment when the server connects, so the database keeps
+  only the variable's name. Before, only `mcp.toml` resolved references; a
+  server added over REST or restored from the database sent the text
+  `${NAME}` as its bearer. An unset or empty variable now fails the connection
+  with a message naming it, instead of connecting without credentials.
+  Settings responses show the referenced name as `auth_token_reference`.
+
 ---
 
 ## [0.7.0a1] — 2026-09-21

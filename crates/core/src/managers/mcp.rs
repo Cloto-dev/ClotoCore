@@ -78,6 +78,44 @@ fn access_denied(reason: String) -> anyhow::Error {
     anyhow::Error::new(ToolFailure::Rejection(access_denied_rejection(reason)))
 }
 
+/// The variable a stored `auth_token` names, when it is a `${NAME}` reference.
+///
+/// A reference keeps the bearer out of the kernel's database: the row holds the
+/// name, and the value lives in the kernel's environment (its service's
+/// environment file), so rotating the token means changing that file, not a row
+/// every backup of the database has already copied.
+#[must_use]
+pub fn auth_token_reference(stored: &str) -> Option<&str> {
+    let name = stored.strip_prefix("${")?.strip_suffix('}')?;
+    let mut chars = name.chars();
+    let first = chars.next()?;
+    let valid = (first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+    valid.then_some(name)
+}
+
+/// The bearer a remote server is connected with: its `auth_token` (a
+/// `${NAME}` reference is read from the kernel's environment now, not when the
+/// row was written), else `BRIDGE_AUTH_TOKEN` from its env.
+///
+/// A reference to a variable that is unset or empty is an error rather than an
+/// empty bearer: an empty bearer reaches the server as "no credentials", and the
+/// failure would read as the server refusing a token it was never sent.
+fn http_bearer(id: &str, config: &McpServerConfig) -> Result<Option<String>> {
+    if let Some(stored) = config.auth_token.as_deref() {
+        if let Some(name) = auth_token_reference(stored) {
+            return match std::env::var(name) {
+                Ok(value) if !value.is_empty() => Ok(Some(value)),
+                _ => Err(anyhow::anyhow!(
+                    "MCP server '{id}': auth_token refers to ${{{name}}}, which is not set in the kernel's environment"
+                )),
+            };
+        }
+        return Ok(Some(stored.to_string()));
+    }
+    Ok(config.env.get("BRIDGE_AUTH_TOKEN").cloned())
+}
+
 fn persisted_server_config(record: &crate::db::McpServerRecord) -> McpServerConfig {
     McpServerConfig {
         id: record.name.clone(),
@@ -1130,15 +1168,11 @@ impl McpClientManager {
 
                 // HTTP transport: skip path resolution (no local command/args)
                 if server_config.transport == "streamable-http" {
-                    // Resolve ${VAR} references in auth_token
-                    if let Some(ref token) = server_config.auth_token {
-                        if let Some(var_name) =
-                            token.strip_prefix("${").and_then(|s| s.strip_suffix('}'))
-                        {
-                            server_config.auth_token =
-                                Some(std::env::var(var_name).unwrap_or_default());
-                        }
-                    }
+                    // A `${VAR}` auth_token stays a reference: `http_bearer`
+                    // resolves it when the server connects, on this path as on
+                    // the database and REST ones. Resolving it here wrote the
+                    // value into the config (and from there into the database),
+                    // and turned an unset variable into an empty bearer.
                     return server_config;
                 }
 
@@ -1747,14 +1781,11 @@ impl McpClientManager {
                             id
                         )
                     })?;
-                    let auth = config
-                        .auth_token
-                        .as_deref()
-                        .or_else(|| config.env.get("BRIDGE_AUTH_TOKEN").map(String::as_str));
+                    let auth = http_bearer(&id, &config)?;
                     McpClient::connect_http(
                         &id,
                         url,
-                        auth,
+                        auth.as_deref(),
                         self.notification_tx.clone(),
                         self.mcp_request_timeout_secs,
                         self.mcp_stream_idle_timeout_secs,
@@ -4133,6 +4164,32 @@ impl McpClientManager {
     }
 
     /// Update a server's environment variables, persist to DB, and restart.
+    /// Replaces a remote server's stored bearer (`None` clears it, so the
+    /// connection falls back to `BRIDGE_AUTH_TOKEN` in its env) and reconnects.
+    ///
+    /// The row and the running config change together; the reconnect is what
+    /// tells whether the new bearer is accepted. `Ok(Some(reason))` means the
+    /// bearer was stored and the reconnect failed — the caller reports it, since
+    /// storing a token the server refuses is a state the operator has to see.
+    pub async fn update_server_auth_token(
+        &self,
+        id: &str,
+        auth_token: Option<String>,
+    ) -> Result<Option<String>> {
+        let rows =
+            crate::db::update_mcp_server_auth_token(&self.pool, id, auth_token.as_deref()).await?;
+        if rows == 0 {
+            return Err(anyhow::anyhow!("MCP server '{id}' not found"));
+        }
+        {
+            let mut state = self.state.write().await;
+            if let Some(handle) = state.servers.get_mut(id) {
+                handle.config.auth_token = auth_token;
+            }
+        }
+        Ok(self.restart_server(id).await.err().map(|e| e.to_string()))
+    }
+
     pub async fn update_server_env(&self, id: &str, env: HashMap<String, String>) -> Result<()> {
         let env_json = serde_json::to_string(&env)?;
         crate::db::update_mcp_server_env(&self.pool, id, &env_json).await?;
@@ -5039,6 +5096,114 @@ while True:\n\
             )
             .await,
         );
+    }
+
+    #[test]
+    fn auth_token_reference_names_only_well_formed_variables() {
+        assert_eq!(auth_token_reference("${CIL_TOKEN_1}"), Some("CIL_TOKEN_1"));
+        assert_eq!(auth_token_reference("${_x}"), Some("_x"));
+        for not_a_reference in [
+            "${}", "${1A}", "${A", "$A}", "x${A}", "${A B}", "${A-B}", "plain",
+        ] {
+            assert_eq!(
+                auth_token_reference(not_a_reference),
+                None,
+                "{not_a_reference} is not a reference"
+            );
+        }
+    }
+
+    fn remote_with(auth_token: Option<&str>, bridge: Option<&str>) -> McpServerConfig {
+        let mut config = McpServerConfig {
+            id: "memory.example".to_string(),
+            transport: "streamable-http".to_string(),
+            url: Some("https://memory.example.com/mcp".to_string()),
+            auth_token: auth_token.map(str::to_string),
+            ..Default::default()
+        };
+        if let Some(b) = bridge {
+            config
+                .env
+                .insert("BRIDGE_AUTH_TOKEN".to_string(), b.to_string());
+        }
+        config
+    }
+
+    #[test]
+    fn a_referenced_bearer_is_read_from_the_environment_when_connecting() {
+        std::env::set_var("CLOTO_TEST_BEARER_SET", "from-env");
+        let config = remote_with(Some("${CLOTO_TEST_BEARER_SET}"), Some("bridge"));
+        assert_eq!(
+            http_bearer("memory.example", &config).unwrap().as_deref(),
+            Some("from-env"),
+            "the reference wins over BRIDGE_AUTH_TOKEN, and is resolved, not sent as text"
+        );
+        // Resolved at connect time: a rotated value is what the next connect sends.
+        std::env::set_var("CLOTO_TEST_BEARER_SET", "rotated");
+        assert_eq!(
+            http_bearer("memory.example", &config).unwrap().as_deref(),
+            Some("rotated")
+        );
+    }
+
+    #[test]
+    fn a_reference_to_an_unset_variable_fails_instead_of_sending_nothing() {
+        std::env::remove_var("CLOTO_TEST_BEARER_UNSET");
+        let config = remote_with(Some("${CLOTO_TEST_BEARER_UNSET}"), Some("bridge"));
+        let err = http_bearer("memory.example", &config)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("CLOTO_TEST_BEARER_UNSET"), "{err}");
+        std::env::set_var("CLOTO_TEST_BEARER_EMPTY", "");
+        let config = remote_with(Some("${CLOTO_TEST_BEARER_EMPTY}"), None);
+        assert!(
+            http_bearer("memory.example", &config).is_err(),
+            "empty is unset"
+        );
+    }
+
+    /// `mcp.toml` keeps a `${VAR}` bearer as a reference: resolving it at load
+    /// time wrote the value into the config (and from there the database) and
+    /// turned an unset variable into an empty bearer.
+    #[tokio::test]
+    async fn a_config_file_bearer_stays_a_reference_until_connect() {
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        crate::db::init_db(&pool, "sqlite::memory:", None)
+            .await
+            .unwrap();
+        let manager = McpClientManager::new(pool, false, 120, 30);
+        std::env::set_var("CLOTO_TEST_BEARER_TOML", "resolved-too-early");
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("mcp.toml");
+        std::fs::write(
+            &path,
+            "[[servers]]\nid = \"remote-memory\"\ncommand = \"\"\ntransport = \"streamable-http\"\n\
+             url = \"https://memory.example.com/mcp\"\nauth_token = \"${CLOTO_TEST_BEARER_TOML}\"\n",
+        )
+        .unwrap();
+        let configs = manager.parse_config_file(&path.to_string_lossy()).unwrap();
+        let remote = configs.iter().find(|c| c.id == "remote-memory").unwrap();
+        assert_eq!(
+            remote.auth_token.as_deref(),
+            Some("${CLOTO_TEST_BEARER_TOML}")
+        );
+    }
+
+    #[test]
+    fn a_literal_bearer_is_sent_as_is_and_none_falls_back_to_the_bridge_env() {
+        assert_eq!(
+            http_bearer("m", &remote_with(Some("literal"), Some("bridge")))
+                .unwrap()
+                .as_deref(),
+            Some("literal")
+        );
+        assert_eq!(
+            http_bearer("m", &remote_with(None, Some("bridge")))
+                .unwrap()
+                .as_deref(),
+            Some("bridge")
+        );
+        assert_eq!(http_bearer("m", &remote_with(None, None)).unwrap(), None);
     }
 
     #[test]
