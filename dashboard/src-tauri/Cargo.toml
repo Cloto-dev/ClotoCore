@@ -35,7 +35,7 @@ time = { version = "0.3", features = ["formatting"] }
 # ClotoCore Kernel (provides axum, tower-http, tokio, tracing, etc.)
 cloto_core = { path = "../../crates/core" }
 dotenvy = "0.15"
-rand = "0.8"
+rand = "0.10"
 
 # Headless `--smoke` release-gate self-check: own async runtime + raw-TCP health
 # probe (no HTTP-client/TLS dep for a loopback call). Feature set unions with the
