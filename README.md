@@ -401,7 +401,7 @@ documentation all move the project forward.
 
 - [GitHub Issues](https://github.com/Cloto-dev/ClotoCore/issues)
 - [GitHub Discussions](https://github.com/Cloto-dev/ClotoCore/discussions)
-- [X (Twitter)](https://x.com/cloto_dev)
+- [X: @CPersona_](https://x.com/CPersona_) — project news
 
 ## Credits
 
