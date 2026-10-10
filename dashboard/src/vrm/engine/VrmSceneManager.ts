@@ -18,6 +18,7 @@ export class VrmSceneManager {
 
   // Camera orbit state
   private cameraOffset = new THREE.Vector3(0, 1.35, 1.5);
+  private bodyFraming: { height: number; top: number; extra: number } | null = null;
   private lookAtTarget = new THREE.Vector3(0, 1.3, 0);
   private headY = 1.3; // updated by frameHead()
   private isOrbiting = false;
@@ -34,7 +35,12 @@ export class VrmSceneManager {
     this.scene = new THREE.Scene();
 
     // Camera — fov 30 for upper-body framing, close distance
-    this.camera = new THREE.PerspectiveCamera(30, canvas.clientWidth / canvas.clientHeight, 0.1, 20);
+    this.camera = new THREE.PerspectiveCamera(
+      30,
+      Math.max(1, canvas.clientWidth) / Math.max(1, canvas.clientHeight),
+      0.1,
+      20,
+    );
     this.camera.position.set(0, 1.35, 1.5);
     this.camera.lookAt(0, 1.3, 0);
 
@@ -48,14 +54,16 @@ export class VrmSceneManager {
     this.renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
     this.renderer.setClearColor(0x000000, 0); // fully transparent
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+    // Keep the authored SDR colors instead of applying a cinematic contrast curve.
+    this.renderer.toneMapping = THREE.NoToneMapping;
 
     // Lighting
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    // MToon uses Lambert's 1 / PI normalization. Split a PI-strength light
+    // between soft fill and a key so faces stay readable without bleaching textures.
+    const ambient = new THREE.AmbientLight(0xffffff, Math.PI * 0.6);
     this.scene.add(ambient);
-    const directional = new THREE.DirectionalLight(0xffffff, 0.8);
-    directional.position.set(1.5, 2, 2);
+    const directional = new THREE.DirectionalLight(0xffffff, Math.PI * 0.4);
+    directional.position.set(1, 2, 3);
     this.scene.add(directional);
 
     // Resize observer
@@ -174,6 +182,40 @@ export class VrmSceneManager {
     this.lookAtTarget.y = y;
     this.cameraOffset.y = y;
     this.mouseTarget.y = y;
+    this.applyCameraTransform();
+  }
+
+  /** Fit the whole partner inside the presence area, including avatars of different heights. */
+  frameBody(model: THREE.Object3D) {
+    const box = new THREE.Box3().setFromObject(model);
+    const center = box.getCenter(new THREE.Vector3());
+    const size = box.getSize(new THREE.Vector3());
+    this.bodyFraming = { height: Math.max(0.1, size.y), top: box.max.y, extra: 0 };
+    const aspect = Number.isFinite(this.camera.aspect) && this.camera.aspect > 0 ? this.camera.aspect : 1;
+    const distance =
+      (Math.max(size.y, size.x / Math.max(aspect, 0.1)) /
+        (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2)))) *
+      1.2;
+    this.lookAtTarget.copy(center);
+    this.cameraOffset.set(center.x, center.y, center.z + Math.max(0.5, distance));
+    this.headY = box.max.y * 0.9;
+    this.applyCameraTransform();
+  }
+
+  /** Keep raised hands visible without changing the user's orbit or standing framing. */
+  updateMotionFraming(highestY: number, dt: number) {
+    const frame = this.bodyFraming;
+    if (!frame || !Number.isFinite(highestY)) return;
+    const desired =
+      highestY > frame.top - frame.height * 0.04 ? Math.max(0, (highestY - frame.top) / frame.height + 0.08) : 0;
+    const next = frame.extra + (desired - frame.extra) * (1 - Math.exp(-8 * Math.max(0, dt)));
+    const offset = this.cameraOffset
+      .clone()
+      .sub(this.lookAtTarget)
+      .multiplyScalar((1 + next) / (1 + frame.extra));
+    this.lookAtTarget.y += (next - frame.extra) * frame.height * 0.5;
+    this.cameraOffset.copy(this.lookAtTarget).add(offset);
+    frame.extra = next;
     this.applyCameraTransform();
   }
 

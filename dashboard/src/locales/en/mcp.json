@@ -57,7 +57,7 @@
     "recent": "The most recent {{count}} lines."
   },
   "groups": {
-    "attention": "Needs a hand",
+    "attention": "Needs attention",
     "mind": "Reasoning (mind)",
     "memory": "Memory",
     "tool": "Tools",
@@ -111,7 +111,7 @@
     "origin_when_unknown": "an unknown date",
     "origin_version_unknown": "unknown",
     "launch": "Launch",
-    "transport_is": "transport is {{transport}}",
+    "transport_is": "Transport: {{transport}}",
     "launch_hint": "The command and its arguments. A change applies from the next start.",
     "policy": "Default policy",
     "policy_sub": "who may use this server's tools",

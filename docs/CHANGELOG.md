@@ -25,6 +25,50 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   `${NAME}` as its bearer. An unset or empty variable now fails the connection
   with a message naming it, instead of connecting without credentials.
   Settings responses show the referenced name as `auth_token_reference`.
+- **A companion home.** The home screen centres the agent's appearance (a VRM
+  model, a round image, or the default character) and opens the conversation
+  beside it; the conversation can be expanded and closed without losing an
+  unsent draft. Partner settings save the name, icon and VRM through the
+  existing agent APIs. Images (up to 5 MB) and VRM files (up to 50 MB) are
+  validated before they replace the stored ones, and a VRM's embedded thumbnail
+  becomes the icon when no image is set.
+- **Motion settings and a motion comparison tool.** Pose presets, idle
+  movement (breathing, sway, blinking) and detailed pose adjustment are saved
+  in agent metadata and shared by the home screen and the separate VRM window.
+  A new motion set sits beside the original one, whose settings and files are
+  kept unchanged. Motion files made in other tools (VRMA, self-contained GLB,
+  Mixamo-style FBX, humanoid BVH) can be registered in a local library and
+  played on the current avatar with notes per avatar (`docs/MOTION_COMPARISON.md`).
+- **A memory panel on the home screen.** It lists the selected agent's
+  memories by day and its conversation summaries, with search. A memory can be
+  edited when the memory server supports it, protected, and deleted after a
+  confirmation. When the kernel's page limits (100 memories, 50 episodes) are
+  reached, the panel says that older entries are not shown.
+- **The home screen states what the agent is doing:** ready, generating a
+  response, awaiting approval (with the count), or not connected. While an
+  approval is waiting, the main button opens the conversation that holds it.
+
+### Changed
+
+- **Interface text is plain product language.** Approval cards ask "Run this
+  command?" with "Always allow", "Allow once" and "Don't allow"; the old
+  "Go ahead" did not say that it trusts the command from then on. States are
+  reported as facts, taglines and agent-voiced labels are gone, terms are
+  consistent across screens, and seven labels that were English literals now
+  go through the language pack. The rule is in `docs/DESIGN_PHILOSOPHY.md` §4.
+
+### Fixed
+
+- **A brief loss of the kernel connection no longer resets the whole app.**
+  The boot screen is shown only until the kernel first answers. Afterwards
+  every screen stays mounted, so an open conversation and an unsent draft
+  survive a reconnect.
+- **Labels no longer break inside their buttons.** Approval card actions and
+  the sidebar footer move whole items to the next line, the chat header's state
+  line breaks at punctuation, and in a narrow panel the conversation title
+  gives way to the agent's name and state.
+- The Japanese labels for finger curl called the base joint 第1関節, which in
+  Japanese names the fingertip joint.
 
 ---
 

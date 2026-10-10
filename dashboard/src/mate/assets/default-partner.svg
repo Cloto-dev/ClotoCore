@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 340 360"><defs>
+    <symbol id="mizmate-i-home" viewBox="0 0 24 24"><path d="M3 11 12 3l9 8v10h-6v-7H9v7H3Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></symbol>
+    <symbol id="mizmate-i-chat" viewBox="0 0 24 24"><path d="M20 15a3 3 0 0 1-3 3H9l-5 3V6a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 8h8M8 12h5" stroke="currentColor" stroke-width="1.5"/></symbol>
+    <symbol id="mizmate-i-memory" viewBox="0 0 24 24"><path d="M5 3h14v18H5zM9 7h6M9 11h6M9 15h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="mizmate-i-tools" viewBox="0 0 24 24"><path d="M8 3v5M16 3v5M5 8h14v3a7 7 0 0 1-14 0Zm7 10v3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="mizmate-i-settings" viewBox="0 0 24 24"><path d="m9 3-1 3-3 1-2 3 2 2-1 3 3 2 2-1 3 2 3-2 2 1 3-2-1-3 2-2-2-3-3-1-1-3Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><circle cx="12" cy="11" r="3" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+    <symbol id="mizmate-i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M6 18 18 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="mizmate-i-desktop" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 16v5M7 21h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+    <symbol id="mizmate-i-sound" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4zM17 8a7 7 0 0 1 0 8M20 5a11 11 0 0 1 0 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="mizmate-i-arrow" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <linearGradient id="mizmate-shell-light" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#eef0fd"/><stop offset=".55" stop-color="#b2b3e0"/><stop offset="1" stop-color="#7d86e2"/></linearGradient>
+    <linearGradient id="mizmate-face-light" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fff" stop-opacity=".96"/><stop offset="1" stop-color="#e7eafb"/></linearGradient>
+    <symbol id="mizmate-mate-icon" viewBox="0 0 80 80"><path d="M36 20q2-9 9-11" stroke="#9199d4" stroke-width="3" stroke-linecap="round"/><circle cx="46" cy="8" r="4" fill="#b2b3e0"/><rect x="5" y="23" width="70" height="45" rx="21" fill="url(#mizmate-shell-light)"/><rect x="12" y="30" width="56" height="28" rx="14" fill="url(#mizmate-face-light)"/><path d="M27 40v5m26-5v5" stroke="#373043" stroke-width="3.5" stroke-linecap="round"/><path d="M35 46q5 5 10 0" fill="none" stroke="#655875" stroke-width="2" stroke-linecap="round"/><ellipse cx="24" cy="50" rx="4" ry="1.6" fill="#d7bcdb"/><ellipse cx="56" cy="50" rx="4" ry="1.6" fill="#d7bcdb"/></symbol>
+    <symbol id="mizmate-mate" viewBox="0 0 340 360">
+      <path d="M154 80q4-18 19-22" stroke="#9199d4" stroke-width="7" stroke-linecap="round"/><circle cx="177" cy="56" r="10" fill="#cbd0f1"/>
+      <path d="M132 206q-42 20-44 66" fill="none" stroke="#b2b8e3" stroke-width="22" stroke-linecap="round"/><path d="M217 202q41 7 47 41q3 16-4 27" fill="none" stroke="#b2b8e3" stroke-width="22" stroke-linecap="round"/>
+      <path d="M146 291v29q0 8-20 9M196 291v29q0 8 20 9" fill="none" stroke="#8a93d7" stroke-width="17" stroke-linecap="round"/>
+      <path d="M125 204q0-18 45-18t45 18v65q0 38-45 38t-45-38Z" fill="url(#mizmate-shell-light)" stroke="#b5acd2" stroke-width="1.5"/>
+      <path d="M138 205q8 12 32 12t32-12" fill="none" stroke="#ffffff" stroke-opacity=".65" stroke-width="3"/>
+      <rect x="69" y="92" width="204" height="112" rx="51" fill="url(#mizmate-shell-light)" stroke="#b2a8d0" stroke-width="1.5"/>
+      <rect x="88" y="108" width="166" height="75" rx="34" fill="url(#mizmate-face-light)" stroke="#fff" stroke-opacity=".75"/>
+      <g class="mate-eye"><rect x="126" y="132" width="9" height="17" rx="4.5" fill="#373043"/><rect x="206" y="132" width="9" height="17" rx="4.5" fill="#373043"/></g>
+      <path d="M159 148q12 10 24 0" fill="none" stroke="#655875" stroke-width="3" stroke-linecap="round"/><ellipse cx="119" cy="158" rx="9" ry="3" fill="#d7bcdb"/><ellipse cx="221" cy="158" rx="9" ry="3" fill="#d7bcdb"/>
+      <path d="M91 100q28-9 70-9" fill="none" stroke="#fff" stroke-opacity=".85" stroke-width="3" stroke-linecap="round"/><circle cx="171" cy="253" r="8" fill="#fff" opacity=".65"/>
+    </symbol>
+  </defs><use href="#mizmate-mate"/></svg>

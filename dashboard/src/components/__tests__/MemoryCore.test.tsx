@@ -248,13 +248,13 @@ describe('narrowing what is on the axis', () => {
     });
     api.getEpisodes.mockResolvedValue([]);
     fireEvent.click(screen.getByRole('button', { name: 'Sapphy' }));
-    await screen.findByText('Nothing here matches what you are looking for.');
+    await screen.findByText('No memories match.');
   });
 
   it('says so when the filters leave nothing', async () => {
     await mount();
     fireEvent.change(screen.getByLabelText('Search the text, an agent or a date'), { target: { value: 'zzz' } });
-    await screen.findByText('Nothing here matches what you are looking for.');
+    await screen.findByText('No memories match.');
     expect(rowsOnAxis()).toHaveLength(0);
   });
 
@@ -274,9 +274,7 @@ describe('what the screen says when it has nothing to show', () => {
     setData([], []);
     await mount();
     expect(
-      screen.getByText(
-        'Nothing is remembered yet. What an agent keeps from your conversations appears here, newest first.',
-      ),
+      screen.getByText('No memories yet. What agents record from conversations appears here, newest first.'),
     ).toBeTruthy();
   });
 
@@ -284,7 +282,7 @@ describe('what the screen says when it has nothing to show', () => {
     setData(MEMORIES, []);
     await mount();
     expect(
-      screen.getByText('None yet. When a conversation comes to a stop, the agent leaves a summary of it here.'),
+      screen.getByText('No episodes yet. When a conversation ends, the agent records a summary of it here.'),
     ).toBeTruthy();
     expect(screen.getByText('The first one is made by saying "that\'s it for now" in the chat.')).toBeTruthy();
   });
@@ -295,7 +293,7 @@ describe('what the screen says when it has nothing to show', () => {
     await screen.findByText('Operation failed');
     api.getMemories.mockClear();
     setData();
-    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     await waitFor(() => expect(api.getMemories).toHaveBeenCalled());
     await screen.findByText('Today');
   });
@@ -308,7 +306,7 @@ describe('what the screen says when it has nothing to show', () => {
     await screen.findByText('Operation failed');
     // The axis is still there; the error did not take its place.
     expect(screen.getByText('Today')).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
   });
 });
 

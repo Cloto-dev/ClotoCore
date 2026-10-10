@@ -92,6 +92,10 @@
 .face .state {
   font-size: 13px;
   color: hsl(var(--text-secondary));
+  /* In a narrow panel the line breaks at its punctuation or space ("Ready." |
+     "Last conversation: …"), not inside a word; anywhere only if a part cannot fit. */
+  word-break: keep-all;
+  overflow-wrap: anywhere;
 }
 .face .state b {
   color: hsl(var(--agent));
@@ -137,6 +141,9 @@
   font-size: 12.5px;
 }
 .face.talk .topic {
+  /* The title takes only the space left over, so a narrow panel shortens the
+     title (ellipsis) before it squeezes the agent's name and state. */
+  flex: 1 1 0;
   font-size: 13px;
   color: hsl(var(--text-tertiary));
   margin-left: 14px;

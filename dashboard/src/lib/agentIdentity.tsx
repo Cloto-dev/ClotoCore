@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { useApi } from '../hooks/useApi';
+import { useEffect, useMemo, useState } from 'react';
+import { usePartnerMedia } from '../mate/usePartnerMedia';
 import defaultPack from '../themes/packs/default.json';
 import { parseTriplet } from '../themes/validate';
 import type { AgentMetadata } from '../types';
@@ -179,18 +179,19 @@ export function faceLetter(name: string): string {
  * The circle and its colour are the wrapper's (§4.2: a gradient from the agent's colour). `size`
  * is the picture's size, and the letter's where no stylesheet sets one. */
 export function AgentIcon({ agent, size = 20 }: { agent: AgentMetadata; size?: number }) {
-  const api = useApi();
+  const { iconUrl } = usePartnerMedia(agent);
   const [imgError, setImgError] = useState(false);
   // Cache-bust using avatar_updated_at (set by backend on every upload).
   // For legacy avatars without the timestamp, use a mount-time value so
   // each fresh render cycle fetches the latest image.
   const mountKey = useMemo(() => Date.now().toString(), []);
   const avatarVersion = agent.metadata?.avatar_updated_at ?? mountKey;
+  useEffect(() => setImgError(false), [iconUrl, avatarVersion]);
 
-  if (agent.metadata?.has_avatar === 'true' && !imgError) {
+  if (iconUrl && !imgError) {
     return (
       <img
-        src={api.getAvatarUrl(agent.id, avatarVersion)}
+        src={iconUrl}
         alt={agent.name}
         className="rounded-md object-cover"
         style={{ width: size, height: size }}
