@@ -65,7 +65,8 @@ export function MateSettings({
   onAppSettings,
   onBack,
 }: {
-  agent: AgentMetadata;
+  /** Null when there is no partner yet: the display and app sections still apply. */
+  agent: AgentMetadata | null;
   connected: boolean;
   questions: number;
   chatSize: ChatSize;
@@ -89,8 +90,8 @@ export function MateSettings({
   }, [connected, refetch]);
   const list = isLoading || error ? null : servers;
   const withoutList = isLoading ? 'checking' : 'unknown';
-  const engine = serverSummary(agent.default_engine_id, list, withoutList);
-  const memory = serverSummary(agent.metadata?.preferred_memory, list, withoutList);
+  const engine = serverSummary(agent?.default_engine_id, list, withoutList);
+  const memory = serverSummary(agent?.metadata?.preferred_memory, list, withoutList);
 
   function serverValue(summary: ServerSummary | null) {
     if (!summary) return <span>{t('mate.server_unset')}</span>;
@@ -133,48 +134,50 @@ export function MateSettings({
           </div>
         </fieldset>
       </section>
-      <section className="mate-field" aria-labelledby="mate-partner-setup">
-        <h3 id="mate-partner-setup">{agent.name}</h3>
-        <dl className="mate-setting-rows">
-          <div>
-            <dt>{t('mate.appearance_row')}</dt>
-            <dd>
-              <button type="button" onClick={onPartner}>
-                {t('mate.change')}
-              </button>
-            </dd>
-          </div>
-          <div>
-            <dt>{t('mate.engine_row')}</dt>
-            <dd>
-              {serverValue(engine)}
-              <button type="button" onClick={() => onAgentSettings('engine')}>
-                {t('mate.change')}
-              </button>
-            </dd>
-          </div>
-          <div>
-            <dt>{t('mate.memory_row')}</dt>
-            <dd>
-              {serverValue(memory)}
-              <button type="button" onClick={() => onAgentSettings('memory')}>
-                {t('mate.change')}
-              </button>
-            </dd>
-          </div>
-          <div>
-            <dt>{t('mate.approvals_row')}</dt>
-            <dd>
-              <span>{questions > 0 ? t('mate.approvals_count', { n: questions }) : t('mate.approvals_none')}</span>
-              {questions > 0 && (
-                <button type="button" disabled={!connected} onClick={onReview}>
-                  {t('mate.review_question')}
+      {agent && (
+        <section className="mate-field" aria-labelledby="mate-partner-setup">
+          <h3 id="mate-partner-setup">{agent.name}</h3>
+          <dl className="mate-setting-rows">
+            <div>
+              <dt>{t('mate.appearance_row')}</dt>
+              <dd>
+                <button type="button" onClick={onPartner}>
+                  {t('mate.change')}
                 </button>
-              )}
-            </dd>
-          </div>
-        </dl>
-      </section>
+              </dd>
+            </div>
+            <div>
+              <dt>{t('mate.engine_row')}</dt>
+              <dd>
+                {serverValue(engine)}
+                <button type="button" onClick={() => onAgentSettings('engine')}>
+                  {t('mate.change')}
+                </button>
+              </dd>
+            </div>
+            <div>
+              <dt>{t('mate.memory_row')}</dt>
+              <dd>
+                {serverValue(memory)}
+                <button type="button" onClick={() => onAgentSettings('memory')}>
+                  {t('mate.change')}
+                </button>
+              </dd>
+            </div>
+            <div>
+              <dt>{t('mate.approvals_row')}</dt>
+              <dd>
+                <span>{questions > 0 ? t('mate.approvals_count', { n: questions }) : t('mate.approvals_none')}</span>
+                {questions > 0 && (
+                  <button type="button" disabled={!connected} onClick={onReview}>
+                    {t('mate.review_question')}
+                  </button>
+                )}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      )}
       <section className="mate-field" aria-labelledby="mate-app">
         <h3 id="mate-app">{t('mate.settings_app')}</h3>
         <dl className="mate-setting-rows">

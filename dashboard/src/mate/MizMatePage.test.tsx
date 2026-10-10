@@ -5,7 +5,7 @@ import { MizMatePage } from './MizMatePage';
 
 const m = vi.hoisted(() => ({
   agents: [{ id: 'agent.mio', name: 'Mio', metadata: {} }],
-  selectedAgentId: 'agent.mio',
+  selectedAgentId: 'agent.mio' as string | null,
   setSelectedAgentId: vi.fn(),
   setSystemActive: vi.fn(),
   systemActive: false,
@@ -19,9 +19,12 @@ vi.mock('./usePartnerPresence', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./usePartnerPresence')>()),
   usePartnerQuestions: () => m.questions,
 }));
+const MIO = { id: 'agent.mio', name: 'Mio', metadata: {} };
 beforeEach(() => {
   // Display choices are stored per device; each test starts from a device that has none.
   localStorage.clear();
+  m.agents = [MIO];
+  m.selectedAgentId = 'agent.mio';
   m.connection = { connected: true, checking: false };
   m.questions = 0;
   m.processingAgentIds = new Set();
@@ -214,4 +217,15 @@ it('falls back to the side panel and soft glass for a stored value the screen do
   expect(screen.getByRole('button', { name: 'mate.talk' })).toHaveAttribute('data-glass-profile', 'soft');
   fireEvent.click(screen.getByRole('button', { name: 'mate.talk' }));
   expect(screen.getByRole('button', { name: 'mate.expand' })).toHaveAttribute('aria-pressed', 'false');
+});
+
+it('opens settings even before any partner exists, so the app settings stay reachable', () => {
+  m.agents = [];
+  m.selectedAgentId = null;
+  room();
+  expect(screen.getByText('mate.no_partner')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'mate.settings' }));
+  expect(screen.getByLabelText('settings panel')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'back from settings' }));
+  expect(screen.getByText('mate.no_partner')).toBeInTheDocument();
 });

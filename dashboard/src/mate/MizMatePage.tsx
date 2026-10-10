@@ -129,6 +129,28 @@ export function MizMatePage() {
     setChatOpen(true);
     setChatMounted(true);
   }
+  // Settings also opens with no partner yet: the display choices and the way to the app settings
+  // (where a browser enters its API key) must not depend on having created one.
+  const settingsPanel = (
+    <MateSettings
+      key={agent?.id ?? 'none'}
+      agent={agent}
+      connected={connected}
+      questions={questions}
+      chatSize={chatSize}
+      onChatSize={setChatSize}
+      glass={glass}
+      onGlass={setGlass}
+      onPartner={() => setPage('partner')}
+      onReview={openChat}
+      onAgentSettings={(section) => {
+        if (agent) navigate(`/agents/${encodeURIComponent(agent.id)}/settings?section=${section}`);
+      }}
+      onServers={() => navigate('/mcp-servers')}
+      onAppSettings={() => navigate('/settings')}
+      onBack={() => setPage('home')}
+    />
+  );
   if (systemActive)
     return (
       <KernelMonitor
@@ -290,26 +312,7 @@ export function MizMatePage() {
                   onManage={() => navigate('/dashboard')}
                 />
               )}
-              {page === 'settings' && (
-                <MateSettings
-                  key={agent.id}
-                  agent={agent}
-                  connected={connected}
-                  questions={questions}
-                  chatSize={chatSize}
-                  onChatSize={setChatSize}
-                  glass={glass}
-                  onGlass={setGlass}
-                  onPartner={() => setPage('partner')}
-                  onReview={openChat}
-                  onAgentSettings={(section) =>
-                    navigate(`/agents/${encodeURIComponent(agent.id)}/settings?section=${section}`)
-                  }
-                  onServers={() => navigate('/mcp-servers')}
-                  onAppSettings={() => navigate('/settings')}
-                  onBack={() => setPage('home')}
-                />
-              )}
+              {page === 'settings' && settingsPanel}
               {page === 'motion' && (
                 <MotionControls
                   key={agent.id}
@@ -353,6 +356,8 @@ export function MizMatePage() {
                 )}
               </aside>
             </>
+          ) : page === 'settings' ? (
+            settingsPanel
           ) : (
             <section className="mate-empty">
               <h1>{t('mate.no_partner')}</h1>

@@ -171,6 +171,16 @@ describe('MateSettings', () => {
     expect(screen.getByRole('button', { name: 'mate.review_question' })).toBeDisabled();
   });
 
+  it('shows the display and app sections without a partner, and no partner rows', () => {
+    const p = props({ agent: null });
+    render(<MateSettings {...p} />);
+    expect(screen.queryByText('mate.engine_row')).not.toBeInTheDocument();
+    expect(screen.queryByText('mate.approvals_row')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'mate.chat_size_side' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'mate.app_settings' }));
+    expect(p.onAppSettings).toHaveBeenCalledTimes(1);
+  });
+
   it('shows whether the kernel is connected', () => {
     const { rerender } = render(<MateSettings {...props()} />);
     expect(row('mate.kernel_row').getByText('mate.kernel_connected')).toBeInTheDocument();
