@@ -51,8 +51,11 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 ### Changed
 
 - **Interface text is plain product language.** Approval cards ask "Run this
-  command?" with "Always allow", "Allow once" and "Don't allow"; the old
-  "Go ahead" did not say that it trusts the command from then on. States are
+  command?" with "Allow until restart", "Always allow this command" and "Don't
+  allow", and the note under them says what each one keeps: the program name,
+  with any arguments, until ClotoCore restarts, or this exact command, saved
+  and still allowed after a restart. The old "Go ahead" did not say that it
+  trusts the program from then on. States are
   reported as facts, taglines and agent-voiced labels are gone, terms are
   consistent across screens, and seven labels that were English literals now
   go through the language pack. The rule is in `docs/DESIGN_PHILOSOPHY.md` §4.

@@ -155,7 +155,9 @@ are not applied until saved. One part, used everywhere it fits.
    The reasoning trace is the agent's *inner voice*, folded. A permission
    request belongs to the agent and carries a 2 px edge in their colour, but
    it is worded by the product: it names the action, and each button names
-   its outcome ("Always allow", "Allow once", "Don't allow"). While they
+   its outcome ("Allow until restart", "Always allow this command", "Don't
+   allow") — what the kernel keeps, not what sounds polite: there is no answer
+   that allows a command once and forgets it. While they
    answer, send becomes stop and a cursor blinks.
    When the engine fails, the agent did not speak: the turn sits where the
    reply would be, with a hollow mark, one plain sentence, and the engine's own

@@ -40,8 +40,11 @@ interface Props {
 // *showing* it after a while — that is a different thing, and it does not
 // resolve anything.
 //
-// The three answers, in the mock's words: "go ahead" trusts the command name
-// from now on, "just this once" approves this request, "not now" denies it.
+// The three answers, named for what the kernel keeps (handlers/command_approval.rs):
+// trust remembers the program name, with any arguments, in memory until the
+// kernel restarts; approve saves this exact command to `trusted_commands`, so
+// it never asks again, restarts included; deny refuses. There is no answer that
+// allows a command once and forgets it, so no label may say so.
 export function CommandApprovalCard({
   approvalId,
   agentId,
@@ -88,9 +91,12 @@ export function CommandApprovalCard({
           ? t('ask.run_why', { name: uniqueNames[0] })
           : t('ask.run_why_several', { count: uniqueNames.length })
       }
-      ok={{ label: t('ask.go_ahead'), onClick: () => handle('trust') }}
+      ok={{ label: t('ask.allow_until_restart'), onClick: () => handle('trust') }}
       alts={[
-        { label: t('ask.just_once'), onClick: () => handle('approve') },
+        {
+          label: t(commands.length > 1 ? 'ask.always_allow_these' : 'ask.always_allow_this'),
+          onClick: () => handle('approve'),
+        },
         { label: t('ask.not_now'), onClick: () => handle('deny') },
       ]}
       actionsDisabled={busy}

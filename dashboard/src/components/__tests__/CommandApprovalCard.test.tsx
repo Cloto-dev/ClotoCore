@@ -42,7 +42,7 @@ describe('CommandApprovalCard', () => {
     expect(onResolved).not.toHaveBeenCalled();
     expect(screen.getByText('rm -rf /tmp/scratch')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'ask.just_once' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ask.always_allow_this' }));
     expect(approveCommand).toHaveBeenCalledWith('a-1');
   });
 
@@ -52,11 +52,30 @@ describe('CommandApprovalCard', () => {
     expect(screen.queryByText(/^\d+s$/)).not.toBeInTheDocument();
   });
 
-  it("'go ahead' trusts the command from now on; 'just this once' approves only this request", () => {
+  // Each label promises what the kernel keeps: trust holds the program name in
+  // memory until restart, approve saves the exact command for good. Swapping
+  // the two calls would make each button do what the other one says.
+  it("'allow until restart' trusts the program name; it does not save the command", () => {
     render(<CommandApprovalCard approvalId="a-4" commands={COMMANDS} onResolved={() => {}} />);
-    fireEvent.click(screen.getByRole('button', { name: 'ask.go_ahead' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ask.allow_until_restart' }));
     expect(trustCommand).toHaveBeenCalledWith('a-4');
     expect(approveCommand).not.toHaveBeenCalled();
+  });
+
+  it("'always allow this command' saves the exact command; it does not trust the program name", () => {
+    render(<CommandApprovalCard approvalId="a-7" commands={COMMANDS} onResolved={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'ask.always_allow_this' }));
+    expect(approveCommand).toHaveBeenCalledWith('a-7');
+    expect(trustCommand).not.toHaveBeenCalled();
+  });
+
+  it('names several commands in the plural, and still saves them rather than trusting their programs', () => {
+    const several = [...COMMANDS, { command: 'ls /tmp', command_name: 'ls' }];
+    render(<CommandApprovalCard approvalId="a-8" commands={several} onResolved={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'ask.always_allow_this' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'ask.always_allow_these' }));
+    expect(approveCommand).toHaveBeenCalledWith('a-8');
+    expect(trustCommand).not.toHaveBeenCalled();
   });
 
   it('names the impact the kernel derived, and nothing when it did not', () => {
