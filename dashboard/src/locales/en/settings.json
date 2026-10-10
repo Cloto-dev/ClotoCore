@@ -39,7 +39,7 @@
       "tier4": "+ Everything else",
       "tier4_hint": "Data-directory containers, WebView profile, uninstall registry keys, the install receipt itself.",
       "plan_title": "What would be removed",
-      "plan_meta": "plan v{{planVersion}} · app v{{appVersion}} · enumerated {{generatedAt}}",
+      "plan_meta": "plan v{{planVersion}}, app v{{appVersion}}, enumerated {{generatedAt}}",
       "data_dir": "Data directory",
       "summary_items": "{{count}} item(s)",
       "summary_secret": "Credentials will be destroyed",
@@ -84,7 +84,7 @@
   "conversations": {
     "archived_title": "Archived conversations",
     "archived_empty": "Nothing is archived. Archiving hides a conversation from the sidebar and keeps it here, whole.",
-    "untitled": "New chat",
+    "untitled": "New conversation",
     "unarchive": "Unarchive",
     "delete": "Delete",
     "bulk_title": "All conversations",
@@ -97,7 +97,7 @@
     "archived_count": "Archived {{count}} conversations.",
     "deleted_count": "Deleted {{count}} conversations.",
     "unread": "Could not read the conversations of {{agents}}, so this list may be missing some.",
-    "retry": "Try again"
+    "retry": "Retry"
   },
   "general": {
     "theme": "Theme",
@@ -163,7 +163,7 @@
     "channel_current": "Current",
     "channel_current_hint": "Latest final release",
     "channel_experimental": "Experimental",
-    "channel_experimental_hint": "Pre-releases (alpha/beta) — opt-in",
+    "channel_experimental_hint": "Pre-releases (alpha/beta), opt-in",
     "channel_confirm_title": "Switch to the Experimental channel?",
     "channel_confirm_message": "Experimental releases are opt-in only, with no guarantees. Fixes ship in the next pre-release.",
     "channel_confirm_label": "Switch",
@@ -208,20 +208,20 @@
     "engine_disconnected": "Engine stopped",
     "engine_disconnected_hint": "This engine is installed but not running. Start it to use this provider.",
     "engine_uninstalled": "Engine uninstalled",
-    "engine_uninstalled_hint": "The engine for this provider is no longer installed. Your settings are kept — reinstall the engine to use it again.",
+    "engine_uninstalled_hint": "The engine for this provider is no longer installed. Your settings are kept; reinstall the engine to use it again.",
     "model_edit_hint": "Click to edit model ID",
     "model_placeholder": "model name",
     "model_placeholder_ex": "e.g. {{example}}",
     "model_dropdown_loading": "Loading models…",
     "model_dropdown_error": "Could not load model list ({{code}}). Enter manually.",
     "model_refresh": "Refresh",
-    "model_ctx_suffix": "{{tokens}} tok",
-    "model_ctx_max_suffix": "{{tokens}} tok max",
-    "model_ctx_loaded_of_max": "{{loaded}} / {{max}} tok",
+    "model_ctx_suffix": "{{tokens}} tokens",
+    "model_ctx_max_suffix": "max {{tokens}} tokens",
+    "model_ctx_loaded_of_max": "{{loaded}} / {{max}} tokens",
     "model_loaded": "loaded",
     "context_length_placeholder": "tokens",
     "context_length_edit_hint": "Click to set the provider's context window (enables pre-flight validation).",
-    "context_length_unset": "context: not set",
+    "context_length_unset": "Context: not set",
     "context_length_detect": "Detect",
     "context_length_detect_unavailable": "Could not auto-detect. Enter manually.",
     "context_length_validation": "Context length must be a positive integer.",
@@ -269,7 +269,7 @@
     "panel_consents_desc": "These panels may act without asking each time. Withdrawing stops them at once.",
     "panel_consents_empty": "No panel has been allowed to act for you.",
     "panel_consents_granted": "Allowed {{date}}",
-    "panel_consents_revoke": "Withdraw",
+    "panel_consents_revoke": "Revoke",
     "panel_consents_load_failed": "Could not load the list of allowed panels",
     "panel_consents_revoke_failed": "Could not withdraw the permission",
     "hub_access_title": "Hub access token",
@@ -304,6 +304,6 @@
   },
   "log": {
     "title": "Event Log",
-    "awaiting_signal": "Coming soon — structured event log viewer is planned for a future release."
+    "awaiting_signal": "A structured event log viewer is planned for a future release."
   }
 }

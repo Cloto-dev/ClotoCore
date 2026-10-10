@@ -140,7 +140,7 @@ describe('CommandApprovalDeck', () => {
     deliver(requested('a1', 'echo one'));
     deliver(requested('a2', 'echo two'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'ask.just_once' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ask.always_allow_this' }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
@@ -148,15 +148,15 @@ describe('CommandApprovalDeck', () => {
     expect(approveCommand).toHaveBeenCalledWith('a1');
     // The next request has taken the same coordinates on screen.
     expect(screen.getByText('echo two')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'ask.just_once' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'ask.always_allow_this' })).toBeDisabled();
 
-    fireEvent.click(screen.getByRole('button', { name: 'ask.just_once' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ask.always_allow_this' }));
     expect(approveCommand).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(REARM_MS + 50);
     });
-    expect(screen.getByRole('button', { name: 'ask.just_once' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'ask.always_allow_this' })).toBeEnabled();
   });
 
   it('leaves a question alone while a conversation is asking it, and asks it again once that stops', () => {

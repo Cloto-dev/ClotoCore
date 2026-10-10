@@ -3,7 +3,15 @@ import type { VRMAnimation } from '@pixiv/three-vrm-animation';
 import * as THREE from 'three';
 import { AgentStateAnimator } from './AgentStateAnimator';
 import { AudioPlaybackManager } from './AudioPlaybackManager';
+import { CompanionMotion } from './CompanionMotion';
+import {
+  type CompanionGesture,
+  DEFAULT_COMPANION_IDLE,
+  type MotionStyle,
+  smoothMotion,
+} from './companionMotionLibrary';
 import { DefaultPoseApplicator } from './DefaultPoseApplicator';
+import { importMotion } from './MotionImport';
 import { ProceduralBlinking } from './ProceduralBlinking';
 import { ProceduralBreathing } from './ProceduralBreathing';
 import { ProceduralGazeDrift } from './ProceduralGazeDrift';
@@ -34,7 +42,17 @@ export class VrmAnimationController {
   private vrm: VRM | null = null;
   private animFrameId: number | null = null;
   private clock = new THREE.Clock(false);
-  private params: IdleBehaviorParams = { ...DEFAULT_IDLE_PARAMS };
+  private params: IdleBehaviorParams = { ...DEFAULT_COMPANION_IDLE };
+  private motionStyle: MotionStyle = 'companion';
+  private companion = new CompanionMotion();
+  private reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  private blendFrom = new Map<THREE.Object3D, THREE.Quaternion>();
+  private blendElapsed = 1;
+  private blendDuration = 0.7;
+  private blendPositions = new Map<THREE.Object3D, THREE.Vector3>();
+  private originalChestScale: THREE.Vector3 | null = null;
+  private poseRequest = 0;
+  private comparisonFilename: string | null = null;
 
   // Animation layers
   private defaultPose = new DefaultPoseApplicator();
@@ -66,17 +84,50 @@ export class VrmAnimationController {
   }
 
   setVrm(vrm: VRM) {
+    this.comparisonFilename = null;
     this.vrm = vrm;
     this.expressionMapper.initialize(vrm);
     this.visemePlayer.setMapper(this.expressionMapper);
     this.blinking.setMapper(this.expressionMapper);
     this.vrmaLoader.setVrm(vrm);
+    this.companion.setVrm(vrm, this.expressionMapper);
+    this.originalChestScale = vrm.humanoid?.getRawBoneNode('chest')?.scale.clone() ?? null;
+  }
+
+  setMotionStyle(style: MotionStyle) {
+    if (style === this.motionStyle) return;
+    this.poseRequest++;
+    this.captureBlend(0.7);
+    if (this.isPresetVrma) this.stopVrma(0);
+    if (this.originalChestScale) this.vrm?.humanoid?.getRawBoneNode('chest')?.scale.copy(this.originalChestScale);
+    this.motionStyle = style;
+    this.params = { ...(style === 'legacy' ? DEFAULT_IDLE_PARAMS : DEFAULT_COMPANION_IDLE) };
+    this.defaultPose.setParams(this.params.pose);
+    this.companion.setPoseParams(this.params.pose);
+  }
+
+  private captureBlend(duration: number) {
+    this.blendFrom.clear();
+    this.blendPositions.clear();
+    for (const bone of Object.values(this.vrm?.humanoid?.normalizedHumanBones ?? {}))
+      if (bone) {
+        this.blendFrom.set(bone.node, bone.node.quaternion.clone());
+        this.blendPositions.set(bone.node, bone.node.position.clone());
+      }
+    this.blendElapsed = 0;
+    this.blendDuration = Math.max(duration, 0.7);
+  }
+
+  previewGesture(name: CompanionGesture) {
+    if (this.motionStyle === 'companion' && !this.isVrmaActive) this.companion.playGesture(name);
   }
 
   setAgentState(state: AvatarAgentState) {
     const prev = this.currentAgentState;
     this.currentAgentState = state;
     this.stateAnimator.setState(state);
+    this.companion.setState(state);
+    if (this.motionStyle === 'companion') return;
 
     // Don't override user-loaded VRMA (manual pose/animation)
     if (this.vrmaLoader.active && !this.isPresetVrma) return;
@@ -92,8 +143,12 @@ export class VrmAnimationController {
   }
 
   setIdleParams(params: IdleBehaviorParams) {
+    const poseChanged = Object.keys(params.pose).some(
+      (key) => params.pose[key as keyof DefaultPoseParams] !== this.params.pose[key as keyof DefaultPoseParams],
+    );
     this.params = { ...params };
     this.defaultPose.setParams(params.pose);
+    if (poseChanged) this.companion.setPoseParams(params.pose);
   }
 
   playVisemes(timeline: VisemeEntry[]) {
@@ -153,6 +208,7 @@ export class VrmAnimationController {
   /** Set pose params directly without transition (for real-time sliders). */
   setDirectPose(params: DefaultPoseParams) {
     this.defaultPose.setParams(params);
+    this.companion.setPoseParams(params, 0.12);
   }
 
   /** Map pose names to agent states for synchronized behavior (eye close, etc.). */
@@ -162,6 +218,13 @@ export class VrmAnimationController {
 
   /** Transition to a named preset pose (from MGP avatar server). */
   async setPose(name: string, transitionSec = 0.5) {
+    const request = ++this.poseRequest;
+    if (this.motionStyle === 'companion') {
+      if (this.vrmaLoader.active) this.stopVrma(transitionSec);
+      else if (this.blendElapsed < this.blendDuration) this.captureBlend(Math.max(transitionSec, 0.75));
+      this.companion.setPose(name, Math.max(transitionSec, 0.75));
+      return;
+    }
     // Sync agent state with pose (e.g. thinking → eyes closed)
     this.stateAnimator.setState(VrmAnimationController.POSE_STATE_MAP[name] ?? 'idle');
 
@@ -179,6 +242,7 @@ export class VrmAnimationController {
         }
       }
       if (animation) {
+        if (request !== this.poseRequest || this.motionStyle !== 'legacy') return;
         this.vrmaLoader.applyPose(animation, transitionSec);
         this.isPresetVrma = true;
         return;
@@ -186,6 +250,7 @@ export class VrmAnimationController {
     }
 
     // DefaultPoseApplicator-based pose — fade out VRMA smoothly
+    if (request !== this.poseRequest) return;
     if (this.vrmaLoader.active) {
       this.vrmaLoader.stop(transitionSec);
       this.isPresetVrma = false;
@@ -201,31 +266,88 @@ export class VrmAnimationController {
 
   /** Load a VRMA file from a File object and apply as static pose. */
   async loadVrmaPoseFile(file: File, transitionSec = 0.5): Promise<VRMAnimation> {
+    const request = ++this.poseRequest;
     const animation = await this.vrmaLoader.loadFile(file);
+    if (request !== this.poseRequest) return animation;
+    this.releaseProceduralFace();
     this.vrmaLoader.applyPose(animation, transitionSec);
+    this.comparisonFilename = null;
     this.isPresetVrma = false;
     return animation;
   }
 
   /** Load a VRMA file from URL and apply as static pose. */
   async loadVrmaPose(url: string, transitionSec = 0.5): Promise<VRMAnimation> {
+    const request = ++this.poseRequest;
     const animation = await this.vrmaLoader.load(url);
+    if (request !== this.poseRequest) return animation;
+    this.releaseProceduralFace();
     this.vrmaLoader.applyPose(animation, transitionSec);
+    this.comparisonFilename = null;
     this.isPresetVrma = false;
     return animation;
   }
 
   /** Load a VRMA file from a File object and play as animation. */
   async loadVrmaAnimationFile(file: File, transitionSec = 0.5): Promise<VRMAnimation> {
+    const request = ++this.poseRequest;
     const animation = await this.vrmaLoader.loadFile(file);
+    if (request !== this.poseRequest) return animation;
+    this.releaseProceduralFace();
     this.vrmaLoader.playAnimation(animation, transitionSec);
+    this.comparisonFilename = null;
     this.isPresetVrma = false;
     return animation;
   }
 
+  /** Parse before applying, so unsupported files leave the displayed motion intact. */
+  async loadComparisonMotion(file: File): Promise<VRMAnimation> {
+    const request = ++this.poseRequest;
+    const animation = await importMotion(file, (source) => this.vrmaLoader.loadFile(source));
+    if (request !== this.poseRequest) throw new Error('Motion selection changed');
+    this.releaseProceduralFace();
+    this.vrmaLoader.playAnimation(animation, 0);
+    this.comparisonFilename = file.name;
+    this.isPresetVrma = false;
+    return animation;
+  }
+
+  get motionPlayback() {
+    return this.vrmaLoader.playback;
+  }
+  get comparisonMotionName() {
+    return this.vrmaLoader.active ? this.comparisonFilename : null;
+  }
+  pauseMotion(paused: boolean) {
+    this.vrmaLoader.setPaused(paused);
+  }
+  setMotionSpeed(speed: number) {
+    this.vrmaLoader.setSpeed(speed);
+  }
+  seekMotion(seconds: number) {
+    this.vrmaLoader.seek(seconds);
+  }
+
+  private releaseProceduralFace() {
+    if (this.motionStyle !== 'companion') return;
+    for (const name of this.expressionMapper.getBlinkNames()) this.vrm?.expressionManager?.setValue(name, 0);
+    if (this.vrm?.lookAt) this.vrm.lookAt.target = null;
+  }
+
   /** Stop VRMA playback and return to DefaultPoseApplicator. */
   stopVrma(transitionSec = 0.5) {
-    this.vrmaLoader.stop(transitionSec);
+    this.poseRequest++;
+    this.comparisonFilename = null;
+    if (this.motionStyle === 'companion' && this.vrmaLoader.active) {
+      // Capture the displayed pose before AnimationMixer restores its original bindings.
+      this.captureBlend(transitionSec);
+      this.vrmaLoader.stop(0);
+      for (const [node, q] of this.blendFrom) {
+        node.quaternion.copy(q);
+        const position = this.blendPositions.get(node);
+        if (position) node.position.copy(position);
+      }
+    } else this.vrmaLoader.stop(transitionSec);
     this.isPresetVrma = false;
   }
 
@@ -241,7 +363,7 @@ export class VrmAnimationController {
     if (params.breathing_rate !== undefined) this.params.breathing_rate = params.breathing_rate;
     if (params.sway_amplitude !== undefined) this.params.sway_amplitude = params.sway_amplitude;
     if (params.blink_frequency !== undefined) this.params.blink_frequency = params.blink_frequency;
-    if (params.pose) this.defaultPose.setParams(params.pose);
+    if (params.pose) this.setDirectPose(params.pose);
   }
 
   start() {
@@ -267,33 +389,72 @@ export class VrmAnimationController {
     const deltaTime = Math.min(this.clock.getDelta(), 0.1); // Cap at 100ms
     if (deltaTime <= 0 || !this.vrm) return;
 
-    // 1. Reset bones to rest pose (so layers are additive from neutral)
-    this.vrm.humanoid?.resetNormalizedPose();
+    this.updateFrame(deltaTime);
+  };
+
+  /** Advance a frame independently of the display refresh rate. */
+  updateFrame(deltaTime: number) {
+    if (!this.vrm || deltaTime <= 0) return;
+    // AnimationMixer caches constant tracks. Resetting those joints between frames erases its authored pose.
+    const comparison = Boolean(this.comparisonMotionName);
+    const importedAnimation =
+      (this.motionStyle === 'companion' || comparison) && this.vrmaLoader.active && !this.vrmaLoader.isPose;
+    if (!importedAnimation) this.vrm.humanoid?.resetNormalizedPose();
 
     // 2. Apply base pose
     //    DefaultPose always runs as the base layer.
     //    VRMA pose mode slerps on top (influence 0→1 for smooth transition).
     //    VRMA animation mode (mixer) overwrites directly.
-    this.defaultPose.update(deltaTime);
-    this.defaultPose.apply(this.vrm);
+    if (comparison) {
+      // Evaluate the authored tracks alone, including when original movement is selected.
+    } else if (this.motionStyle === 'companion') {
+      this.companion.advance(deltaTime);
+      if (!importedAnimation) this.companion.applyBase();
+    } else {
+      this.defaultPose.update(deltaTime);
+      this.defaultPose.apply(this.vrm);
+    }
 
     if (this.vrmaLoader.active) {
       this.vrmaLoader.update(deltaTime);
     }
 
-    // 3. Apply procedural layers
-    const swayDamping = this.stateAnimator.swayDamping;
-    this.breathing.update(this.vrm, deltaTime, this.params.breathing_rate);
-    this.blinking.update(this.vrm, deltaTime, this.params.blink_frequency);
-    this.microSway.update(this.vrm, deltaTime, this.params.sway_amplitude * swayDamping);
+    if (comparison) {
+      // Procedural joint motion would contaminate paused frames and comparisons.
+    } else if (this.motionStyle === 'companion') {
+      this.companion.applyLife(
+        deltaTime,
+        this.params,
+        this.sceneManager.mouseTarget,
+        this.reducedMotion?.matches ?? false,
+        this.vrmaLoader.active ? (this.vrmaLoader.isPose ? 'pose' : true) : false,
+      );
+    } else {
+      // 3. Apply original procedural layers
+      const swayDamping = this.stateAnimator.swayDamping;
+      this.breathing.update(this.vrm, deltaTime, this.params.breathing_rate);
+      this.blinking.update(this.vrm, deltaTime, this.params.blink_frequency);
+      this.microSway.update(this.vrm, deltaTime, this.params.sway_amplitude * swayDamping);
 
-    // 4. Apply agent state modifiers (head tilt, spine lean)
-    this.stateAnimator.update(this.vrm, deltaTime);
+      // 4. Apply agent state modifiers (head tilt, spine lean)
+      this.stateAnimator.update(this.vrm, deltaTime);
 
-    // 5. Gaze — compose mouse target with agent state Y offset
-    const gazeTarget = this.sceneManager.mouseTarget.clone();
-    gazeTarget.y += this.stateAnimator.gazeYOffset;
-    this.gazeDrift.update(this.vrm, deltaTime, gazeTarget);
+      // 5. Gaze — compose mouse target with agent state Y offset
+      const gazeTarget = this.sceneManager.mouseTarget.clone();
+      gazeTarget.y += this.stateAnimator.gazeYOffset;
+      this.gazeDrift.update(this.vrm, deltaTime, gazeTarget);
+    }
+
+    if (this.blendElapsed < this.blendDuration && !this.isVrmaActive) {
+      this.blendElapsed += deltaTime;
+      const weight = smoothMotion(this.blendElapsed / this.blendDuration);
+      for (const [node, from] of this.blendFrom) {
+        node.quaternion.slerpQuaternions(from, node.quaternion.clone(), weight);
+        const position = this.blendPositions.get(node);
+        if (position) node.position.lerpVectors(position, node.position.clone(), weight);
+      }
+    }
+    if (this.motionStyle === 'companion') this.companion.rememberRenderedPose();
 
     // 5.5. Apply lip sync visemes (sync to audio clock when playing speech)
     //       Subtract audioOffsetMs to skip pre-phoneme silence in the WAV.
@@ -308,9 +469,19 @@ export class VrmAnimationController {
     // 6. Update VRM (SpringBone physics, expression apply, normalized → raw copy)
     this.vrm.update(deltaTime);
 
+    if (this.motionStyle === 'companion') {
+      let highest = -Infinity;
+      for (const side of ['left', 'right'] as const)
+        for (const name of [`${side}Hand`, `${side}MiddleDistal`, `${side}IndexDistal`] as const) {
+          const bone = this.vrm.humanoid?.getNormalizedBoneNode(name);
+          if (bone) highest = Math.max(highest, bone.getWorldPosition(new THREE.Vector3()).y + 0.025);
+        }
+      this.sceneManager.updateMotionFraming?.(highest, deltaTime);
+    } else this.sceneManager.updateMotionFraming?.(-1, deltaTime);
+
     // 7. Render
     this.sceneManager.render();
-  };
+  }
 
   private handleVisibility = () => {
     if (document.hidden) {
@@ -321,12 +492,14 @@ export class VrmAnimationController {
   };
 
   dispose() {
+    this.poseRequest++;
     this.stop();
     this.audioManager.dispose();
     this.vrmaLoader.dispose();
     document.removeEventListener('visibilitychange', this.handleVisibility);
     if (this.vrm) {
       this.breathing.reset(this.vrm);
+      if (this.originalChestScale) this.vrm.humanoid?.getRawBoneNode('chest')?.scale.copy(this.originalChestScale);
     }
     this.vrm = null;
   }

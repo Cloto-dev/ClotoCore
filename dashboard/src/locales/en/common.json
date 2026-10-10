@@ -12,10 +12,10 @@
   "error": "Error",
   "loading": "Loading...",
   "agent": {
-    "context_usage_aria": "Last response used {{used}} of {{max}} context tokens",
-    "context_usage_tooltip_prompt": "Prompt: {{tokens}} tok",
-    "context_usage_tooltip_completion": "Completion: {{tokens}} tok",
-    "context_usage_tooltip_estimate": "Estimated (provider didn't report usage)"
+    "context_usage_aria": "The last response used {{used}} of {{max}} context tokens",
+    "context_usage_tooltip_prompt": "Prompt: {{tokens}} tokens",
+    "context_usage_tooltip_completion": "Completion: {{tokens}} tokens",
+    "context_usage_tooltip_estimate": "Estimated (the provider did not report usage)"
   },
   "status": {
     "online": "Online",
@@ -27,19 +27,13 @@
     "disconnected": "Disconnected"
   },
   "boot": {
-    "title": "CLOTOCORE",
+    "title": "ClotoCore",
     "lines": [
-      "Initializing neural pathways...",
-      "Calibrating cognitive matrices...",
-      "Establishing secure channels...",
-      "Loading agent consciousness...",
-      "Synchronizing memory cores...",
-      "Bootstrapping reasoning engines...",
-      "Activating local intelligence...",
-      "Verifying system integrity..."
+      "Connecting to the kernel…",
+      "Waiting for the kernel to start…"
     ]
   },
-  "update_available_banner": "ClotoCore {{version}} is available — open Settings → About to update.",
+  "update_available_banner": "ClotoCore {{version}} is available. Update it in Settings → About.",
   "help": {
     "title": "Help",
     "navigation": "Navigation",
@@ -56,7 +50,7 @@
   "error_boundary_title": "System Error",
   "error_boundary_message": "An unexpected error occurred",
   "error_boundary_restart": "Restart",
-  "skeleton_thinking": "Thinking...",
+  "skeleton_thinking": "Generating a response…",
   "error_boundary_report": "Report",
   "diagnostics_title": "Bug report",
   "diagnostics_description": "This is composed from what the kernel knows about the failure. Read it before posting — you can edit it here, and this is the last check before it reaches a public issue.",
@@ -73,10 +67,10 @@
   "notifications": {
     "open": "Notifications",
     "title": "Notifications",
-    "empty": "Nothing is waiting",
-    "blocking": "holding an agent",
-    "blocking_count_other": "{{count}} holding an agent",
-    "threshold_label": "Interrupt me with a card at",
+    "empty": "No notifications",
+    "blocking": "an agent is waiting for an answer",
+    "blocking_count_other": "{{count}} with an agent waiting for an answer",
+    "threshold_label": "Show a card for",
     "threshold_high": "High only",
     "threshold_medium": "Medium and above",
     "threshold_low": "Everything",
@@ -84,7 +78,7 @@
     "level_high": "High",
     "level_medium": "Medium",
     "level_low": "Low",
-    "will_interrupt": "will interrupt",
+    "will_interrupt": "shows a card",
     "mark_read": "Mark read",
     "answer": "Answer",
     "answer_yes": "Yes",
@@ -101,7 +95,7 @@
           "title": "{{n}} command(s) awaiting approval"
         },
         "denied_unanswered": {
-          "title": "{{n}} command(s) denied — the request closed before anyone answered"
+          "title": "{{n}} command(s) denied: the request closed without an answer"
         }
       },
       "hub_access": {

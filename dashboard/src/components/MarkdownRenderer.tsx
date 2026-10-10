@@ -1,6 +1,12 @@
 import DOMPurify from 'dompurify';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { renderMarkdown, renderMarkdownIncremental } from '../lib/markdown';
+
+/** Text placed inside the placeholder markup is text, never markup. */
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
 
 const EXT_MAP: Record<string, string> = {
   typescript: 'ts',
@@ -57,6 +63,7 @@ interface MarkdownRendererProps {
 }
 
 export function MarkdownRenderer({ content, incremental = false, onCodeBlock, className = '' }: MarkdownRendererProps) {
+  const { t } = useTranslation('agents');
   const extractedCodesRef = useRef<Set<string>>(new Set());
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -76,12 +83,14 @@ export function MarkdownRenderer({ content, incremental = false, onCodeBlock, cl
             extractedCodesRef.current.add(code);
             onCodeBlock(code, lang, lines);
           }
-          return `<div class="artifact-placeholder"><span class="text-xs font-mono opacity-60">${lang} · ${lines} lines</span><span class="text-xs font-mono opacity-80">View in panel →</span></div><pre style="display:none" data-lang="${lang}" data-lines="${linesStr}">`;
+          // Translated text is placed in this markup string as text, never as markup.
+          const summary = escapeHtml(t('console.code_summary', { lang, lines }));
+          return `<div class="artifact-placeholder"><span class="text-xs opacity-60">${summary}</span><span class="text-xs opacity-80">${escapeHtml(t('console.code_in_panel'))}</span></div><pre style="display:none" data-lang="${lang}" data-lines="${linesStr}">`;
         }
         return `<pre class="hljs-code-block" data-lang="${lang}" data-lines="${linesStr}" data-raw="${rawEncoded}">`;
       },
     );
-  }, [content, incremental, onCodeBlock]);
+  }, [content, incremental, onCodeBlock, t]);
 
   // Reset extracted codes when content fully changes (new message)
   const prevContentRef = useRef(content);

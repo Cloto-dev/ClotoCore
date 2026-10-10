@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 interface BranchNavigatorProps {
   count: number;
@@ -8,6 +9,7 @@ interface BranchNavigatorProps {
 }
 
 export function BranchNavigator({ count, activeIndex, indices, onNavigate }: BranchNavigatorProps) {
+  const { t } = useTranslation('agents');
   const currentPos = indices.indexOf(activeIndex);
   const displayPos = currentPos >= 0 ? currentPos + 1 : 1;
 
@@ -18,7 +20,7 @@ export function BranchNavigator({ count, activeIndex, indices, onNavigate }: Bra
           if (currentPos > 0) onNavigate(indices[currentPos - 1]);
         }}
         disabled={currentPos <= 0}
-        aria-label="Previous branch"
+        aria-label={t('console.branch_previous')}
         className="p-0.5 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-30 disabled:cursor-default"
       >
         <ChevronLeft size={12} />
@@ -31,7 +33,7 @@ export function BranchNavigator({ count, activeIndex, indices, onNavigate }: Bra
           if (currentPos < indices.length - 1) onNavigate(indices[currentPos + 1]);
         }}
         disabled={currentPos >= indices.length - 1}
-        aria-label="Next branch"
+        aria-label={t('console.branch_next')}
         className="p-0.5 rounded hover:bg-surface-panel text-content-tertiary hover:text-content-primary transition-colors disabled:opacity-30 disabled:cursor-default"
       >
         <ChevronRight size={12} />

@@ -1,6 +1,7 @@
 import { Download, FileAudio, Image, X } from 'lucide-react';
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import { useApi } from '../hooks/useApi';
 import { tryParseJsonObject } from '../lib/json';
 import { isTauri } from '../lib/tauri';
@@ -8,6 +9,7 @@ import type { ContentBlock } from '../types';
 import { MarkdownRenderer } from './MarkdownRenderer';
 
 function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  const { t } = useTranslation('agents');
   return createPortal(
     <div
       className="fixed inset-0 z-[9990] flex items-center justify-center bg-black/80 cursor-zoom-out"
@@ -15,7 +17,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
     >
       <button
         onClick={onClose}
-        aria-label="Close lightbox"
+        aria-label={t('console.image_close')}
         className="absolute top-4 right-4 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors z-[9991]"
       >
         <X size={20} />

@@ -3,6 +3,14 @@ import { createVRMAnimationClip, type VRMAnimation, VRMAnimationLoaderPlugin } f
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
+export interface MotionPlayback {
+  active: boolean;
+  paused: boolean;
+  time: number;
+  duration: number;
+  speed: number;
+}
+
 /**
  * Loads VRMA files and applies them to VRM.
  *
@@ -48,6 +56,37 @@ export class VrmaLoader {
 
   get isPose(): boolean {
     return this._isPoseMode;
+  }
+
+  get playback(): MotionPlayback {
+    const action = this.currentAction;
+    return {
+      active: this._active && !this._isPoseMode && Boolean(action),
+      paused: action?.paused ?? false,
+      time: action?.time ?? 0,
+      duration: action?.getClip().duration ?? 0,
+      speed: action?.timeScale ?? 1,
+    };
+  }
+
+  setPaused(paused: boolean) {
+    if (this.currentAction) this.currentAction.paused = paused;
+  }
+
+  setSpeed(speed: number) {
+    if (this.currentAction && Number.isFinite(speed))
+      this.currentAction.timeScale = THREE.MathUtils.clamp(speed, 0.1, 3);
+  }
+
+  seek(seconds: number) {
+    if (!this.currentAction || !this.mixer || !Number.isFinite(seconds)) return;
+    // Keep an end-of-clip seek on its last sample instead of wrapping to frame zero.
+    this.currentAction.time = THREE.MathUtils.clamp(
+      seconds,
+      0,
+      Math.max(0, this.currentAction.getClip().duration - 1e-7),
+    );
+    this.mixer.update(0);
   }
 
   setVrm(vrm: VRM) {
@@ -139,7 +178,7 @@ export class VrmaLoader {
       this.mixer.stopAllAction();
     }
 
-    newAction.play();
+    newAction.reset().play();
     this.currentAction = newAction;
     this._active = true;
     this._stopping = false;
@@ -147,6 +186,10 @@ export class VrmaLoader {
 
   /** Stop VRMA playback and return control to DefaultPoseApplicator. */
   stop(transitionSec = 0.5) {
+    if (this.stopTimeoutId !== null) {
+      clearTimeout(this.stopTimeoutId);
+      this.stopTimeoutId = null;
+    }
     if (this._isPoseMode) {
       if (transitionSec > 0 && this.poseTargets.length > 0) {
         // Fade out: transition influence from current → 0
@@ -227,6 +270,8 @@ export class VrmaLoader {
   }
 
   dispose() {
+    if (this.stopTimeoutId !== null) clearTimeout(this.stopTimeoutId);
+    this.stopTimeoutId = null;
     this.mixer?.stopAllAction();
     this.mixer = null;
     this.currentAction = null;

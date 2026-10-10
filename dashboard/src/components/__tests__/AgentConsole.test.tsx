@@ -203,11 +203,11 @@ describe('the living room', () => {
       });
     });
     expect(screen.getByText('systemctl --user restart cloto-cron.service')).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'ask.go_ahead' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'ask.allow_until_restart' })).toBeTruthy();
     // The room said so, so the deck will not ask the same question over it.
     expect(inlineSnapshot().has('ap-1')).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'ask.just_once' }));
+    fireEvent.click(screen.getByRole('button', { name: 'ask.always_allow_this' }));
     await vi.waitFor(() => expect(api.approveCommand).toHaveBeenCalledWith('ap-1'));
     await vi.waitFor(() => expect(screen.queryByText('systemctl --user restart cloto-cron.service')).toBeNull());
     expect(inlineSnapshot().has('ap-1')).toBe(false);

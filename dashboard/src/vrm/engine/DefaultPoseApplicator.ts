@@ -58,7 +58,14 @@ export class DefaultPoseApplicator {
     const humanoid = vrm.humanoid;
     if (!humanoid) return;
 
-    const p = this.current;
+    // The normalized rig retains the model's rest positions. VRM 1 faces -Z;
+    // convert the existing +Z pose convention with a half turn around Y.
+    const p = { ...this.current };
+    if (vrm.meta.metaVersion === '1') {
+      for (const key of Object.keys(p) as (keyof DefaultPoseParams)[]) {
+        if (!key.endsWith('_y')) p[key] = -p[key];
+      }
+    }
 
     // Upper arms — Z: lower from T-pose, Y: forward/back, X: twist
     const leftUpperArm = humanoid.getNormalizedBoneNode('leftUpperArm');

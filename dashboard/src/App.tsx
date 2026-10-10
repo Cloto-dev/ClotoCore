@@ -26,6 +26,13 @@ export function App() {
 
   const { connected } = useConnection();
   const { t } = useTranslation();
+  // The boot screen covers the wait for the first answer only. A connection
+  // lost later keeps every screen mounted — the partner, an open conversation
+  // and an unsent draft stay — and each surface reports the loss itself.
+  const [everConnected, setEverConnected] = useState(connected);
+  useEffect(() => {
+    if (connected) setEverConnected(true);
+  }, [connected]);
 
   // Re-trigger the setup wizard ONLY when the session began with a stored
   // completion flag and the backend disagrees — i.e. the version-upgrade
@@ -97,13 +104,13 @@ export function App() {
   const [lineIdx, setLineIdx] = useState(() => Math.floor(Math.random() * BOOT_LINES.length));
 
   useEffect(() => {
-    if (connected) return;
+    if (everConnected) return;
     const id = setInterval(() => setLineIdx((prev) => pickRandom(prev)), 6000);
     return () => clearInterval(id);
-  }, [connected, pickRandom]);
+  }, [everConnected, pickRandom]);
 
-  // Full-screen loading screen while backend is unreachable
-  if (!connected && !isVrmRoute) {
+  // Full-screen loading screen until the backend has answered once
+  if (!everConnected && !isVrmRoute) {
     return (
       <div className="min-h-screen bg-surface-base flex flex-col items-center justify-center select-none">
         <h1 className="text-4xl font-black text-content-primary">{t('boot.title')}</h1>
