@@ -20,6 +20,8 @@ vi.mock('./usePartnerPresence', async (importOriginal) => ({
   usePartnerQuestions: () => m.questions,
 }));
 beforeEach(() => {
+  // Display choices are stored per device; each test starts from a device that has none.
+  localStorage.clear();
   m.connection = { connected: true, checking: false };
   m.questions = 0;
   m.processingAgentIds = new Set();
@@ -51,8 +53,32 @@ vi.mock('./PartnerMemories', () => ({
     </section>
   ),
 }));
+vi.mock('./MateSettings', () => ({
+  MateSettings: (p: {
+    onChatSize: (size: string) => void;
+    onGlass: (glass: string) => void;
+    onAgentSettings: (section: string) => void;
+    onBack: () => void;
+  }) => (
+    <section aria-label="settings panel">
+      <button type="button" onClick={() => p.onChatSize('expanded')}>
+        choose wide
+      </button>
+      <button type="button" onClick={() => p.onGlass('still')}>
+        choose still glass
+      </button>
+      <button type="button" onClick={() => p.onAgentSettings('engine')}>
+        change engine
+      </button>
+      <button type="button" onClick={p.onBack}>
+        back from settings
+      </button>
+    </section>
+  ),
+}));
 function Where() {
-  return <output aria-label="path">{useLocation().pathname}</output>;
+  const where = useLocation();
+  return <output aria-label="path">{where.pathname + where.search}</output>;
 }
 it('keeps the conversation draft mounted across expansion, closing and reopening', () => {
   render(
@@ -137,4 +163,55 @@ it('shows thinking only for the partner in the room', () => {
   m.processingAgentIds = new Set(['agent.mio']);
   room();
   expect(screen.getByRole('status')).toHaveTextContent('mate.thinking');
+});
+
+it('opens settings inside the companion home instead of leaving for the old screen', () => {
+  render(
+    <MemoryRouter>
+      <MizMatePage />
+      <Where />
+    </MemoryRouter>,
+  );
+  const rail = screen.getByRole('button', { name: 'mate.settings' });
+  fireEvent.click(rail);
+  expect(screen.getByLabelText('path')).toHaveTextContent(/^\/$/);
+  expect(rail).toHaveAttribute('aria-pressed', 'true');
+  expect(screen.getByLabelText('settings panel')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'back from settings' }));
+  expect(screen.queryByLabelText('settings panel')).not.toBeInTheDocument();
+  fireEvent.click(rail);
+  fireEvent.click(screen.getByRole('button', { name: 'change engine' }));
+  expect(screen.getByLabelText('path')).toHaveTextContent('/agents/agent.mio/settings?section=engine');
+});
+
+it('keeps the conversation size and glass chosen on this device after the screen is opened again', () => {
+  const first = room();
+  fireEvent.click(screen.getByRole('button', { name: 'mate.settings' }));
+  fireEvent.click(screen.getByRole('button', { name: 'choose wide' }));
+  fireEvent.click(screen.getByRole('button', { name: 'choose still glass' }));
+  first.unmount();
+  room();
+  expect(screen.getByRole('button', { name: 'mate.talk' })).toHaveAttribute('data-glass-profile', 'still');
+  fireEvent.click(screen.getByRole('button', { name: 'mate.talk' }));
+  expect(screen.getByRole('button', { name: 'mate.restore' })).toHaveAttribute('aria-pressed', 'true');
+});
+
+it("stores the conversation's own Expand button as the same choice Settings shows", () => {
+  const first = room();
+  fireEvent.click(screen.getByRole('button', { name: 'mate.talk' }));
+  fireEvent.click(screen.getByRole('button', { name: 'mate.expand' }));
+  first.unmount();
+  room();
+  fireEvent.click(screen.getByRole('button', { name: 'mate.talk' }));
+  fireEvent.click(screen.getByRole('button', { name: 'mate.restore' }));
+  expect(screen.getByRole('button', { name: 'mate.expand' })).toHaveAttribute('aria-pressed', 'false');
+});
+
+it('falls back to the side panel and soft glass for a stored value the screen does not offer', () => {
+  localStorage.setItem('cloto-mate-chat-size', 'fullscreen');
+  localStorage.setItem('cloto-mate-glass', 'neon');
+  room();
+  expect(screen.getByRole('button', { name: 'mate.talk' })).toHaveAttribute('data-glass-profile', 'soft');
+  fireEvent.click(screen.getByRole('button', { name: 'mate.talk' }));
+  expect(screen.getByRole('button', { name: 'mate.expand' })).toHaveAttribute('aria-pressed', 'false');
 });

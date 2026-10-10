@@ -1,0 +1,207 @@
+import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { useMcpServers } from '../hooks/useMcpServers';
+import { displayServerId } from '../lib/format';
+import type { AgentMetadata, McpServerInfo } from '../types';
+import { CHAT_SIZES, type ChatSize, GLASS_PROFILES, type GlassProfile } from './matePreferences';
+
+export type ServerState = 'unset' | 'checking' | 'unknown' | 'missing' | 'running' | 'starting' | 'stopped' | 'error';
+
+export interface ServerSummary {
+  name: string;
+  state: ServerState;
+  /** The kernel's own words when the server failed. Shown as given, never rephrased. */
+  message?: string;
+}
+
+/**
+ * What one configured server (the partner's engine or memory) is doing right now.
+ * `servers` is null while the list is on its way (`checking`) or when it could not be
+ * read (`unknown`): an empty list in either case would read as "not registered".
+ */
+export function serverSummary(
+  id: string | undefined,
+  servers: McpServerInfo[] | null,
+  withoutList: 'checking' | 'unknown' = 'unknown',
+): ServerSummary | null {
+  if (!id) return null;
+  const server = servers?.find((s) => s.id === id);
+  const name = server?.display_name || displayServerId(id);
+  if (!servers) return { name, state: withoutList };
+  if (!server) return { name, state: 'missing' };
+  switch (server.status) {
+    case 'Connected':
+      return { name, state: 'running' };
+    case 'Connecting':
+    case 'Restarting':
+      return { name, state: 'starting' };
+    case 'Error':
+      return { name, state: 'error', message: server.status_message };
+    default:
+      // Registered (not started yet), Draining and Disconnected all mean it is not answering now.
+      return { name, state: 'stopped' };
+  }
+}
+
+const SIZE_LABEL: Record<ChatSize, string> = { side: 'mate.chat_size_side', expanded: 'mate.chat_size_expanded' };
+const GLASS_LABEL: Record<GlassProfile, string> = {
+  soft: 'mate.glass_soft',
+  crisp: 'mate.glass_crisp',
+  still: 'mate.glass_still',
+};
+
+export function MateSettings({
+  agent,
+  connected,
+  questions,
+  chatSize,
+  onChatSize,
+  glass,
+  onGlass,
+  onPartner,
+  onReview,
+  onAgentSettings,
+  onServers,
+  onAppSettings,
+  onBack,
+}: {
+  agent: AgentMetadata;
+  connected: boolean;
+  questions: number;
+  chatSize: ChatSize;
+  onChatSize: (size: ChatSize) => void;
+  glass: GlassProfile;
+  onGlass: (glass: GlassProfile) => void;
+  onPartner: () => void;
+  onReview: () => void;
+  onAgentSettings: (section: 'engine' | 'memory') => void;
+  onServers: () => void;
+  onAppSettings: () => void;
+  onBack: () => void;
+}) {
+  const { t } = useTranslation('agents');
+  const { servers, isLoading, error, refetch } = useMcpServers();
+  // A list read while the kernel was away is an error; read it again once it is back.
+  const wasConnected = useRef(connected);
+  useEffect(() => {
+    if (connected && !wasConnected.current) void refetch();
+    wasConnected.current = connected;
+  }, [connected, refetch]);
+  const list = isLoading || error ? null : servers;
+  const withoutList = isLoading ? 'checking' : 'unknown';
+  const engine = serverSummary(agent.default_engine_id, list, withoutList);
+  const memory = serverSummary(agent.metadata?.preferred_memory, list, withoutList);
+
+  function serverValue(summary: ServerSummary | null) {
+    if (!summary) return <span>{t('mate.server_unset')}</span>;
+    return (
+      <>
+        <span className="mate-setting-name">{summary.name}</span>
+        <span className={`mate-setting-state mate-server-${summary.state}`}>
+          <span className="mate-status-dot" />
+          {t(`mate.server_${summary.state}`)}
+        </span>
+        {summary.message && <span className="mate-setting-message">{summary.message}</span>}
+      </>
+    );
+  }
+
+  return (
+    <section className="mate-settings mate-preferences" aria-label={t('mate.settings')}>
+      <h2>{t('mate.settings')}</h2>
+      <section className="mate-field" aria-labelledby="mate-display">
+        <h3 id="mate-display">{t('mate.settings_display')}</h3>
+        <p>{t('mate.settings_display_hint')}</p>
+        <fieldset>
+          <legend>{t('mate.chat_size')}</legend>
+          <div className="mate-preset-list">
+            {CHAT_SIZES.map((size) => (
+              <button key={size} type="button" aria-pressed={chatSize === size} onClick={() => onChatSize(size)}>
+                {t(SIZE_LABEL[size])}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>{t('mate.glass')}</legend>
+          <div className="mate-preset-list">
+            {GLASS_PROFILES.map((profile) => (
+              <button key={profile} type="button" aria-pressed={glass === profile} onClick={() => onGlass(profile)}>
+                {t(GLASS_LABEL[profile])}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      </section>
+      <section className="mate-field" aria-labelledby="mate-partner-setup">
+        <h3 id="mate-partner-setup">{agent.name}</h3>
+        <dl className="mate-setting-rows">
+          <div>
+            <dt>{t('mate.appearance_row')}</dt>
+            <dd>
+              <button type="button" onClick={onPartner}>
+                {t('mate.change')}
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>{t('mate.engine_row')}</dt>
+            <dd>
+              {serverValue(engine)}
+              <button type="button" onClick={() => onAgentSettings('engine')}>
+                {t('mate.change')}
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>{t('mate.memory_row')}</dt>
+            <dd>
+              {serverValue(memory)}
+              <button type="button" onClick={() => onAgentSettings('memory')}>
+                {t('mate.change')}
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>{t('mate.approvals_row')}</dt>
+            <dd>
+              <span>{questions > 0 ? t('mate.approvals_count', { n: questions }) : t('mate.approvals_none')}</span>
+              {questions > 0 && (
+                <button type="button" disabled={!connected} onClick={onReview}>
+                  {t('mate.review_question')}
+                </button>
+              )}
+            </dd>
+          </div>
+        </dl>
+      </section>
+      <section className="mate-field" aria-labelledby="mate-app">
+        <h3 id="mate-app">{t('mate.settings_app')}</h3>
+        <dl className="mate-setting-rows">
+          <div>
+            <dt>{t('mate.kernel_row')}</dt>
+            <dd>
+              <span className={`mate-setting-state ${connected ? 'mate-server-running' : 'mate-server-stopped'}`}>
+                <span className="mate-status-dot" />
+                {t(connected ? 'mate.kernel_connected' : 'mate.state_offline')}
+              </span>
+            </dd>
+          </div>
+        </dl>
+        <div className="mate-memory-footer">
+          <button type="button" onClick={onServers}>
+            {t('mate.servers_and_permissions')}
+          </button>
+          <button type="button" onClick={onAppSettings}>
+            {t('mate.app_settings')}
+          </button>
+        </div>
+      </section>
+      <div className="mate-memory-footer">
+        <button type="button" onClick={onBack}>
+          {t('mate.back')}
+        </button>
+      </div>
+    </section>
+  );
+}

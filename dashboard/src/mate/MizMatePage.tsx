@@ -15,6 +15,8 @@ import { isTauri, openVrmWindow } from '../lib/tauri';
 import type { AgentMetadata } from '../types';
 import type { VrmAnimationController } from '../vrm/engine/VrmAnimationController';
 import { MotionControls } from '../vrm/MotionControls';
+import { MateSettings } from './MateSettings';
+import { useMatePreferences } from './matePreferences';
 import { PartnerMemories } from './PartnerMemories';
 import { PartnerSettings } from './PartnerSettings';
 import { PartnerStage } from './PartnerStage';
@@ -76,12 +78,13 @@ export function MizMatePage() {
     processingAgentIds,
     refetchAgents,
   } = useAgentContext();
-  const [page, setPage] = useState<'home' | 'partner' | 'motion' | 'memories'>('home');
+  const [page, setPage] = useState<'home' | 'partner' | 'motion' | 'memories' | 'settings'>('home');
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMounted, setChatMounted] = useState(false);
-  const [expanded, setExpanded] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [glass, setGlass] = useState<'soft' | 'crisp' | 'still'>('soft');
+  // One stored choice behind both the conversation's own Expand button and Settings.
+  const { chatSize, setChatSize, glass, setGlass } = useMatePreferences();
+  const expanded = chatSize === 'expanded';
   const glassRef = useRef<HTMLButtonElement>(null);
   const motionRef = useRef<VrmAnimationController | null>(null);
   const [motionReady, setMotionReady] = useState(false);
@@ -207,7 +210,15 @@ export function MizMatePage() {
             <Users size={19} />
             <span>{t('mate.capabilities')}</span>
           </button>
-          <button type="button" className="mate-rail-bottom" onClick={() => navigate('/settings')}>
+          <button
+            type="button"
+            className="mate-rail-bottom"
+            aria-pressed={page === 'settings'}
+            onClick={() => {
+              setPage('settings');
+              setChatOpen(false);
+            }}
+          >
             <Settings size={19} />
             <span>{t('mate.settings')}</span>
           </button>
@@ -257,14 +268,6 @@ export function MizMatePage() {
                   </button>
                 </div>
                 <div className="mate-presence-footer" hidden={page !== 'home'}>
-                  <label>
-                    {t('mate.glass')}
-                    <select value={glass} onChange={(e) => setGlass(e.target.value as typeof glass)}>
-                      <option value="soft">{t('mate.glass_soft')}</option>
-                      <option value="crisp">{t('mate.glass_crisp')}</option>
-                      <option value="still">{t('mate.glass_still')}</option>
-                    </select>
-                  </label>
                   <button type="button" onClick={() => setPage('partner')}>
                     {t('mate.change_appearance')}
                   </button>
@@ -287,6 +290,26 @@ export function MizMatePage() {
                   onManage={() => navigate('/dashboard')}
                 />
               )}
+              {page === 'settings' && (
+                <MateSettings
+                  key={agent.id}
+                  agent={agent}
+                  connected={connected}
+                  questions={questions}
+                  chatSize={chatSize}
+                  onChatSize={setChatSize}
+                  glass={glass}
+                  onGlass={setGlass}
+                  onPartner={() => setPage('partner')}
+                  onReview={openChat}
+                  onAgentSettings={(section) =>
+                    navigate(`/agents/${encodeURIComponent(agent.id)}/settings?section=${section}`)
+                  }
+                  onServers={() => navigate('/mcp-servers')}
+                  onAppSettings={() => navigate('/settings')}
+                  onBack={() => setPage('home')}
+                />
+              )}
               {page === 'motion' && (
                 <MotionControls
                   key={agent.id}
@@ -307,7 +330,11 @@ export function MizMatePage() {
                     {agent.name}
                   </span>
                   <div>
-                    <button type="button" aria-pressed={expanded} onClick={() => setExpanded(!expanded)}>
+                    <button
+                      type="button"
+                      aria-pressed={expanded}
+                      onClick={() => setChatSize(expanded ? 'side' : 'expanded')}
+                    >
                       <Expand size={16} />
                       {t(expanded ? 'mate.restore' : 'mate.expand')}
                     </button>

@@ -49,9 +49,7 @@
 .mate-glass.is-live {background: transparent !important;}
 .mate-glass.is-live canvas {visibility: visible;}
 .mate-presence-footer {display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; font-size: 12px; color: var(--mate-secondary); margin-top: 28px;}
-.mate-presence-footer label {display: flex; align-items: center; gap: 6px;}
 .mate-presence-footer button {border: 0; padding: 6px;}
-.mate-presence-footer select {padding: 3px 6px; font-size: 12px;}
 .mate-conversation {width: min(430px, 46%); border-left: 1px solid var(--mate-line); display: flex; flex-direction: column; min-height: 0; flex-shrink: 0;}
 .mate-conversation-top {display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--mate-line); background: #fcfcff; gap: 10px; font-size: 14px;}
 .mate-conversation-top > span {display: flex; align-items: center; gap: 10px; min-width: 0;}
@@ -150,3 +148,20 @@
 .mate-state-asking .mate-status-dot {background: var(--mate-deep);}
 /* The side panel is too narrow for the conversation title beside the name and state; the expanded view shows it. */
 .mizmate:not(.mate-chat-expanded) .mate-conversation .face.talk .topic {display: none;}
+/* Settings: one row per thing the partner uses — what it is, its state in words beside a dot, and the one action. */
+.mate-preferences fieldset {border: 0; margin: 16px 0 0; padding: 0; min-width: 0;}
+.mate-preferences legend {padding: 0; font-size: 13px; font-weight: 400; color: var(--mate-secondary);}
+.mate-preferences .mate-preset-list {margin-top: 8px;}
+.mate-setting-rows {margin: 14px 0 0; display: flex; flex-direction: column; gap: 6px;}
+.mate-setting-rows > div {display: grid; grid-template-columns: minmax(96px, 9em) 1fr; gap: 4px 14px; align-items: center; padding: 10px 0;}
+.mate-setting-rows dt {font-size: 13px; color: var(--mate-secondary);}
+.mate-setting-rows dd {margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0;}
+.mate-setting-rows dd > button {margin-left: auto; padding: 6px 11px; font-size: 13px; color: var(--mate-deep); white-space: nowrap; flex-shrink: 0;}
+.mate-setting-name {overflow-wrap: anywhere;}
+.mate-setting-state {display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--mate-secondary); white-space: nowrap;}
+.mate-setting-message {flex-basis: 100%; font-size: 12px; color: #a33c48; overflow-wrap: anywhere;}
+.mate-server-checking .mate-status-dot, .mate-server-unknown .mate-status-dot, .mate-server-stopped .mate-status-dot, .mate-server-missing .mate-status-dot {background: #9c9ca3;}
+.mate-server-starting .mate-status-dot {background: #77659b;}
+.mate-server-error {color: #a33c48;}
+.mate-server-error .mate-status-dot {background: #a33c48;}
+@media (max-width: 480px) {.mate-setting-rows > div {grid-template-columns: 1fr;}}

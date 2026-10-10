@@ -47,6 +47,15 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
 - **The home screen states what the agent is doing:** ready, generating a
   response, awaiting approval (with the count), or not connected. While an
   approval is waiting, the main button opens the conversation that holds it.
+- **A settings panel on the home screen.** Settings in the side menu opens
+  beside the agent instead of leaving for the full settings page. It holds the
+  conversation size and the glass effect, both saved on this device (the
+  conversation's own Expand button changes the same setting), and shows the
+  agent's LLM engine and memory server with their current state — running,
+  starting, stopped, error with the kernel's message, not registered, or not
+  set — each with a link to that section of the agent's settings. It also shows
+  waiting approvals, whether the kernel is connected, and links to Servers and
+  permissions and the full app settings.
 
 ### Changed
 
