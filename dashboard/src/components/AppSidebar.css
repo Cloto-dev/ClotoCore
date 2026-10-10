@@ -274,8 +274,13 @@
   font-size: 12px;
   color: hsl(var(--text-tertiary));
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 2px 8px;
   align-items: center;
+}
+/* Each item stays on one line; when the sidebar is too narrow, whole items move down. */
+.side-foot > * {
+  white-space: nowrap;
 }
 .side-foot .ok {
   color: hsl(var(--text-secondary));

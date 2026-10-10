@@ -1,6 +1,7 @@
-import { type VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
+import { type VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { readGlbDocument } from '../../mate/assetFiles';
 
 /**
  * Loads a VRM model from the kernel API and adds it to a three.js scene.
@@ -25,7 +26,15 @@ export class VrmModelLoader {
     if (!response.ok) {
       throw new Error(`Failed to fetch VRM: ${response.statusText}`);
     }
-    const buffer = await response.arrayBuffer();
+    return this.loadBuffer(await response.arrayBuffer());
+  }
+
+  async loadFile(file: File): Promise<VRM> {
+    return this.loadBuffer(await file.arrayBuffer());
+  }
+
+  private async loadBuffer(buffer: ArrayBuffer): Promise<VRM> {
+    readGlbDocument(buffer, 'vrm');
 
     // Setup GLTFLoader with VRM plugin
     const loader = new GLTFLoader();
@@ -41,8 +50,8 @@ export class VrmModelLoader {
       throw new Error('Failed to extract VRM from GLTF data');
     }
 
-    // Rotate model to face camera (VRM models face +Z by default)
-    vrm.scene.rotation.y = Math.PI;
+    // VRM 0 faces +Z; the SDK turns only that format to match VRM 1.
+    VRMUtils.rotateVRM0(vrm);
 
     // Remove previous model if any
     this.disposeVrm();

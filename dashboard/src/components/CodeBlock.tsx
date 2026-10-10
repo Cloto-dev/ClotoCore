@@ -1,6 +1,7 @@
 import DOMPurify from 'dompurify';
 import { Check, Copy, Download } from 'lucide-react';
 import { useCallback, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { hljs } from '../lib/markdown';
 
 const EXT_MAP: Record<string, string> = {
@@ -32,6 +33,7 @@ interface CodeBlockProps {
 }
 
 export function CodeBlock({ code, language, showHeader = true, maxHeight = 'none', className = '' }: CodeBlockProps) {
+  const { t } = useTranslation('agents');
   const [copied, setCopied] = useState(false);
 
   const highlighted = useMemo(() => {
@@ -67,14 +69,14 @@ export function CodeBlock({ code, language, showHeader = true, maxHeight = 'none
             <button
               onClick={handleCopy}
               className="p-1 rounded hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-200"
-              title={copied ? 'Copied!' : 'Copy'}
+              title={t(copied ? 'console.code_copied' : 'console.code_copy')}
             >
               {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
             </button>
             <button
               onClick={handleDownload}
               className="p-1 rounded hover:bg-white/10 transition-colors text-gray-400 hover:text-gray-200"
-              title="Download"
+              title={t('console.code_download')}
             >
               <Download size={12} />
             </button>

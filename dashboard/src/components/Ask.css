@@ -54,11 +54,19 @@
 .ask .why.bad {
   color: hsl(var(--state-bad));
 }
+/* A label never breaks inside its button: when the row is too narrow (the
+   companion home's side panel), whole buttons move to the next line. */
 .ask .acts {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px 6px;
   margin-top: 12px;
+}
+.ask .acts button,
+.ask .acts .risk {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .ask .acts .ok {
   background: hsl(var(--agent));

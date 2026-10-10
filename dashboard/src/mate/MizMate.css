@@ -1,0 +1,152 @@
+/* The approved companion surface uses white, ice white and the MIZPRISM accent. */
+.mizmate {
+  --surface-base: 0 0% 100%; --surface-secondary: 230 50% 98%; --surface-primary: 230 36% 96%;
+  --surface-sunken: 230 36% 96%; --border-default: 228 32% 91%; --border-subtle: 228 32% 94%;
+  --text-primary: 228 20% 18%; --text-secondary: 227 11% 43%; --text-tertiary: 227 10% 48%;
+  --text-muted: 227 10% 50%; --agent: 236 43% 55%; --agent-ink: 0 0% 100%;
+  --mate-brand: #7d86e2; --mate-deep: #5a61bd; --mate-light: #b2b3e0; --mate-ink: #252938; --mate-secondary: #626779;
+  --mate-line: #e0e3ef; --mate-surface: #f6f7fc;
+  height: 100%; display: flex; flex-direction: column; color: var(--mate-ink); background: white;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif; font-size: 15px;
+}
+.mizmate :where(button, input, select) {font: inherit; color: inherit;}
+.mizmate :where(button) {cursor: pointer; background: transparent; border: 1px solid var(--mate-line); border-radius: 8px; padding: 9px 13px; display: inline-flex; align-items: center; justify-content: center; gap: 8px;}
+.mizmate :where(button:hover) {background: var(--mate-surface);}
+.mizmate :where(button:disabled) {opacity: .45; cursor: default;}
+:where(.mizmate button:focus-visible, .mizmate input:focus-visible, .mizmate select:focus-visible, .mizmate summary:focus-visible) {outline: 3px solid var(--mate-deep); outline-offset: 3px;}
+:where(.mizmate h1, .mizmate h2, .mizmate h3, .mizmate p) {margin: 0;}
+.mizmate [hidden] {display: none !important;}
+.mate-header {min-height: 76px; padding: 14px 36px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--mate-line);}
+.mate-brand {font-size: 23px; font-weight: 700; letter-spacing: -.5px; color: #454c96; line-height: 1.15;}
+.mate-brand small {display: block; margin-top: 5px; font-size: 10px; font-weight: 500; letter-spacing: .025em; color: var(--mate-secondary);}
+.mate-header-controls {display: flex; align-items: center; gap: 12px; font-size: 13px;}
+.mate-partner-picker {display: flex; align-items: center; gap: 8px;}
+.mizmate select {border: 1px solid var(--mate-line); border-radius: 7px; padding: 6px 8px; background: white; max-width: 180px;}
+.mate-workspace {display: flex; flex: 1; min-height: 0;}
+.mate-rail {width: 180px; padding: 30px 18px 22px 28px; border-right: 1px solid #eceef5; display: flex; flex-direction: column; gap: 5px; flex-shrink: 0;}
+.mate-rail button {border: 0; justify-content: flex-start; padding: 12px 13px; color: var(--mate-secondary); white-space: nowrap;}
+.mate-rail button[aria-pressed="true"] {background: #eff0fc; color: #4d54a3; font-weight: 600;}
+.mate-rail .mate-rail-bottom {margin-top: auto; font-size: 13px;}
+.mate-body {display: flex; flex: 1; min-width: 0; min-height: 0; overflow: hidden;}
+.mate-presence {flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px; overflow-y: auto; background: radial-gradient(ellipse 230px 180px at 50% 48%, #b2b3e019, transparent);}
+.mate-presence-heading {text-align: center;}
+.mate-presence-heading h1 {font-size: 38px; font-weight: 600; line-height: 1.3; letter-spacing: -.05em; display: flex; align-items: center; justify-content: center; gap: 12px; overflow-wrap: anywhere;}
+.mate-presence-heading p {margin-top: 11px; font-size: 14px; color: var(--mate-secondary);}
+.mate-name-icon {display: inline-flex; overflow: hidden; align-items: center; justify-content: center; border-radius: 50%; width: 30px; height: 30px; font-size: 18px; background: #eff0fc;}
+.mate-name-icon img {border-radius: 50%;}
+.mate-portrait {width: min(310px, 100%); height: clamp(200px, 36vh, 340px); position: relative; display: flex; align-items: center; justify-content: center; margin: 20px auto 2px; flex-shrink: 0;}
+.mate-portrait canvas {width: 100%; height: 100%; display: block;}
+.mate-portrait > p {position: absolute; top: 50%; left: 0; right: 0; transform: translateY(-50%); margin: 0; padding: 0 12px; text-align: center; font-size: 13px; color: var(--mate-secondary); white-space: normal; overflow-wrap: normal;}
+.mate-portrait .mate-image-avatar {width: min(86%, 267px); aspect-ratio: 1; object-fit: cover; border-radius: 50%; border: 1px solid var(--mate-line); box-shadow: 0 12px 30px #7d86e216;}
+.mate-default-avatar {height: 100%; width: 100%;}
+.mate-presence-status {display: flex; align-items: center; gap: 8px; color: var(--mate-secondary); font-size: 13px; margin: 16px 0 25px !important;}
+.mate-status-dot {width: 6px; height: 6px; border-radius: 50%; background: #5d7463;}
+.mate-presence-actions {display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;}
+.mate-presence-actions button {min-height: 48px; padding: 12px 17px; font-size: 14px;}
+.mate-glass {position: relative; isolation: isolate; overflow: hidden; background: #eef0fc !important; border-color: #7d86e29c !important; color: #454c93 !important; font-weight: 600; box-shadow: inset 0 1px 0 #fff9;}
+.mate-glass canvas {position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; visibility: hidden;}
+.mate-glass .label {position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; gap: 9px;}
+.mate-glass.is-live {background: transparent !important;}
+.mate-glass.is-live canvas {visibility: visible;}
+.mate-presence-footer {display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 12px; font-size: 12px; color: var(--mate-secondary); margin-top: 28px;}
+.mate-presence-footer label {display: flex; align-items: center; gap: 6px;}
+.mate-presence-footer button {border: 0; padding: 6px;}
+.mate-presence-footer select {padding: 3px 6px; font-size: 12px;}
+.mate-conversation {width: min(430px, 46%); border-left: 1px solid var(--mate-line); display: flex; flex-direction: column; min-height: 0; flex-shrink: 0;}
+.mate-conversation-top {display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--mate-line); background: #fcfcff; gap: 10px; font-size: 14px;}
+.mate-conversation-top > span {display: flex; align-items: center; gap: 10px; min-width: 0;}
+.mate-conversation-top img {border-radius: 50%;}
+.mate-conversation-top > div {display: flex; gap: 6px;}
+.mate-conversation-top button {font-size: 12px; padding: 7px;}
+.mate-conversation .room {flex: 1; min-height: 0;}
+.mate-conversation .room .bar {padding: 10px 16px;}
+.mate-conversation .room .bar .face {display: none;}
+.mate-conversation .room .messages {padding-left: 20px; padding-right: 20px;}
+.mate-chat-expanded .mate-conversation {flex: 1; width: auto;}
+.mate-chat-expanded .mate-presence {flex: 0 0 210px; padding: 20px;}
+.mate-chat-expanded .mate-presence-heading h1 {font-size: 22px;}
+.mate-chat-expanded .mate-presence-heading p, .mate-chat-expanded .mate-presence-footer {display: none;}
+.mate-chat-expanded .mate-portrait {height: 200px;}
+.mate-settings {width: min(510px, 52%); padding: 34px 32px; border-left: 1px solid var(--mate-line); overflow-y: auto; flex-shrink: 0; font-size: 14px; line-height: 1.7;}
+.mate-settings h2 {font-size: 24px; font-weight: 600; margin-bottom: 10px;}
+.mate-settings h3, .mate-settings legend {font-size: 15px; font-weight: 600;}
+.mate-settings p {font-size: 13px; color: var(--mate-secondary); margin-bottom: 14px;}
+.mate-field {padding: 20px 0; border-top: 1px solid var(--mate-line);}
+.mate-field:first-of-type {margin-top: 24px;}
+.mate-field input[type="text"], .mate-field > input {display: block; width: 100%; border: 1px solid var(--mate-line); border-radius: 8px; padding: 10px 12px; margin: 10px 0; background: white;}
+.mate-upload {display: inline-flex; align-items: center; position: relative; padding: 9px 13px; margin-right: 10px; border: 1px solid var(--mate-line); border-radius: 8px; cursor: pointer; color: var(--mate-deep);}
+.mate-upload input {position: absolute; inset: 0; opacity: 0; width: 100%; cursor: pointer;}
+.mate-upload:focus-within {outline: 3px solid var(--mate-deep); outline-offset: 3px;}
+.mate-upload.mate-disabled {opacity: .45;}
+.mate-settings .mate-notice {padding: 12px; background: var(--mate-surface); border-radius: 8px; margin: 15px 0;}
+.mate-settings .mate-problem, .mate-portrait .mate-problem {color: #a33c48;}
+.mate-motion fieldset {border: 0; margin: 20px 0 0; padding: 0; min-width: 0;}
+.mate-preset-list {display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px;}
+.mate-preset-list button[aria-pressed="true"] {color: var(--mate-deep); border-color: var(--mate-brand); background: #eff0fc;}
+.mate-slider {display: grid; grid-template-columns: minmax(90px, 1fr) minmax(60px, 1.1fr) 36px; align-items: center; gap: 10px; margin: 12px 0; font-size: 13px;}
+.mate-slider input {width: 100%; accent-color: var(--mate-deep);}
+.mate-slider output {font-variant-numeric: tabular-nums; text-align: right;}
+.mate-select-label {display: flex; align-items: center; gap: 8px; margin: 10px 0;}
+.mate-motion-current {display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 12px 0; overflow-wrap: anywhere;}
+.mate-motion details {margin: 10px 0 20px;}
+.mate-motion summary {cursor: pointer; padding: 8px 0; color: var(--mate-deep);}
+.mate-lab-text {display: block; margin: 12px 0;}
+.mate-lab-text textarea {display: block; width: 100%; min-height: 74px; margin-top: 6px; padding: 9px 12px; border: 1px solid var(--mate-line); border-radius: 8px; background: white; resize: vertical; font: inherit; line-height: 1.6;}
+.mate-lab .mate-select-label {flex-wrap: wrap;}
+.mate-lab .mate-select-label select {max-width: 100%; min-width: 0;}
+.mate-lab .mate-lab-meta {margin: 12px 0 4px; overflow-wrap: anywhere;}
+.mate-lab .mate-lab-conditions {white-space: pre-wrap; overflow-wrap: anywhere;}
+.mate-lab-player {padding: 14px; margin-top: 16px; border: 1px solid var(--mate-line); border-radius: 8px; background: var(--mate-surface);}
+.mate-lab-player .mate-slider {grid-template-columns: 72px minmax(40px, 1fr) 64px;}
+.mate-lab > button {margin: 8px 8px 8px 0;}
+.mate-empty {margin: auto; text-align: center;}
+@media (max-width: 1000px) {
+  .mate-rail {width: 74px; padding: 24px 10px;}
+  .mate-rail button {justify-content: center; padding: 12px;}
+  .mate-rail button span {display: none;}
+  .mate-header {padding: 14px 24px;}
+  .mate-header-controls {gap: 8px;}
+  .mate-partner-picker > span {display: none;}
+  .mate-presence {padding: 20px;}
+  .mate-presence-heading h1 {font-size: 30px;}
+  .mate-chat-expanded .mate-presence {flex-basis: 170px;}
+  .mate-settings {padding: 24px;}
+}
+@media (max-width: 700px) {
+  .mate-header {padding: 12px 16px; flex-wrap: wrap;}
+  .mate-brand {font-size: 20px;}
+  .mate-header-controls {flex-wrap: wrap; font-size: 12px;}
+  .mate-header-controls button {padding: 6px 8px;}
+  .mate-rail {width: 58px; padding: 18px 5px;}
+  .mate-presence {padding: 20px 14px;}
+  .mate-chat-open .mate-presence {display: none;}
+  .mate-conversation {width: 100%; border-left: 0;}
+  .mate-editing {flex-direction: column; overflow-y: auto;}
+  .mate-editing .mate-presence {flex: none; overflow: visible; padding-bottom: 10px;}
+  .mate-editing .mate-presence-heading p, .mate-editing .mate-presence-status {display: none;}
+  .mate-editing .mate-portrait {height: 190px; margin-top: 10px;}
+  .mate-editing .mate-settings {width: 100%; padding: 24px; border-left: 0; overflow: visible;}
+}
+@media (prefers-reduced-motion: reduce) {.mizmate *, .mizmate *::before, .mizmate *::after {animation: none !important; transition: none !important;}}
+.mate-memory-search {display: block; margin: 22px 0 6px; font-size: 13px; color: var(--mate-secondary);}
+.mate-memory-search input {display: block; width: 100%; margin-top: 6px; border: 1px solid var(--mate-line); border-radius: 8px; padding: 9px 12px; background: white; color: var(--mate-ink);}
+.mate-memories .mate-memory-day {margin: 18px 0 8px; font-size: 13px; font-weight: 600; color: var(--mate-secondary);}
+.mate-memory-list {list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px;}
+.mate-memory {padding: 12px 14px; border-radius: 8px; background: var(--mate-surface);}
+.mate-memories .mate-memory-text {margin: 0; font-size: 14px; color: var(--mate-ink); white-space: pre-wrap; overflow-wrap: anywhere;}
+.mate-memory-actions {display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; margin-top: 6px; font-size: 12px; color: var(--mate-secondary);}
+.mate-memory-actions > span {margin-right: auto;}
+.mate-memory-actions button, .mate-memory-confirm button {border: 0; padding: 5px 7px; font-size: 12px; color: var(--mate-deep);}
+.mate-memories .mate-danger {color: #a33c48;}
+.mate-memory-confirm {display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--mate-line);}
+.mate-memories .mate-memory-confirm p {margin: 0 auto 0 0; font-size: 13px; color: var(--mate-ink);}
+.mate-memory-edit {display: block; font-size: 13px; color: var(--mate-secondary);}
+.mate-memory-edit textarea {display: block; width: 100%; min-height: 84px; margin-top: 6px; padding: 9px 12px; border: 1px solid var(--mate-line); border-radius: 8px; background: white; resize: vertical; font: inherit; line-height: 1.6; color: var(--mate-ink);}
+.mate-memory-footer {display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px;}
+.mate-memory-edit textarea:focus-visible {outline: 3px solid var(--mate-deep); outline-offset: 2px;}
+.mate-state-offline .mate-status-dot {background: #9c9ca3;}
+.mate-state-thinking .mate-status-dot {background: #77659b;}
+.mate-state-asking {color: var(--mate-deep); font-weight: 600;}
+.mate-state-asking .mate-status-dot {background: var(--mate-deep);}
+/* The side panel is too narrow for the conversation title beside the name and state; the expanded view shows it. */
+.mizmate:not(.mate-chat-expanded) .mate-conversation .face.talk .topic {display: none;}

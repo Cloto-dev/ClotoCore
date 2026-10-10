@@ -27,7 +27,7 @@ vi.mock('../../contexts/ActionsContext', () => ({
 vi.mock('../../contexts/ConversationContext', () => ({
   ConversationProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
-vi.mock('../../pages/AgentPage', () => ({ AgentPage: () => <div>agent-page</div> }));
+vi.mock('../../mate/MizMatePage', () => ({ MizMatePage: () => <div>mate-page</div> }));
 vi.mock('../AppSidebar', () => ({
   AppSidebar: ({
     onHelpClick,
@@ -71,7 +71,7 @@ import { AppLayout } from '../AppLayout';
 
 beforeEach(() => {
   chrome.hasOverlayTitleBar = false;
-  router.location = { pathname: '/', key: 'a' };
+  router.location = { pathname: '/settings', key: 'a' };
   router.type = 'POP';
   window.history.replaceState(null, '');
   window.localStorage.clear();
@@ -104,6 +104,17 @@ describe('search', () => {
 });
 
 describe('the window frame', () => {
+  it('gives the companion home its own navigation and keeps it mounted on other pages', () => {
+    router.location = { pathname: '/', key: 'home' };
+    const view = render(<AppLayout />);
+    expect(screen.queryByTestId('sidebar')).toBeNull();
+    expect(screen.getByText('mate-page')).toBeVisible();
+    expect(screen.getByLabelText('show_sidebar')).toBeInTheDocument();
+    router.location = { pathname: '/settings', key: 'settings' };
+    view.rerender(<AppLayout />);
+    expect(screen.getByTestId('sidebar')).toBeInTheDocument();
+    expect(screen.getByText('mate-page').parentElement).toHaveClass('hidden');
+  });
   it('draws no window buttons of its own: the bar carries the sidebar toggle, back and forward, and nothing else', () => {
     const { container } = render(<AppLayout />);
     const bar = screen.getByTestId('window-bar');
@@ -158,7 +169,7 @@ describe('the window frame', () => {
     const view = render(<AppLayout />);
     // Back one step: forward is open.
     window.history.replaceState({ idx: 2 }, '');
-    router.location = { pathname: '/', key: 'b' };
+    router.location = { pathname: '/settings', key: 'b' };
     view.rerender(<AppLayout />);
     expect((screen.getByLabelText('go_forward') as HTMLButtonElement).disabled).toBe(false);
 

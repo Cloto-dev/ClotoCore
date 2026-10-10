@@ -7,7 +7,7 @@ import { useAgentContext } from '../contexts/AgentContext';
 import { ConversationProvider } from '../contexts/ConversationContext';
 import { useShortcut } from '../hooks/useShortcut';
 import { isExperimentalBuild } from '../lib/tauri';
-import { AgentPage } from '../pages/AgentPage';
+import { MizMatePage } from '../mate/MizMatePage';
 import { AppSidebar } from './AppSidebar';
 import { CommandApprovalDeck } from './CommandApprovalDeck';
 import { CommandPalette } from './CommandPalette';
@@ -81,7 +81,7 @@ export function AppLayout() {
     if (defaultAgent) setSelectedAgentId(defaultAgent.id);
   };
 
-  const sidebarColumn = !immersive && !sidebarHidden;
+  const sidebarColumn = !isAgentRoute && !immersive && !sidebarHidden;
   // Held here because the bar is mounted anew each time it moves (see WindowBar).
   const furthest = useRef(0);
 
@@ -115,11 +115,11 @@ export function AppLayout() {
               </div>
             )}
             <main className="flex-1 h-full overflow-hidden relative z-10">
-              {/* AgentPage is always mounted to preserve SSE connections,
+              {/* MizMatePage is always mounted to preserve SSE connections,
               thinking steps, and chat state across navigation.
               Thinking steps also persisted in sessionStorage for reload. */}
               <div className={isAgentRoute ? 'h-full' : 'hidden'}>
-                <AgentPage />
+                <MizMatePage />
               </div>
               {!isAgentRoute && (
                 <Suspense

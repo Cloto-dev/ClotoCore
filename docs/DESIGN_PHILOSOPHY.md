@@ -8,6 +8,34 @@ screen, built to this document)
 
 ---
 
+## Companion home: MizMate
+
+The companion home follows the approved MizMate direction (2026-10-08): an AI
+partner for everyday life, under MIZPRISM. Its appearance is the primary focus;
+conversation opens beside it and can expand without discarding the draft.
+
+This surface uses white (`#FFFFFF`), ice white (`#F6F7FC`), a raised surface
+(`#FCFCFF`), and a lavender boundary (`#E0E3EF`). The Japanese type stack names
+Hiragino Kaku Gothic ProN and Yu Gothic. MIZPRISM's `#7D86E2`, `#5A61BD`, and
+`#B2B3E0` mark selection, conversation entry, and the partner's presence.
+Soft glass is confined to the conversation button, with reduced-motion and
+CSS fallbacks. These choices supersede the older no-glass and accent rules
+below for the companion home and its partner/motion panels.
+
+The spacious room stays beside the denser settings panel. Name changes require
+an explicit apply action. Images and VRM models apply immediately after local
+validation and a successful API save. Appearance priority is VRM, a large round
+image, then the placement character. Icon priority is a manual image, the
+current VRM's embedded thumbnail, then the existing fallback.
+
+The motion panel reuses the existing VRM engine, offers pose presets and idle
+behavior, and stores these settings in agent metadata (`mate_idle` and
+`mate_pose`). A selected VRMA can play or freeze at its first frame in the
+current window; the file itself is not stored. Connection, tool permissions,
+approvals, conversation persistence and authentication retain their existing
+backend contracts. Technical identifiers and storage paths keep their current
+names during this UI integration.
+
 ## 1. Why this document exists
 
 The dashboard was measured on 2026-09-16 (83 components, 15,860 lines of
@@ -122,16 +150,29 @@ are not applied until saved. One part, used everywhere it fits.
    what sending here does, and the threads you left with them. The line is the
    same for every agent and is not in their voice: the interface does not know
    who they are, and a warm line would decide it for them. When you speak,
-   the face moves to the header and the state ("thinking", "waiting for you") is a sentence there.
+   the face moves to the header and the state ("Generating a response",
+   "Ready") is shown there.
    The reasoning trace is the agent's *inner voice*, folded. A permission
-   request is *a question from the agent*, in their words, with a 2 px edge in
-   their colour. While they answer, send becomes stop and a cursor blinks.
+   request belongs to the agent and carries a 2 px edge in their colour, but
+   it is worded by the product: it names the action, and each button names
+   its outcome ("Always allow", "Allow once", "Don't allow"). While they
+   answer, send becomes stop and a cursor blinks.
    When the engine fails, the agent did not speak: the turn sits where the
    reply would be, with a hollow mark, one plain sentence, and the engine's own
    words in the status colour — never in the agent's colour, never typed out as
    if they said it — and the actions that turn needs (again, copy, a report)
    shown without waiting for a hover. It does not borrow the question's edge:
    a failure and a question would then differ only in colour.
+
+**Wording.** Interface text is plain product language, in every register.
+A state is reported as a fact ("Ready", "Generating a response", "Not
+connected", "1 awaiting approval"). There are no taglines and no lines
+written to sound like the agent or to describe a mood. A confirmation names
+the action and its consequence, and each button names its outcome ("Save",
+"Delete", "Cancel"). Terms are the ones software already uses ("memory", not
+a softer word for it). Only the agent's own replies speak in their voice.
+This was decided on 2026-10-10, after taglines and agent-voiced labels were
+found strange and unpleasant in use; it covers the companion home as well.
 
 ## 5. What is deliberately not copied
 
