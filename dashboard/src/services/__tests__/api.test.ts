@@ -99,3 +99,21 @@ describe('asset URL builders under Tauri', () => {
     expect(authed.getAttachmentUrl('att-1')).toBe(`${API_BASE}/chat/attachments/att-1?token=k2`);
   });
 });
+
+// A screen decides between "not allowed" and "not there" by the status, so the
+// status has to survive the throw; the message alone is prose from the kernel.
+describe('a refused request', () => {
+  it('throws with the HTTP status and the kernel message', async () => {
+    const { api } = await loadApi('browser');
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(JSON.stringify({ error: { message: 'Permission denied: AdminAccess' } }), { status: 403 }),
+        ),
+    );
+    await expect(api.getAgents('')).rejects.toMatchObject({ status: 403, message: 'Permission denied: AdminAccess' });
+    vi.unstubAllGlobals();
+  });
+});

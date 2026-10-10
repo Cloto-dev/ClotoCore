@@ -77,7 +77,14 @@ export function MizMatePage() {
     setSystemActive,
     processingAgentIds,
     refetchAgents,
+    isLoading,
+    agentsError,
   } = useAgentContext();
+  // Until the first answer arrives, an empty list means "not read yet", not "no partners".
+  const [agentsSettled, setAgentsSettled] = useState(false);
+  useEffect(() => {
+    if (!isLoading) setAgentsSettled(true);
+  }, [isLoading]);
   const [page, setPage] = useState<'home' | 'partner' | 'motion' | 'memories' | 'settings'>('home');
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMounted, setChatMounted] = useState(false);
@@ -151,6 +158,48 @@ export function MizMatePage() {
       onBack={() => setPage('home')}
     />
   );
+  // Why there is no partner on screen. A refused or failed list must not read as "none registered":
+  // that sends the user to add a partner, which fails for the same reason.
+  function noPartner() {
+    if (agentsError && (agentsError.status === 401 || agentsError.status === 403))
+      return (
+        <>
+          <h1>{t('mate.access_needed')}</h1>
+          <p>{t('mate.access_needed_hint')}</p>
+          <div className="mate-empty-actions">
+            <button type="button" onClick={() => navigate('/settings?section=security')}>
+              {t('mate.enter_api_key')}
+            </button>
+            <button type="button" onClick={() => void refetchAgents()}>
+              {t('mate.retry')}
+            </button>
+          </div>
+        </>
+      );
+    if (agentsError)
+      return (
+        <>
+          <h1>{t('mate.partners_failed')}</h1>
+          <p className="mate-empty-detail">{agentsError.message}</p>
+          <div className="mate-empty-actions">
+            <button type="button" onClick={() => void refetchAgents()}>
+              {t('mate.retry')}
+            </button>
+          </div>
+        </>
+      );
+    if (!agentsSettled) return <p role="status">{t('mate.loading_partner')}</p>;
+    return (
+      <>
+        <h1>{t('mate.no_partner')}</h1>
+        <div className="mate-empty-actions">
+          <button type="button" onClick={() => setCreating(true)}>
+            {t('mate.add_partner')}
+          </button>
+        </div>
+      </>
+    );
+  }
   if (systemActive)
     return (
       <KernelMonitor
@@ -359,12 +408,7 @@ export function MizMatePage() {
           ) : page === 'settings' ? (
             settingsPanel
           ) : (
-            <section className="mate-empty">
-              <h1>{t('mate.no_partner')}</h1>
-              <button type="button" onClick={() => setCreating(true)}>
-                {t('mate.add_partner')}
-              </button>
-            </section>
+            <section className="mate-empty">{noPartner()}</section>
           )}
         </div>
       </div>

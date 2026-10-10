@@ -97,7 +97,10 @@
 .mate-lab-player {padding: 14px; margin-top: 16px; border: 1px solid var(--mate-line); border-radius: 8px; background: var(--mate-surface);}
 .mate-lab-player .mate-slider {grid-template-columns: 72px minmax(40px, 1fr) 64px;}
 .mate-lab > button {margin: 8px 8px 8px 0;}
-.mate-empty {margin: auto; text-align: center;}
+.mate-empty {margin: auto; padding: 24px; text-align: center; max-width: 460px;}
+.mate-empty p {margin: 10px 0 0; font-size: 14px; color: var(--mate-secondary);}
+.mate-empty .mate-empty-detail {overflow-wrap: anywhere;}
+.mate-empty-actions {display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px;}
 @media (max-width: 1000px) {
   .mate-rail {width: 74px; padding: 24px 10px;}
   .mate-rail button {justify-content: center; padding: 12px;}
@@ -159,7 +162,8 @@
 .mate-setting-rows dd > button {margin-left: auto; padding: 6px 11px; font-size: 13px; color: var(--mate-deep); white-space: nowrap; flex-shrink: 0;}
 .mate-setting-name {overflow-wrap: anywhere;}
 .mate-setting-state {display: inline-flex; align-items: center; gap: 7px; font-size: 13px; color: var(--mate-secondary); white-space: nowrap;}
-.mate-setting-message {flex-basis: 100%; font-size: 12px; color: #a33c48; overflow-wrap: anywhere;}
+.mate-setting-note {flex-basis: 100%; order: 3; font-size: 12px; color: var(--mate-secondary);}
+.mate-setting-message {flex-basis: 100%; order: 3; font-size: 12px; color: #a33c48; overflow-wrap: anywhere;}
 .mate-server-checking .mate-status-dot, .mate-server-unknown .mate-status-dot, .mate-server-stopped .mate-status-dot, .mate-server-missing .mate-status-dot {background: #9c9ca3;}
 .mate-server-starting .mate-status-dot {background: #77659b;}
 .mate-server-error {color: #a33c48;}

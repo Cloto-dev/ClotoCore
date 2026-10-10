@@ -116,6 +116,18 @@ describe('MateSettings', () => {
     expect(row('mate.memory_row').getByText('exited')).toBeInTheDocument();
   });
 
+  it('says the engine cannot answer only when it is missing, stopped or failed', () => {
+    m.remote = { ...m.remote, servers: [server('cpersona', 'Connected')] };
+    const { rerender } = render(<MateSettings {...props()} />);
+    expect(row('mate.engine_row').getByText('mate.engine_cannot_answer')).toBeInTheDocument();
+    m.remote = { ...m.remote, servers: [server('cerebras', 'Connected')] };
+    rerender(<MateSettings {...props({ questions: 1 })} />);
+    expect(screen.queryByText('mate.engine_cannot_answer')).not.toBeInTheDocument();
+    m.remote = { ...m.remote, servers: [], isLoading: true };
+    rerender(<MateSettings {...props({ questions: 2 })} />);
+    expect(screen.queryByText('mate.engine_cannot_answer')).not.toBeInTheDocument();
+  });
+
   it('says checking while the server list is loading, not that the servers are missing', () => {
     m.remote = { ...m.remote, servers: [], isLoading: true };
     render(<MateSettings {...props()} />);

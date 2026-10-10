@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { extractError } from '../lib/errors';
 
+function statusOf(err: unknown): number | null {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === 'number' ? status : null;
+}
+
 /* Module-level caches shared across all hook instances */
 const caches = new Map<string, { data: unknown[]; ts: number }>();
 const inflights = new Map<string, Promise<unknown[]>>();
@@ -21,7 +26,14 @@ export interface UseRemoteDataOptions {
 export function useRemoteData<T>(
   fetcher: () => Promise<T[]>,
   options: UseRemoteDataOptions,
-): { data: T[]; isLoading: boolean; error: string | null; refetch: () => Promise<void> } {
+): {
+  data: T[];
+  isLoading: boolean;
+  error: string | null;
+  /** The HTTP status of the failed request, when the failure was an HTTP answer. */
+  errorStatus: number | null;
+  refetch: () => Promise<void>;
+} {
   const { key, ttl = 10_000, errorMessage = 'Failed to fetch', minRefetchMs = 0, refetcher } = options;
 
   // Keep fetcher up-to-date without causing effect re-runs
@@ -34,6 +46,7 @@ export function useRemoteData<T>(
   const [data, setData] = useState<T[]>(cached?.data ?? []);
   const [isLoading, setIsLoading] = useState(!cached);
   const [error, setError] = useState<string | null>(null);
+  const [errorStatus, setErrorStatus] = useState<number | null>(null);
 
   const fetchCached = useCallback((): Promise<T[]> => {
     const c = caches.get(key) as { data: T[]; ts: number } | undefined;
@@ -63,6 +76,7 @@ export function useRemoteData<T>(
     inflights.delete(key);
     setIsLoading(true);
     setError(null);
+    setErrorStatus(null);
     const minSpin = minRefetchMs > 0 ? new Promise<void>((r) => setTimeout(r, minRefetchMs)) : Promise.resolve();
     try {
       const doFetch = refetcherRef.current ? (refetcherRef.current() as Promise<T[]>) : fetchCached();
@@ -71,6 +85,7 @@ export function useRemoteData<T>(
       setData(result);
     } catch (err) {
       setError(extractError(err, errorMessage));
+      setErrorStatus(statusOf(err));
       if (import.meta.env.DEV) console.error(`${errorMessage}:`, err);
     } finally {
       setIsLoading(false);
@@ -84,11 +99,13 @@ export function useRemoteData<T>(
         if (!cancelled) {
           setData(d);
           setError(null);
+          setErrorStatus(null);
         }
       })
       .catch((err) => {
         if (!cancelled) {
           setError(extractError(err, errorMessage));
+          setErrorStatus(statusOf(err));
           if (import.meta.env.DEV) console.error(`${errorMessage}:`, err);
         }
       })
@@ -100,5 +117,5 @@ export function useRemoteData<T>(
     };
   }, [fetchCached, errorMessage]);
 
-  return { data, isLoading, error, refetch };
+  return { data, isLoading, error, errorStatus, refetch };
 }

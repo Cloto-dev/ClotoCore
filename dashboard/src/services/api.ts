@@ -247,7 +247,10 @@ export interface UninstallResponse {
 async function throwIfNotOk(res: Response, ctx: string): Promise<void> {
   if (res.ok) return;
   const body = await res.json().catch(() => ({}));
-  throw new Error(body?.error?.message || `Failed to ${ctx}: ${res.statusText}`);
+  // The status rides along so a screen can tell "not allowed" from "not there" without reading prose.
+  throw Object.assign(new Error(body?.error?.message || `Failed to ${ctx}: ${res.statusText}`), {
+    status: res.status,
+  });
 }
 
 async function fetchJson<T>(path: string, ctx: string, apiKey?: string, signal?: AbortSignal): Promise<T> {

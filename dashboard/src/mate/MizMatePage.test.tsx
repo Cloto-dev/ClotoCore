@@ -13,6 +13,8 @@ const m = vi.hoisted(() => ({
   refetchAgents: vi.fn(),
   connection: { connected: true, checking: false },
   questions: 0,
+  isLoading: false,
+  agentsError: null as { message: string; status: number | null } | null,
 }));
 vi.mock('../contexts/ConnectionContext', () => ({ useConnection: () => m.connection }));
 vi.mock('./usePartnerPresence', async (importOriginal) => ({
@@ -25,6 +27,8 @@ beforeEach(() => {
   localStorage.clear();
   m.agents = [MIO];
   m.selectedAgentId = 'agent.mio';
+  m.isLoading = false;
+  m.agentsError = null;
   m.connection = { connected: true, checking: false };
   m.questions = 0;
   m.processingAgentIds = new Set();
@@ -228,4 +232,43 @@ it('opens settings even before any partner exists, so the app settings stay reac
   expect(screen.getByLabelText('settings panel')).toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'back from settings' }));
   expect(screen.getByText('mate.no_partner')).toBeInTheDocument();
+});
+
+function noPartners() {
+  m.agents = [];
+  m.selectedAgentId = null;
+}
+
+it('asks for an API key when the kernel refuses the partner list, instead of saying there are none', () => {
+  noPartners();
+  m.agentsError = { message: 'Permission denied: AdminAccess', status: 403 };
+  render(
+    <MemoryRouter>
+      <MizMatePage />
+      <Where />
+    </MemoryRouter>,
+  );
+  expect(screen.queryByText('mate.no_partner')).not.toBeInTheDocument();
+  expect(screen.getByText('mate.access_needed')).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'mate.enter_api_key' }));
+  expect(screen.getByLabelText('path')).toHaveTextContent('/settings?section=security');
+});
+
+it('says the list could not be loaded, with the reason and a retry, for any other failure', () => {
+  noPartners();
+  m.agentsError = { message: 'Too many requests; retry later', status: 429 };
+  room();
+  expect(screen.getByText('mate.partners_failed')).toBeInTheDocument();
+  expect(screen.getByText('Too many requests; retry later')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'mate.enter_api_key' })).not.toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button', { name: 'mate.retry' }));
+  expect(m.refetchAgents).toHaveBeenCalled();
+});
+
+it('says loading, not "no partners", before the first answer arrives', () => {
+  noPartners();
+  m.isLoading = true;
+  room();
+  expect(screen.getByText('mate.loading_partner')).toBeInTheDocument();
+  expect(screen.queryByText('mate.no_partner')).not.toBeInTheDocument();
 });

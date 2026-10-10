@@ -1,4 +1,4 @@
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useAgents } from '../hooks/useAgents';
 import { useProcessingAgents } from '../hooks/useProcessingAgents';
 import { applyPresentAgent } from '../lib/agentIdentity';
@@ -8,6 +8,8 @@ import type { AgentMetadata } from '../types';
 interface AgentContextValue {
   agents: AgentMetadata[];
   isLoading: boolean;
+  /** Why the agent list could not be read, or null. `status` is the HTTP status when there was one. */
+  agentsError: { message: string; status: number | null } | null;
   refetchAgents: () => Promise<void>;
   selectedAgentId: string | null;
   setSelectedAgentId: (id: string | null) => void;
@@ -19,7 +21,8 @@ interface AgentContextValue {
 const AgentContext = createContext<AgentContextValue | null>(null);
 
 export function AgentProvider({ children }: { children: ReactNode }) {
-  const { agents, isLoading, refetch } = useAgents();
+  const { agents, isLoading, error, errorStatus, refetch } = useAgents();
+  const agentsError = useMemo(() => (error ? { message: error, status: errorStatus } : null), [error, errorStatus]);
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [systemActive, setSystemActive] = useState(false);
   const processingAgentIds = useProcessingAgents();
@@ -52,6 +55,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
       value={{
         agents,
         isLoading,
+        agentsError,
         refetchAgents,
         selectedAgentId,
         setSelectedAgentId,

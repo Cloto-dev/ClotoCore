@@ -106,6 +106,9 @@ export function MateSettings({
       </>
     );
   }
+  // Only a state that stops this engine from answering gets the consequence; checking and unknown
+  // are not facts about the engine, and the chat can still pick another engine per message.
+  const engineDown = engine !== null && ['missing', 'stopped', 'error'].includes(engine.state);
 
   return (
     <section className="mate-settings mate-preferences" aria-label={t('mate.settings')}>
@@ -150,6 +153,7 @@ export function MateSettings({
               <dt>{t('mate.engine_row')}</dt>
               <dd>
                 {serverValue(engine)}
+                {engineDown && <span className="mate-setting-note">{t('mate.engine_cannot_answer')}</span>}
                 <button type="button" onClick={() => onAgentSettings('engine')}>
                   {t('mate.change')}
                 </button>
