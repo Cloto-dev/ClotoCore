@@ -6,6 +6,7 @@ import type {
   AgentInstructionsReport,
   AgentMemoryTarget,
   AgentMetadata,
+  AgentServerGrants,
   ChatMessage,
   ChatSearchResult,
   ClotoMessage,
@@ -935,6 +936,22 @@ export const api = {
       { 'X-API-Key': apiKey },
     ).then(() => {}),
 
+  /** One agent's grants on one server. The PUT replaces only this pair, unlike putAgentMcpAccess. */
+  getAgentServerAccess: (agentId: string, serverId: string, apiKey: string) =>
+    fetchJson<AgentServerGrants>(
+      `/agents/${encodeURIComponent(agentId)}/mcp-access/${encodeURIComponent(serverId)}`,
+      'fetch agent server access',
+      apiKey,
+    ),
+  putAgentServerAccess: (agentId: string, serverId: string, grants: AgentServerGrants, apiKey: string) =>
+    mutate(
+      `/agents/${encodeURIComponent(agentId)}/mcp-access/${encodeURIComponent(serverId)}`,
+      'PUT',
+      'update agent server access',
+      grants,
+      { 'X-API-Key': apiKey },
+    ).then(() => {}),
+
   getAgentAccess: (agentId: string, apiKey?: string) =>
     fetchJson<{ agent_id: string; entries: AccessControlEntry[] }>(
       `/mcp/access/by-agent/${encodeURIComponent(agentId)}`,
@@ -1488,6 +1505,9 @@ export function createAuthenticatedApi(apiKey: string) {
     testProviderConnection: (providerId: string) => api.testProviderConnection(providerId, k),
     getAgentLastUsage: (agentId: string) => api.getAgentLastUsage(agentId, k),
     getAgentMemory: (agentId: string) => api.getAgentMemory(agentId, k),
+    getAgentServerAccess: (agentId: string, serverId: string) => api.getAgentServerAccess(agentId, serverId, k),
+    putAgentServerAccess: (agentId: string, serverId: string, grants: AgentServerGrants) =>
+      api.putAgentServerAccess(agentId, serverId, grants, k),
     // Avatar
     uploadAvatar: (agentId: string, file: File) => api.uploadAvatar(agentId, file, k),
     deleteAvatar: (agentId: string) => api.deleteAvatar(agentId, k),

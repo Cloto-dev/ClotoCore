@@ -150,6 +150,7 @@ export function MizMatePage() {
       onGlass={setGlass}
       onPartner={() => setPage('partner')}
       onReview={openChat}
+      onAgentChanged={() => void refetchAgents()}
       onAgentSettings={(section) => {
         if (agent) navigate(`/agents/${encodeURIComponent(agent.id)}/settings?section=${section}`);
       }}

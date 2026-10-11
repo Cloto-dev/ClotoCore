@@ -342,6 +342,14 @@ export interface AgentMemoryTarget {
   allowed: boolean | null;
 }
 
+/** One agent's grants on one server, as `GET/PUT /api/agents/:id/mcp-access/:server` carry them. */
+export interface AgentServerGrants {
+  /** The server-wide answer, or null when there is none. */
+  server: 'allow' | 'deny' | null;
+  /** Tools with an answer of their own. */
+  tools: { tool_name: string; permission: 'allow' | 'deny' }[];
+}
+
 /** One of a server's tools, as `GET /api/mcp/servers/:name/tools` lists them. */
 export interface McpToolInfo {
   name: string;
@@ -427,6 +435,8 @@ export interface MarketplaceCatalogEntry {
   /** Listed only because this kernel's hub access token covers it. */
   restricted?: boolean;
   changelog?: string;
+  /** Present on an engine that reaches its model through the kernel's LLM proxy. */
+  llm_provider?: { needs_api_key: boolean } | null;
 }
 
 /** Hub-served setup preset (catalog `collections` field). Curation lives

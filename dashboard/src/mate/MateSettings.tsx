@@ -4,6 +4,7 @@ import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { displayServerId } from '../lib/format';
 import type { AgentMemoryTarget, AgentMetadata, McpServerInfo } from '../types';
+import { EngineSetup } from './EngineSetup';
 import { CHAT_SIZES, type ChatSize, GLASS_PROFILES, type GlassProfile } from './matePreferences';
 
 export type ServerState = 'unset' | 'checking' | 'unknown' | 'missing' | 'running' | 'starting' | 'stopped' | 'error';
@@ -62,6 +63,7 @@ export function MateSettings({
   onPartner,
   onReview,
   onAgentSettings,
+  onAgentChanged,
   onServers,
   onAppSettings,
   onBack,
@@ -77,6 +79,8 @@ export function MateSettings({
   onPartner: () => void;
   onReview: () => void;
   onAgentSettings: (section: 'engine') => void;
+  /** Something on the partner was changed from here; read the partners again. */
+  onAgentChanged: () => void;
   onServers: () => void;
   onAppSettings: () => void;
   onBack: () => void;
@@ -108,6 +112,9 @@ export function MateSettings({
     }
     wasConnected.current = connected;
   }, [connected, refetch, loadMemoryTarget]);
+  // Setting up the engine replaces the panel's contents; switching partner returns to the panel.
+  const [view, setView] = useState<'panel' | 'engine'>('panel');
+  useEffect(() => setView('panel'), [agentId]);
   const list = isLoading || error ? null : servers;
   const withoutList = isLoading ? 'checking' : 'unknown';
   const engine = serverSummary(agent?.default_engine_id, list, withoutList);
@@ -144,6 +151,20 @@ export function MateSettings({
   // Only a state that stops this engine from answering gets the consequence; checking and unknown
   // are not facts about the engine, and the chat can still pick another engine per message.
   const engineDown = engine !== null && ['missing', 'stopped', 'error'].includes(engine.state);
+
+  if (view === 'engine' && agent) {
+    return (
+      <EngineSetup
+        agent={agent}
+        onSet={() => {
+          void refetch();
+          onAgentChanged();
+        }}
+        onClose={() => setView('panel')}
+        onDetails={() => onAgentSettings('engine')}
+      />
+    );
+  }
 
   return (
     <section className="mate-settings mate-preferences" aria-label={t('mate.settings')}>
@@ -189,8 +210,8 @@ export function MateSettings({
               <dd>
                 {serverValue(engine)}
                 {engineDown && <span className="mate-setting-note">{t('mate.engine_cannot_answer')}</span>}
-                <button type="button" onClick={() => onAgentSettings('engine')}>
-                  {t('mate.change')}
+                <button type="button" onClick={() => setView('engine')}>
+                  {t(engine && !engineDown ? 'mate.change' : 'mate.set_up')}
                 </button>
               </dd>
             </div>

@@ -14,6 +14,23 @@ const m = vi.hoisted(() => ({
 }));
 vi.mock('../hooks/useMcpServers', () => ({ useMcpServers: () => m.remote }));
 vi.mock('../hooks/useApi', () => ({ useApi: () => m.api }));
+// The engine setup has its own tests; here it only has to be opened, closed and reported from.
+vi.mock('./EngineSetup', () => ({
+  EngineSetup: (p: { agent: AgentMetadata; onSet: () => void; onClose: () => void; onDetails: () => void }) => (
+    <section aria-label="engine setup">
+      <span>{p.agent.name}</span>
+      <button type="button" onClick={p.onSet}>
+        stub set
+      </button>
+      <button type="button" onClick={p.onClose}>
+        stub close
+      </button>
+      <button type="button" onClick={p.onDetails}>
+        stub details
+      </button>
+    </section>
+  ),
+}));
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, values?: Record<string, unknown>) => (values ? `${key} ${JSON.stringify(values)}` : key),
@@ -91,6 +108,7 @@ function props(over: Partial<Parameters<typeof MateSettings>[0]> = {}) {
     onPartner: vi.fn(),
     onReview: vi.fn(),
     onAgentSettings: vi.fn(),
+    onAgentChanged: vi.fn(),
     onServers: vi.fn(),
     onAppSettings: vi.fn(),
     onBack: vi.fn(),
@@ -206,12 +224,50 @@ describe('MateSettings', () => {
     expect(p.onGlass).toHaveBeenCalledWith('crisp');
   });
 
-  it('opens the agent settings at the section each row names', () => {
+  it('offers Change for a working engine and Set up for one that cannot answer', () => {
+    const { rerender } = render(<MateSettings {...props()} />);
+    expect(row('mate.engine_row').getByRole('button', { name: 'mate.change' })).toBeInTheDocument();
+    m.remote = { ...m.remote, servers: [] };
+    rerender(<MateSettings {...props({ questions: 1 })} />);
+    expect(row('mate.engine_row').getByRole('button', { name: 'mate.set_up' })).toBeInTheDocument();
+    rerender(<MateSettings {...props({ agent: { ...MIO, default_engine_id: '' } })} />);
+    expect(row('mate.engine_row').getByRole('button', { name: 'mate.set_up' })).toBeInTheDocument();
+  });
+
+  it('opens the engine setup in the panel, and comes back from it', () => {
     const p = props();
     render(<MateSettings {...p} />);
     fireEvent.click(row('mate.engine_row').getByRole('button', { name: 'mate.change' }));
-    expect(p.onAgentSettings).toHaveBeenLastCalledWith('engine');
-    // The memory server is not the agent's to choose, so its row offers nothing to change.
+    expect(screen.getByRole('region', { name: 'engine setup' })).toHaveTextContent('Mio');
+    expect(screen.queryByText('mate.engine_row', { selector: 'dt' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'stub close' }));
+    expect(screen.getByText('mate.engine_row', { selector: 'dt' })).toBeInTheDocument();
+    expect(p.onAgentSettings).not.toHaveBeenCalled();
+  });
+
+  it('reads the partner and the servers again once the engine is set', () => {
+    const p = props();
+    render(<MateSettings {...p} />);
+    fireEvent.click(row('mate.engine_row').getByRole('button', { name: 'mate.change' }));
+    fireEvent.click(screen.getByRole('button', { name: 'stub set' }));
+    expect(p.onAgentChanged).toHaveBeenCalledTimes(1);
+    expect(m.remote.refetch).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: 'stub details' }));
+    expect(p.onAgentSettings).toHaveBeenCalledWith('engine');
+  });
+
+  it('returns to the panel when the partner changes during the engine setup', () => {
+    const { rerender } = render(<MateSettings {...props()} />);
+    fireEvent.click(row('mate.engine_row').getByRole('button', { name: 'mate.change' }));
+    rerender(<MateSettings {...props({ agent: { ...MIO, id: 'agent.rin', name: 'Rin' } })} />);
+    expect(screen.queryByRole('region', { name: 'engine setup' })).not.toBeInTheDocument();
+    expect(screen.getByText('mate.engine_row', { selector: 'dt' })).toBeInTheDocument();
+  });
+
+  it('offers nothing to change on the memory row, and opens the partner settings from its row', () => {
+    const p = props();
+    render(<MateSettings {...p} />);
+    // The memory server is not the agent's to choose.
     expect(row('mate.memory_row').queryByRole('button')).not.toBeInTheDocument();
     fireEvent.click(row('mate.appearance_row').getByRole('button', { name: 'mate.change' }));
     expect(p.onPartner).toHaveBeenCalledTimes(1);

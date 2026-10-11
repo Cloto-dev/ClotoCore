@@ -59,6 +59,22 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   and says when this agent is not allowed to use it. It also shows waiting
   approvals, whether the kernel is connected, and links to Servers and
   permissions and the full app settings.
+- **Set up the LLM engine from the settings panel.** The engine row's Set up
+  (or Change) opens a list of engines in the same panel. Each says whether it
+  needs an API key, which one is in use and which are installed; a key field
+  appears only for an engine that needs one and has none saved. Use this engine
+  then installs the engine if it is missing (or starts it if it is stopped),
+  saves the key, checks the connection, allows this agent to use the server and
+  makes it the agent's engine, listing each step as it runs. The agent's
+  settings are written last, after the connection check, so a key the provider
+  refuses leaves the agent as it was; the reason is shown with the kernel's own
+  message. Cancel sends nothing. The list is the catalog's engines, so an engine
+  added to the hub appears without a dashboard change.
+- **Catalog entries say whether an engine needs an API key.** An engine that
+  reaches its model through the kernel's LLM proxy carries
+  `llm_provider: { needs_api_key }` in `GET /api/marketplace/catalog`, read from
+  its registry entry, so a screen can ask for a key before the engine is
+  installed (the provider row that holds the key is created by the install).
 - **`GET /api/agents/:id/memory`** answers where an agent's memory goes, decided
   the way a conversation decides it: the server that provides the memory
   capability (`server_id`, null when none does) and whether the agent's grants

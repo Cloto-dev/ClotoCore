@@ -168,4 +168,22 @@
 .mate-server-starting .mate-status-dot {background: #77659b;}
 .mate-server-error {color: #a33c48;}
 .mate-server-error .mate-status-dot {background: #a33c48;}
+/* Engine setup: the choices as the same pressed buttons, each saying whether it needs a key; then the key, then the steps with the server-state dots. */
+.mate-engine-list {display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 8px;}
+.mate-engine-list button {display: grid; grid-template-columns: 1fr auto; justify-content: stretch; align-items: baseline; gap: 2px 8px; text-align: left; padding: 10px 12px;}
+.mate-engine-list button[aria-pressed="true"] {border-color: var(--mate-brand); background: #eff0fc;}
+.mate-engine-name {font-weight: 600; overflow-wrap: anywhere;}
+.mate-engine-list button[aria-pressed="true"] .mate-engine-name {color: var(--mate-deep);}
+.mate-engine-status {font-size: 12px; color: var(--mate-secondary); white-space: nowrap;}
+.mate-engine-meta {grid-column: 1 / -1; font-size: 12px; color: var(--mate-secondary);}
+.mate-engine-key {display: block; margin-top: 20px; font-size: 13px; color: var(--mate-secondary);}
+.mate-engine-key input {display: block; width: 100%; margin: 6px 0; border: 1px solid var(--mate-line); border-radius: 8px; padding: 10px 12px; background: white; color: var(--mate-ink);}
+.mate-engine-steps {list-style: none; margin: 20px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px;}
+.mate-engine-step {display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; padding: 6px 0; font-size: 13px;}
+.mate-step-waiting .mate-status-dot {background: #c9cbd6;}
+.mate-step-running .mate-status-dot {background: #77659b;}
+.mate-step-failed, .mate-step-failed .mate-setting-state {color: #a33c48;}
+.mate-step-failed .mate-status-dot {background: #a33c48;}
+.mate-engine-result {margin-top: 16px;}
+.mate-engine-result .mate-setting-message {display: block; margin-top: 4px;}
 @media (max-width: 480px) {.mate-setting-rows > div {grid-template-columns: 1fr;}}

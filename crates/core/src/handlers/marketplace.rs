@@ -338,6 +338,25 @@ pub struct CatalogEntry {
     /// Listed only because this kernel's hub access token covers it. The
     /// public catalog does not show it.
     pub restricted: bool,
+    /// Present on an engine that reaches its model through the kernel's LLM
+    /// proxy (the entry's `provider` block); absent on every other entry.
+    pub llm_provider: Option<CatalogLlmProvider>,
+}
+
+/// What an engine's catalog entry says about its LLM provider, for a screen
+/// that sets the engine up before it is installed — the `llm_providers` row
+/// these values go into is only created by the install.
+#[derive(Debug, Serialize, PartialEq, Eq)]
+pub struct CatalogLlmProvider {
+    /// Whether the provider takes an API key (the entry's `quirks.no_api_key`
+    /// is not set). Local engines such as Ollama do not.
+    pub needs_api_key: bool,
+}
+
+fn catalog_llm_provider(entry: &RegistryEntry) -> Option<CatalogLlmProvider> {
+    entry.provider.as_ref().map(|pm| CatalogLlmProvider {
+        needs_api_key: !pm.quirks.as_ref().is_some_and(|q| q.no_api_key),
+    })
 }
 
 #[derive(Debug, Deserialize)]
@@ -722,6 +741,7 @@ pub async fn catalog_handler(
                 update_available,
                 running,
                 restricted: restricted.contains(&entry.id),
+                llm_provider: catalog_llm_provider(entry),
             }
         })
         .collect();
@@ -5288,6 +5308,56 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The catalog says, before an engine is installed, whether it will need an
+    /// API key; the provider row that holds the key is only made by the install.
+    #[tokio::test]
+    async fn the_catalog_says_whether_an_engine_needs_a_key() {
+        let dir = temp_dir("catalog-llm-provider");
+        let state =
+            crate::test_utils::create_test_app_state_in(dir.clone(), Some("k".into())).await;
+        let mut registry = registry_of(&["ollama", "terminal"]);
+        registry.servers[0].provider = Some(
+            serde_json::from_value(serde_json::json!({
+                "api_url": "http://127.0.0.1:11434",
+                "quirks": { "no_api_key": true }
+            }))
+            .unwrap(),
+        );
+        {
+            let mut cache = state.marketplace_cache.write().await;
+            cache.data = Some(registry);
+            cache.fetched_at = Some(tokio::time::Instant::now());
+        }
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", "k".parse().unwrap());
+        let Ok(axum::Json(body)) = catalog_handler(
+            State(state.clone()),
+            headers,
+            Query(CatalogQuery {
+                force_refresh: false,
+            }),
+        )
+        .await
+        else {
+            panic!("catalog handler returned an error");
+        };
+        let provider = |id: &str| {
+            body["data"]["servers"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["id"] == id)
+                .unwrap()["llm_provider"]
+                .clone()
+        };
+        assert_eq!(
+            provider("ollama"),
+            serde_json::json!({ "needs_api_key": false })
+        );
+        assert_eq!(provider("terminal"), serde_json::Value::Null);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     /// The catalog marks an entry the stored token covers, so the dashboard can
     /// say it is published to this kernel only. Served from the cache: no hub.
     #[tokio::test]
@@ -5429,6 +5499,43 @@ mod tests {
         assert!(
             row_named(&rows, name).is_some(),
             "a server with a runnable command is installed"
+        );
+    }
+
+    #[test]
+    fn catalog_says_which_engines_take_an_api_key() {
+        let plain = entry("terminal", "servers/terminal");
+        assert_eq!(
+            catalog_llm_provider(&plain),
+            None,
+            "a tool is not an engine"
+        );
+
+        let mut cloud = entry("cerebras", "servers/cerebras");
+        cloud.provider = Some(
+            serde_json::from_value(serde_json::json!({ "api_url": "https://example.test/v1" }))
+                .unwrap(),
+        );
+        assert_eq!(
+            catalog_llm_provider(&cloud),
+            Some(CatalogLlmProvider {
+                needs_api_key: true
+            })
+        );
+
+        let mut local = entry("ollama", "servers/ollama");
+        local.provider = Some(
+            serde_json::from_value(serde_json::json!({
+                "api_url": "http://127.0.0.1:11434",
+                "quirks": { "no_api_key": true }
+            }))
+            .unwrap(),
+        );
+        assert_eq!(
+            catalog_llm_provider(&local),
+            Some(CatalogLlmProvider {
+                needs_api_key: false
+            })
         );
     }
 
