@@ -388,6 +388,40 @@ class AgentsLastUsage(Operation):
 
 
 @register
+class AgentsMemory(Operation):
+    """Where an agent's memory goes, as a conversation decides it.
+
+    Read-only. A fresh instance may or may not have a memory server connected,
+    so the assertion is on the shape the settings screen reads: ``server_id``
+    is a string or null, ``allowed`` a boolean, and ``plugin`` is null unless a
+    memory plugin compiled into the kernel takes the memory (then ``allowed``
+    is null, because the grants are not consulted). A handler that dropped a
+    key would leave the screen showing the wrong server silently.
+    """
+
+    domain = "agents"
+    name = "memory"
+    covers = ["GET /api/agents/{id}/memory"]
+    phase0 = True
+
+    def drive(self, ctx: RunContext):
+        return ctx.client.get(f"/api/agents/{_DEFAULT_AGENT}/memory")
+
+    def assert_success(self, ctx: RunContext, result):
+        assert isinstance(result, dict), f"memory not an object: {result!r}"
+        for key in ("plugin", "server_id", "allowed"):
+            assert key in result, f"memory payload has no {key!r} key: {result!r}"
+        if result["plugin"] is None:
+            assert result["server_id"] is None or isinstance(result["server_id"], str), result
+            assert isinstance(result["allowed"], bool), result
+            if result["server_id"] is None:
+                assert result["allowed"] is False, f"allowed without a server: {result!r}"
+        else:
+            assert isinstance(result["plugin"], str), result
+            assert result["server_id"] is None and result["allowed"] is None, result
+
+
+@register
 class AgentsInstructionFiles(Operation):
     """What an agent's always-loaded files cost, and which reach the prompt.
 

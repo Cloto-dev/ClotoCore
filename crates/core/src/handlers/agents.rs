@@ -34,6 +34,43 @@ pub async fn get_agent_last_usage(
     ok_data(serde_json::json!({ "usage": usage }))
 }
 
+/// GET /api/agents/:id/memory
+///
+/// Where this agent's memory goes, decided the way a conversation decides it.
+/// A memory plugin compiled into the kernel comes first (`plugin`); otherwise
+/// memory goes to the MCP server that provides the memory capability
+/// (`server_id`, the first one connected, or null when none does), and
+/// `allowed` says whether this agent's grants let it recall or store there.
+/// Without it the kernel answers without memory. The agent's
+/// `preferred_memory` only names a plugin; it does not choose the MCP server.
+pub async fn get_agent_memory(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(agent_id): Path<String>,
+) -> AppResult<Json<serde_json::Value>> {
+    check_auth(&state, &headers)?;
+    if !state.agent_manager.agent_exists(&agent_id).await? {
+        return Err(AppError::Cloto(cloto_shared::ClotoError::AgentNotFound(
+            agent_id,
+        )));
+    }
+    let (agent, _) = state.agent_manager.get_agent_config(&agent_id).await?;
+    if let Some(plugin) = super::system::memory_plugin_for(&state.registry, &agent.metadata).await {
+        return ok_data(serde_json::json!({
+            "plugin": plugin.manifest().id,
+            "server_id": null,
+            "allowed": null,
+        }));
+    }
+    let resolved =
+        super::system::memory_server_access(&state.mcp_manager, &state.pool, &agent_id).await;
+    ok_data(serde_json::json!({
+        "plugin": null,
+        "server_id": resolved.as_ref().map(|(id, _)| id),
+        "allowed": resolved.is_some_and(|(_, allowed)| allowed),
+    }))
+}
+
 /// GET /api/agents/:id/instruction-files
 ///
 /// Which of the agent's always-loaded files (CLAUDE.md / AGENTS.md / MEMORY.md)
@@ -952,4 +989,166 @@ pub async fn serve_speech_file(
         ],
         data,
     ))
+}
+
+#[cfg(test)]
+mod memory_target_tests {
+    use super::get_agent_memory;
+    use crate::managers::mcp_protocol::McpTool;
+    use crate::AppState;
+    use axum::extract::{Path, State};
+    use axum::http::{HeaderMap, StatusCode};
+    use axum::response::IntoResponse;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    const KEY: &str = "test-key";
+
+    fn headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-API-Key", KEY.parse().unwrap());
+        headers
+    }
+
+    async fn agent(state: &Arc<AppState>, name: &str, metadata: HashMap<String, String>) -> String {
+        state
+            .agent_manager
+            .create_agent(name, "d", "e", metadata, vec![], None)
+            .await
+            .expect("create agent")
+    }
+
+    /// A connected server offering these tools, as the kernel maps it on connect.
+    async fn memory_server(state: &Arc<AppState>, id: &str, policy: &str) {
+        sqlx::query("INSERT INTO mcp_servers (name, command, created_at, default_policy) VALUES (?, 'noop', 0, ?)")
+            .bind(id)
+            .bind(policy)
+            .execute(&state.pool)
+            .await
+            .unwrap();
+        let tools: Vec<McpTool> = ["recall", "store"]
+            .iter()
+            .map(|name| McpTool {
+                name: (*name).to_string(),
+                description: None,
+                input_schema: serde_json::json!({}),
+                annotations: None,
+            })
+            .collect();
+        state
+            .mcp_manager
+            .dispatcher
+            .build_from_tools(id, &tools)
+            .await;
+    }
+
+    async fn grant(
+        state: &Arc<AppState>,
+        agent_id: &str,
+        server_id: &str,
+        tool: Option<&str>,
+        permission: &str,
+    ) {
+        let entry_type = if tool.is_some() {
+            "tool_grant"
+        } else {
+            "server_grant"
+        };
+        sqlx::query(
+            "INSERT INTO mcp_access_control (entry_type, agent_id, server_id, tool_name, permission, granted_at) \
+             VALUES (?, ?, ?, ?, ?, 't0')",
+        )
+        .bind(entry_type)
+        .bind(agent_id)
+        .bind(server_id)
+        .bind(tool)
+        .bind(permission)
+        .execute(&state.pool)
+        .await
+        .unwrap();
+    }
+
+    async fn status_of(state: &Arc<AppState>, headers: HeaderMap, agent_id: &str) -> StatusCode {
+        match get_agent_memory(State(state.clone()), headers, Path(agent_id.to_string())).await {
+            Ok(json) => json.into_response().status(),
+            Err(err) => err.into_response().status(),
+        }
+    }
+
+    async fn memory_of(state: &Arc<AppState>, agent_id: &str) -> serde_json::Value {
+        match get_agent_memory(State(state.clone()), headers(), Path(agent_id.to_string())).await {
+            Ok(json) => json.0["data"].clone(),
+            Err(err) => panic!("memory target refused: {}", err.into_response().status()),
+        }
+    }
+
+    #[tokio::test]
+    async fn names_no_server_when_none_provides_memory() {
+        let state = crate::test_utils::create_test_app_state(Some(KEY.into())).await;
+        let id = agent(&state, "Mio", HashMap::new()).await;
+        assert_eq!(
+            memory_of(&state, &id).await,
+            serde_json::json!({ "plugin": null, "server_id": null, "allowed": false })
+        );
+    }
+
+    #[tokio::test]
+    async fn names_the_memory_server_and_refuses_it_without_a_grant() {
+        let state = crate::test_utils::create_test_app_state(Some(KEY.into())).await;
+        let id = agent(&state, "Mio", HashMap::new()).await;
+        memory_server(&state, "mem", "opt-in").await;
+        let target = memory_of(&state, &id).await;
+        assert_eq!(target["server_id"], "mem");
+        assert_eq!(target["allowed"], false);
+    }
+
+    #[tokio::test]
+    async fn allows_it_on_a_server_grant_or_a_grant_for_recall_alone() {
+        let state = crate::test_utils::create_test_app_state(Some(KEY.into())).await;
+        let whole = agent(&state, "Whole", HashMap::new()).await;
+        let by_tool = agent(&state, "Bytool", HashMap::new()).await;
+        memory_server(&state, "mem", "opt-in").await;
+        grant(&state, &whole, "mem", None, "allow").await;
+        grant(&state, &by_tool, "mem", Some("recall"), "allow").await;
+        assert_eq!(memory_of(&state, &whole).await["allowed"], true);
+        assert_eq!(memory_of(&state, &by_tool).await["allowed"], true);
+    }
+
+    #[tokio::test]
+    async fn preferred_memory_does_not_choose_the_mcp_server() {
+        let state = crate::test_utils::create_test_app_state(Some(KEY.into())).await;
+        memory_server(&state, "mem", "opt-in").await;
+        memory_server(&state, "other", "opt-in").await;
+        let metadata = HashMap::from([("preferred_memory".to_string(), "other".to_string())]);
+        let id = agent(&state, "Mio", metadata).await;
+        grant(&state, &id, "other", None, "allow").await;
+        // Memory goes to the first server mapped, whatever the agent names, and
+        // the grant on the named one does not carry over.
+        let target = memory_of(&state, &id).await;
+        assert_eq!(target["plugin"], serde_json::Value::Null);
+        assert_eq!(target["server_id"], "mem");
+        assert_eq!(target["allowed"], false);
+    }
+
+    #[tokio::test]
+    async fn refuses_an_unknown_agent_and_a_missing_key() {
+        let state = crate::test_utils::create_test_app_state(Some(KEY.into())).await;
+        assert_eq!(
+            status_of(&state, headers(), "agent.nobody").await,
+            StatusCode::NOT_FOUND
+        );
+        let id = agent(&state, "Mio", HashMap::new()).await;
+        assert_eq!(
+            status_of(&state, HeaderMap::new(), &id).await,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[test]
+    fn the_route_is_registered() {
+        let wiring = include_str!("../lib.rs");
+        assert!(
+            wiring.contains(r#".route("/agents/{id}/memory", get(handlers::get_agent_memory))"#)
+        );
+    }
 }

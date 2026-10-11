@@ -117,3 +117,19 @@ describe('a refused request', () => {
     vi.unstubAllGlobals();
   });
 });
+
+// The settings screen shows the memory server the kernel itself picks for the
+// agent; the answer has to come from the agent's own route, with the key.
+describe("an agent's memory target", () => {
+  it("is read from the agent's memory route with the key", async () => {
+    const { createAuthenticatedApi } = await loadApi('browser');
+    const target = { plugin: null, server_id: 'cpersona', allowed: true };
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ data: target }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(createAuthenticatedApi('k1').getAgentMemory('agent.mio/x')).resolves.toEqual(target);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toMatch(/\/agents\/agent\.mio%2Fx\/memory$/);
+    expect(init.headers['X-API-Key']).toBe('k1');
+    vi.unstubAllGlobals();
+  });
+});

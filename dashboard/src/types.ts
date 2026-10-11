@@ -329,6 +329,19 @@ export interface McpServerInfo {
   installed_at?: number;
 }
 
+/**
+ * Where an agent's memory goes, as `GET /api/agents/:id/memory` reports it — the kernel's own
+ * decision, not the agent's `preferred_memory`, which does not choose the MCP server.
+ */
+export interface AgentMemoryTarget {
+  /** A memory plugin compiled into the kernel that takes the memory, if one does. */
+  plugin: string | null;
+  /** The MCP server that provides memory (the first one connected), or null when none does. */
+  server_id: string | null;
+  /** Whether this agent may recall or store there; null when a plugin takes the memory. */
+  allowed: boolean | null;
+}
+
 /** One of a server's tools, as `GET /api/mcp/servers/:name/tools` lists them. */
 export interface McpToolInfo {
   name: string;

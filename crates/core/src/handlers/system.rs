@@ -69,6 +69,50 @@ use cloto_shared::{
 };
 use sqlx::SqlitePool;
 
+/// The memory plugin compiled into the kernel that takes this agent's memory,
+/// if any: the one `preferred_memory` names, else the first that provides
+/// memory. Only such plugins are looked up here — `preferred_memory` naming an
+/// MCP server finds nothing, and memory then goes to the server
+/// [`memory_server_access`] resolves by capability.
+pub(crate) async fn memory_plugin_for(
+    registry: &PluginRegistry,
+    metadata: &std::collections::HashMap<String, String>,
+) -> Option<Arc<dyn Plugin>> {
+    if let Some(preferred_id) = metadata.get("preferred_memory") {
+        registry.get_engine(preferred_id).await
+    } else {
+        registry.find_memory().await
+    }
+}
+
+/// The MCP server that provides memory, and whether this agent may use it —
+/// `None` when no connected server provides the capability.
+///
+/// "May use" is the question the capability gate answers at each `recall` and
+/// `store` call (`resolve_tool_access`), asked once ahead of the first. The chat
+/// path and `GET /api/agents/:id/memory` both read it here, so what a screen
+/// shows is what a conversation does.
+pub(crate) async fn memory_server_access(
+    mcp: &McpClientManager,
+    pool: &SqlitePool,
+    agent_id: &str,
+) -> Option<(String, bool)> {
+    let server_id = mcp
+        .resolve_capability_server(crate::managers::CapabilityType::Memory)
+        .await?;
+    let access = crate::db::resolve_any_tool_access(
+        pool,
+        agent_id,
+        &server_id,
+        &[
+            crate::managers::ToolKind::Recall.name(),
+            crate::managers::ToolKind::Store.name(),
+        ],
+    )
+    .await;
+    Some((server_id, access == crate::db::mcp::PermissionLevel::Allow))
+}
+
 /// Compose the `tool_history` content string injected for a rejected tool call.
 /// Uses self-contained natural language (code-name independent) plus an
 /// explicit "Do not retry" directive so that weak LLMs still back off even
@@ -804,20 +848,8 @@ impl SystemHandler {
     /// is asked in one place rather than agreed on in two.
     async fn mcp_memory_for(&self, agent_id: &str) -> Option<(Arc<McpClientManager>, String)> {
         let mcp = &self.registry.mcp_manager;
-        let server_id = mcp
-            .resolve_capability_server(crate::managers::CapabilityType::Memory)
-            .await?;
-        let reachable = crate::db::resolve_any_tool_access(
-            &self.pool,
-            agent_id,
-            &server_id,
-            &[
-                crate::managers::ToolKind::Recall.name(),
-                crate::managers::ToolKind::Store.name(),
-            ],
-        )
-        .await;
-        if reachable == crate::db::mcp::PermissionLevel::Allow {
+        let (server_id, allowed) = memory_server_access(mcp, &self.pool, agent_id).await?;
+        if allowed {
             return Some((mcp.clone(), server_id));
         }
         tracing::info!(
@@ -965,11 +997,7 @@ impl SystemHandler {
         let msg = self.maybe_transcribe_audio(msg).await;
 
         // 2. Pull context out of memory (dual dispatch: Rust plugin -> MCP server).
-        let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
-            self.registry.get_engine(preferred_id).await
-        } else {
-            self.registry.find_memory().await
-        };
+        let memory_plugin = memory_plugin_for(&self.registry, &agent.metadata).await;
 
         // The agent's server-wide grants. Engine routing and the consensus path
         // below read this; the memory target does not — see `mcp_memory_for`.
@@ -2569,11 +2597,7 @@ impl SystemHandler {
         // agentic path does (preferred_memory → native plugin, else a
         // capability-resolved MCP memory server gated by mcp_access_control)
         // and fire-and-forget the store under the originating agent's id.
-        let memory_plugin = if let Some(preferred_id) = agent.metadata.get("preferred_memory") {
-            self.registry.get_engine(preferred_id).await
-        } else {
-            self.registry.find_memory().await
-        };
+        let memory_plugin = memory_plugin_for(&self.registry, &agent.metadata).await;
         let mcp_memory: Option<(Arc<McpClientManager>, String)> = if memory_plugin.is_none() {
             self.mcp_memory_for(&agent.id).await
         } else {

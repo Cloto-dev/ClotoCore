@@ -1,8 +1,9 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useApi } from '../hooks/useApi';
 import { useMcpServers } from '../hooks/useMcpServers';
 import { displayServerId } from '../lib/format';
-import type { AgentMetadata, McpServerInfo } from '../types';
+import type { AgentMemoryTarget, AgentMetadata, McpServerInfo } from '../types';
 import { CHAT_SIZES, type ChatSize, GLASS_PROFILES, type GlassProfile } from './matePreferences';
 
 export type ServerState = 'unset' | 'checking' | 'unknown' | 'missing' | 'running' | 'starting' | 'stopped' | 'error';
@@ -75,34 +76,68 @@ export function MateSettings({
   onGlass: (glass: GlassProfile) => void;
   onPartner: () => void;
   onReview: () => void;
-  onAgentSettings: (section: 'engine' | 'memory') => void;
+  onAgentSettings: (section: 'engine') => void;
   onServers: () => void;
   onAppSettings: () => void;
   onBack: () => void;
 }) {
   const { t } = useTranslation('agents');
+  const api = useApi();
   const { servers, isLoading, error, refetch } = useMcpServers();
+  // The kernel picks the memory server by capability, not from the agent's settings, so the row
+  // shows the kernel's own answer for this partner rather than anything stored on the agent.
+  const [memoryTarget, setMemoryTarget] = useState<AgentMemoryTarget | 'checking' | 'unknown'>('checking');
+  const memoryRequest = useRef(0);
+  const agentId = agent?.id;
+  const loadMemoryTarget = useCallback(() => {
+    const request = ++memoryRequest.current;
+    if (!agentId) return;
+    setMemoryTarget('checking');
+    api
+      .getAgentMemory(agentId)
+      .then((target) => request === memoryRequest.current && setMemoryTarget(target))
+      .catch(() => request === memoryRequest.current && setMemoryTarget('unknown'));
+  }, [api, agentId]);
+  useEffect(() => loadMemoryTarget(), [loadMemoryTarget]);
   // A list read while the kernel was away is an error; read it again once it is back.
   const wasConnected = useRef(connected);
   useEffect(() => {
-    if (connected && !wasConnected.current) void refetch();
+    if (connected && !wasConnected.current) {
+      void refetch();
+      loadMemoryTarget();
+    }
     wasConnected.current = connected;
-  }, [connected, refetch]);
+  }, [connected, refetch, loadMemoryTarget]);
   const list = isLoading || error ? null : servers;
   const withoutList = isLoading ? 'checking' : 'unknown';
   const engine = serverSummary(agent?.default_engine_id, list, withoutList);
-  const memory = serverSummary(agent?.metadata?.preferred_memory, list, withoutList);
 
   function serverValue(summary: ServerSummary | null) {
     if (!summary) return <span>{t('mate.server_unset')}</span>;
     return (
       <>
         <span className="mate-setting-name">{summary.name}</span>
-        <span className={`mate-setting-state mate-server-${summary.state}`}>
-          <span className="mate-status-dot" />
-          {t(`mate.server_${summary.state}`)}
-        </span>
+        {stateBadge(summary.state)}
         {summary.message && <span className="mate-setting-message">{summary.message}</span>}
+      </>
+    );
+  }
+  function stateBadge(state: ServerState) {
+    return (
+      <span className={`mate-setting-state mate-server-${state}`}>
+        <span className="mate-status-dot" />
+        {t(`mate.server_${state}`)}
+      </span>
+    );
+  }
+  function memoryValue() {
+    if (typeof memoryTarget === 'string') return stateBadge(memoryTarget);
+    if (memoryTarget.plugin) return serverValue({ name: memoryTarget.plugin, state: 'running' });
+    if (!memoryTarget.server_id) return <span>{t('mate.memory_none')}</span>;
+    return (
+      <>
+        {serverValue(serverSummary(memoryTarget.server_id, list, withoutList))}
+        {memoryTarget.allowed === false && <span className="mate-setting-note">{t('mate.memory_not_allowed')}</span>}
       </>
     );
   }
@@ -162,10 +197,8 @@ export function MateSettings({
             <div>
               <dt>{t('mate.memory_row')}</dt>
               <dd>
-                {serverValue(memory)}
-                <button type="button" onClick={() => onAgentSettings('memory')}>
-                  {t('mate.change')}
-                </button>
+                {memoryValue()}
+                <span className="mate-setting-note">{t('mate.memory_auto')}</span>
               </dd>
             </div>
             <div>

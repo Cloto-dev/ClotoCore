@@ -197,6 +197,7 @@ ClotoCore/
 | GET/PUT | `/api/mcp/servers/:name/access` | Access control (PUT replaces every agent's grants on the server) |
 | GET/PUT | `/api/agents/:id/mcp-access/:server` | One agent's grants on one server, replaced as a set; the answer carries the server's `default_policy`, which decides every tool the set does not name |
 | GET/PUT | `/api/agents/:id/argument-rules` | The argument values an agent's calls to a server's tools must carry (PUT replaces the set) |
+| GET | `/api/agents/:id/memory` | Where the agent's memory goes, decided as a conversation decides it: the MCP server that provides the memory capability (`server_id`, null when none does) and whether the agent's grants let it recall or store there (`allowed`). The agent's `preferred_memory` names only a plugin compiled into the kernel (`plugin`); it does not choose the MCP server |
 | GET | `/api/mcp/servers/:name/tools` | The server's tools with their descriptions |
 | POST | `/api/mcp/servers/:name/start\|stop\|restart` | Lifecycle |
 

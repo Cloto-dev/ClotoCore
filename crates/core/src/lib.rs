@@ -1612,6 +1612,7 @@ pub async fn start_kernel() -> anyhow::Result<KernelHandle> {
             "/agents/{id}/last-usage",
             get(handlers::get_agent_last_usage),
         )
+        .route("/agents/{id}/memory", get(handlers::get_agent_memory))
         .route(
             "/agents/{id}/instruction-files",
             get(handlers::get_agent_instruction_files),

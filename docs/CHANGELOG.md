@@ -51,11 +51,21 @@ Versioning follows the project's phase scheme: Alpha (A), Beta (βX.Y = 0.X.Y), 
   beside the agent instead of leaving for the full settings page. It holds the
   conversation size and the glass effect, both saved on this device (the
   conversation's own Expand button changes the same setting), and shows the
-  agent's LLM engine and memory server with their current state — running,
-  starting, stopped, error with the kernel's message, not registered, or not
-  set — each with a link to that section of the agent's settings. It also shows
-  waiting approvals, whether the kernel is connected, and links to Servers and
+  agent's LLM engine with its current state — running, starting, stopped, error
+  with the kernel's message, not registered, or not set — and a link to that
+  section of the agent's settings. The memory row shows the server the kernel
+  itself uses for this agent's memory: the kernel picks a server with memory
+  features automatically, so the row says so, names that server with its state,
+  and says when this agent is not allowed to use it. It also shows waiting
+  approvals, whether the kernel is connected, and links to Servers and
   permissions and the full app settings.
+- **`GET /api/agents/:id/memory`** answers where an agent's memory goes, decided
+  the way a conversation decides it: the server that provides the memory
+  capability (`server_id`, null when none does) and whether the agent's grants
+  let it recall or store there (`allowed`). The agent's `preferred_memory` does
+  not choose that server; it only names a memory plugin compiled into the
+  kernel (`plugin`). The conversation path and this route read one shared
+  resolver, so the two cannot disagree.
 
 ### Changed
 

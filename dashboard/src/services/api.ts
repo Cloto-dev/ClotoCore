@@ -4,6 +4,7 @@ import type {
   AccessControlEntry,
   AccessTreeResponse,
   AgentInstructionsReport,
+  AgentMemoryTarget,
   AgentMetadata,
   ChatMessage,
   ChatSearchResult,
@@ -1092,6 +1093,9 @@ export const api = {
       return r.json().then((b) => b.data);
     }),
 
+  getAgentMemory: (agentId: string, apiKey: string) =>
+    fetchJson<AgentMemoryTarget>(`/agents/${encodeURIComponent(agentId)}/memory`, 'fetch memory target', apiKey),
+
   testProviderConnection: (
     providerId: string,
     apiKey: string,
@@ -1483,6 +1487,7 @@ export function createAuthenticatedApi(apiKey: string) {
     listProviderModels: (providerId: string) => api.listProviderModels(providerId, k),
     testProviderConnection: (providerId: string) => api.testProviderConnection(providerId, k),
     getAgentLastUsage: (agentId: string) => api.getAgentLastUsage(agentId, k),
+    getAgentMemory: (agentId: string) => api.getAgentMemory(agentId, k),
     // Avatar
     uploadAvatar: (agentId: string, file: File) => api.uploadAvatar(agentId, file, k),
     deleteAvatar: (agentId: string) => api.deleteAvatar(agentId, k),

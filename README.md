@@ -8,7 +8,7 @@ An AI container platform written in Rust.
 Sandboxed plugins, GUI dashboard, and your AI stays on your machine.
 ClotoCore is the Cloto desktop AI agent platform for building AI partners with sandboxed plugins and a GUI dashboard.
 
-[![Tests](https://img.shields.io/badge/tests-1292%20passing-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-1335%20passing-brightgreen)]()
 [![License](https://img.shields.io/badge/license-BSL%201.1%20→%20MIT%202028-blue)](LICENSE)
 [![Sponsor](https://img.shields.io/badge/sponsor-Cloto--dev-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/Cloto-dev)
 
