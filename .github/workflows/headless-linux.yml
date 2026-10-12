@@ -61,7 +61,7 @@ jobs:
         working-directory: dashboard
 
       - name: Upload dashboard artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: headless-dashboard-dist
           path: dashboard/dist/
@@ -218,7 +218,7 @@ jobs:
           wait "$kernel_pid" 2>/dev/null || true
 
       - name: Upload headless bundle
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ steps.stage.outputs.name }}
           path: dist/${{ steps.stage.outputs.name }}.tar.gz
