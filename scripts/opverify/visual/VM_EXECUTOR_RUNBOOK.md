@@ -186,7 +186,7 @@ removes the "residue of the previous experiment" class of mismeasurement
 (observed 2026-07-30). Adopted with the apex lightening line.
 
 ```bash
-ssh "$OPV_PVE_HOST" "qm rollback $OPV_VM_ID clean-install-0-6-8-beta-2; qm start $OPV_VM_ID"
+ssh "$OPV_PVE_HOST" "qm rollback $OPV_VM_ID clean-install-0-7-0-a-1; qm start $OPV_VM_ID"
 # vmstate snapshot → the VM resumes the saved live session (measured ~12 s for
 # the rollback task itself; the agent answers /health a few seconds later).
 # `qm start` is the safety net for a snapshot taken WITHOUT vmstate, which
