@@ -131,7 +131,7 @@ jobs:
       # built for another version), so it is built for every kernel target
       # here and packaged with it below.
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: tools/cloto-installer/go.mod
           cache: false
@@ -347,7 +347,7 @@ jobs:
       # The install engine sidecar (bundle.externalBin), built before the
       # app so tauri-build finds it and NSIS ships it.
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: tools/cloto-installer/go.mod
           cache: false
@@ -449,7 +449,7 @@ jobs:
       # The install engine sidecar (bundle.externalBin), built before the
       # app so tauri-build finds it and the .deb / AppImage ship it.
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: tools/cloto-installer/go.mod
           cache: false
@@ -559,7 +559,7 @@ jobs:
       # The install engine sidecar (bundle.externalBin), built before the
       # app so tauri-build finds it and the .app / .dmg ship it.
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: tools/cloto-installer/go.mod
           cache: false

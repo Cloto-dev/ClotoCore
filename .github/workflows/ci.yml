@@ -208,7 +208,7 @@ jobs:
       # (tools/cloto-installer); its characterization tests build the engine
       # from source and fail — not skip — without a toolchain.
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: tools/cloto-installer/go.mod
           cache: false
@@ -291,7 +291,7 @@ jobs:
       # The app bundles the install engine as a Tauri sidecar
       # (bundle.externalBin); tauri-build refuses to compile without it.
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: tools/cloto-installer/go.mod
           cache: false
@@ -369,7 +369,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@v7.0.0
         with:
           go-version-file: tools/cloto-installer/go.mod
           # No module dependencies, so there is no go.sum to key a cache on.
