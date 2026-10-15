@@ -277,7 +277,7 @@ FIXTURES: Dict[str, Fixture] = {
     "first-run": Fixture(
         name="first-run",
         summary="installed and never launched — the app comes up on the onboarding carousel",
-        snapshot="clean-install-0-6-8-beta-2",
+        snapshot="clean-install-0-7-0-a-1",
         checks=[KernelResponds(), SetupComplete(expect=False)],
         build=(
             "install the NSIS package over `agent-base-20260727` and do not "
